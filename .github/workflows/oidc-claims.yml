@@ -1,0 +1,78 @@
+# THROWAWAY DIAGNOSTIC — delete this file once the Azure federated credential works.
+#
+# Why it exists: GitHub changed the OIDC subject format in July 2026 to an immutable
+# owner-ID/repo-ID form. Every trust policy you will find in a blog post matches the old
+# "repo:OWNER/NAME:ref:refs/heads/main" shape, and a mismatched subject fails at token
+# exchange with an error that does not tell you the subject was wrong. So: read the real
+# claims first, then write the cloud-side trust policy against what this prints.
+#
+# Run it from the Actions tab (Run workflow). It requests a token and prints the claims
+# that identify this repo. It never prints the token itself — that is a live credential.
+name: OIDC claims (diagnostic)
+
+on:
+  workflow_dispatch:
+    inputs:
+      audience:
+        description: "Token audience to request"
+        required: false
+        default: "api://AzureADTokenExchange"
+
+permissions:
+  # The only two this needs. id-token lets the job mint an OIDC token; nothing here
+  # writes to the repository.
+  id-token: write
+  contents: read
+
+jobs:
+  claims:
+    name: Print OIDC subject and claims
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Request a token and decode its claims
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const audience = context.payload.inputs?.audience || 'api://AzureADTokenExchange';
+            const token = await core.getIDToken(audience);
+
+            // Mask it immediately so no later step or error can echo it into the log.
+            core.setSecret(token);
+
+            const payload = JSON.parse(
+              Buffer.from(token.split('.')[1], 'base64url').toString('utf8')
+            );
+
+            const interesting = [
+              'sub', 'aud', 'iss', 'repository', 'repository_id',
+              'repository_owner', 'repository_owner_id', 'job_workflow_ref',
+              'workflow_ref', 'ref', 'ref_type', 'environment', 'actor', 'event_name',
+            ];
+
+            core.summary.addHeading('OIDC claims for this repository', 2);
+            core.summary.addRaw(
+              'Use the **sub** value below when you write the Azure federated credential. ' +
+              'Do not copy a subject from documentation.\n\n'
+            );
+
+            const rows = [[{ data: 'Claim', header: true }, { data: 'Value', header: true }]];
+            for (const key of interesting) {
+              if (payload[key] === undefined) continue;
+              core.info(`${key} = ${payload[key]}`);
+              rows.push([key, String(payload[key])]);
+            }
+            core.summary.addTable(rows);
+
+            core.summary.addHeading('Paste this into the Azure federated credential', 3);
+            core.summary.addCodeBlock(
+              JSON.stringify({
+                name: 'vela-commerce-main',
+                issuer: payload.iss,
+                subject: payload.sub,
+                audiences: [audience],
+              }, null, 2),
+              'json'
+            );
+            await core.summary.write();

@@ -1,0 +1,25 @@
+# Keeping this repo's last commit recent is not vanity: GitHub disables scheduled
+# workflows in a repository with 60 days of no activity, which would silently stop the
+# nightly demo-reset job. Merging these PRs resets that clock as a side effect.
+version: 2
+updates:
+  - package-ecosystem: nuget
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    groups:
+      # One PR per family rather than one per package, so a routine patch bump is a
+      # single review rather than eight.
+      microsoft:
+        patterns: ["Microsoft.*", "System.*"]
+      testing:
+        patterns: ["xunit*", "Testcontainers*", "coverlet*"]
+
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 3
