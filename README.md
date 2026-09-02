@@ -1,5 +1,7 @@
 # Vela Commerce
 
+[![CI](https://github.com/jdoan5/vela-commerce/actions/workflows/ci.yml/badge.svg)](https://github.com/jdoan5/vela-commerce/actions/workflows/ci.yml)
+
 A storefront built for the first sixty seconds.
 
 > **Status: in progress.** Phase 1 of 10 is done. There is no live demo yet — this
