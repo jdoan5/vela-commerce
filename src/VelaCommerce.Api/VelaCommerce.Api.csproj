@@ -7,10 +7,49 @@
     <UserSecretsId>1d8351e0-b477-4353-864c-839c93e88f5c</UserSecretsId>
   </PropertyGroup>
 
+  <!--
+    The OpenAPI document is a build output, not a document someone remembers to refresh.
+    Committing it next to the code it describes is what lets CI diff the regenerated file
+    against the committed one, so the API, the published docs and the Bruno collection
+    cannot drift apart without a red build.
+  -->
+  <PropertyGroup>
+    <OpenApiGenerateDocuments>true</OpenApiGenerateDocuments>
+    <OpenApiGenerateDocumentsOnBuild>true</OpenApiGenerateDocumentsOnBuild>
+    <!-- Resolved relative to the project file, so the document lands beside the .csproj. -->
+    <OpenApiDocumentsDirectory>$(MSBuildProjectDirectory)</OpenApiDocumentsDirectory>
+    <!-- Without an explicit file name the document is named after the project (VelaCommerce.Api.json). -->
+    <OpenApiGenerateDocumentsOptions>--file-name openapi</OpenApiGenerateDocumentsOptions>
+  </PropertyGroup>
+
+  <!--
+    Generation launches the real entry point against a mock server, so every line of
+    Program.cs runs, and it runs under whatever ASPNETCORE_ENVIRONMENT is set. That matters
+    twice over, and both were measured rather than assumed:
+
+      * Under Development, Program.cs migrates and seeds, so generating the document would
+        demand a live PostgreSQL. Unset (the default in CI and on a clean clone) the
+        environment resolves to Production, that branch is skipped, and no database is
+        touched. This is why nothing here starts a container.
+      * The environment also changes the document: the same API emits its paths in a
+        different order under Development, which would show up as a spurious diff.
+
+    Within one environment generation is byte-stable (verified over repeated runs), so the
+    openapi-is-current job in .github/workflows/ci.yml can diff it and stay green on an
+    unchanged API. The 10.0.11 tool has no way to pin the environment for us
+    (OpenApiGenerationEnvironment and the tool's own environment switch both arrived after
+    this version), so the CI job sets ASPNETCORE_ENVIRONMENT=Production explicitly. A
+    developer who exports Development in their shell will regenerate a reordered document;
+    the permanent fix is to guard the Development branch in Program.cs on the entry
+    assembly not being GetDocument.Insider, as Microsoft documents.
+  -->
+
   <ItemGroup>
     <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="10.0.11" />
     <PackageReference Include="Microsoft.EntityFrameworkCore" Version="10.0.11" />
     <PackageReference Include="Microsoft.EntityFrameworkCore.Relational" Version="10.0.11" />
+    <!-- Build-time only: it contributes MSBuild targets and a generator, never a runtime assembly. -->
+    <PackageReference Include="Microsoft.Extensions.ApiDescription.Server" Version="10.0.11" PrivateAssets="all" />
     <PackageReference Include="Scalar.AspNetCore" Version="2.17.2" />
   </ItemGroup>
 
