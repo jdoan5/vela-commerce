@@ -12,6 +12,7 @@ namespace VelaCommerce.Domain.Tests;
 /// </summary>
 public sealed class OrderTests
 {
+    private static readonly DateTimeOffset PlacedAt = new(2026, 3, 14, 8, 30, 0, TimeSpan.Zero);
     private static readonly DateTimeOffset SettledAt = new(2026, 3, 14, 9, 30, 0, TimeSpan.Zero);
 
     private const long ShippingCents = 500;
@@ -46,7 +47,8 @@ public sealed class OrderTests
         "idempotency-2001",
         ValidAddress(),
         new Money(ShippingCents),
-        new Money(TaxCents));
+        new Money(TaxCents),
+        PlacedAt);
 
     private static Order PaidOrder()
     {
@@ -62,7 +64,7 @@ public sealed class OrderTests
         var variantId = Guid.CreateVersion7();
         cart.AddItem(variantId, "VELA-TOTE-01", "Harbour Tote", new Money(4_500), 2);
 
-        var order = Order.FromCart(cart, "VC-1001", "idempotency-1001", ValidAddress(), new Money(500), new Money(360));
+        var order = Order.FromCart(cart, "VC-1001", "idempotency-1001", ValidAddress(), new Money(500), new Money(360), PlacedAt);
 
         var line = Assert.Single(order.Lines);
         Assert.Equal(order.Id, line.OrderId);
@@ -79,7 +81,7 @@ public sealed class OrderTests
     {
         var cart = CartWith((1_000L, 1));
 
-        var order = Order.FromCart(cart, "VC-1002", "idempotency-1002", ValidAddress(), Money.Zero(), Money.Zero());
+        var order = Order.FromCart(cart, "VC-1002", "idempotency-1002", ValidAddress(), Money.Zero(), Money.Zero(), PlacedAt);
 
         Assert.Equal(cart.DemoSessionId, order.DemoSessionId);
         Assert.Equal(cart.Currency, order.Currency);
@@ -92,7 +94,7 @@ public sealed class OrderTests
 
         Assert.Throws<DomainException>(() =>
         {
-            _ = Order.FromCart(cart, "VC-1003", "idempotency-1003", ValidAddress(), Money.Zero(), Money.Zero());
+            _ = Order.FromCart(cart, "VC-1003", "idempotency-1003", ValidAddress(), Money.Zero(), Money.Zero(), PlacedAt);
         });
     }
 
@@ -106,7 +108,7 @@ public sealed class OrderTests
 
         Assert.Throws<DomainException>(() =>
         {
-            _ = Order.FromCart(cart, "VC-1004", key!, ValidAddress(), Money.Zero(), Money.Zero());
+            _ = Order.FromCart(cart, "VC-1004", key!, ValidAddress(), Money.Zero(), Money.Zero(), PlacedAt);
         });
     }
 
@@ -118,7 +120,7 @@ public sealed class OrderTests
 
         Assert.Throws<DomainException>(() =>
         {
-            _ = Order.FromCart(cart, "VC-1005", "idempotency-1005", addressWithNoRecipient, Money.Zero(), Money.Zero());
+            _ = Order.FromCart(cart, "VC-1005", "idempotency-1005", addressWithNoRecipient, Money.Zero(), Money.Zero(), PlacedAt);
         });
     }
 
@@ -142,7 +144,8 @@ public sealed class OrderTests
             "idempotency-1006",
             ValidAddress(),
             new Money(ShippingCents),
-            new Money(TaxCents));
+            new Money(TaxCents),
+            PlacedAt);
 
         Assert.Equal(new Money(4_500), order.Subtotal);
         Assert.Equal(new Money(4_500 + ShippingCents + TaxCents), order.Total);
@@ -273,6 +276,18 @@ public sealed class OrderTests
         Assert.Throws<DomainException>(() => order.MarkPaid(order.Total, SettledAt));
         Assert.Throws<DomainException>(order.MarkPacked);
         Assert.Throws<DomainException>(order.Cancel);
+    }
+
+    [Fact]
+    public void The_placed_at_timestamp_comes_from_the_caller_not_the_ambient_clock()
+    {
+        // Regression: Order's constructor originally read DateTimeOffset.UtcNow, which an
+        // architecture test caught. An aggregate that reads the clock cannot be driven by
+        // the demo's accelerated timeline, and cannot be asserted on here.
+        var order = PendingOrder();
+
+        Assert.Equal(PlacedAt, order.PlacedAt);
+        Assert.True(order.PlacedAt < SettledAt);
     }
 
     [Fact]

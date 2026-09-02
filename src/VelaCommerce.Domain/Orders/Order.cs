@@ -22,7 +22,13 @@ public sealed class Order : Entity
 
     private Order() { } // EF
 
-    private Order(Guid demoSessionId, string orderNumber, string idempotencyKey, ShippingAddress address, string currency)
+    private Order(
+        Guid demoSessionId,
+        string orderNumber,
+        string idempotencyKey,
+        ShippingAddress address,
+        string currency,
+        DateTimeOffset placedAt)
     {
         DemoSessionId = demoSessionId;
         OrderNumber = orderNumber;
@@ -30,7 +36,7 @@ public sealed class Order : Entity
         ShippingAddress = address;
         Currency = currency;
         Status = OrderStatus.Pending;
-        PlacedAt = DateTimeOffset.UtcNow;
+        PlacedAt = placedAt;
     }
 
     public Guid DemoSessionId { get; private set; }
@@ -68,6 +74,12 @@ public sealed class Order : Entity
     /// <summary>
     /// Builds an order from a cart. Prices come from the cart lines, which the caller
     /// must already have revalidated against the live catalog.
+    /// <para>
+    /// Time is a parameter, never <c>DateTimeOffset.UtcNow</c>. The demo runs an
+    /// accelerated order timeline and the tests assert on exact timestamps, so an
+    /// aggregate that reads the ambient clock cannot be driven or verified. An
+    /// architecture test enforces this across the whole solution.
+    /// </para>
     /// </summary>
     public static Order FromCart(
         Cart cart,
@@ -75,13 +87,14 @@ public sealed class Order : Entity
         string idempotencyKey,
         ShippingAddress address,
         Money shipping,
-        Money tax)
+        Money tax,
+        DateTimeOffset placedAt)
     {
         if (cart.IsEmpty) throw new DomainException("Cannot place an order for an empty cart.");
         if (string.IsNullOrWhiteSpace(idempotencyKey)) throw new DomainException("An idempotency key is required.");
         address.Validate();
 
-        var order = new Order(cart.DemoSessionId, orderNumber, idempotencyKey, address, cart.Currency)
+        var order = new Order(cart.DemoSessionId, orderNumber, idempotencyKey, address, cart.Currency, placedAt)
         {
             Shipping = shipping,
             Tax = tax,

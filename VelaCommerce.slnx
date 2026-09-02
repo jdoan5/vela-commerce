@@ -5,6 +5,7 @@
     <Project Path="src/VelaCommerce.Infrastructure/VelaCommerce.Infrastructure.csproj" />
   </Folder>
   <Folder Name="/tests/">
+    <Project Path="tests/VelaCommerce.Architecture.Tests/VelaCommerce.Architecture.Tests.csproj" />
     <Project Path="tests/VelaCommerce.Domain.Tests/VelaCommerce.Domain.Tests.csproj" />
     <Project Path="tests/VelaCommerce.Integration.Tests/VelaCommerce.Integration.Tests.csproj" />
   </Folder>

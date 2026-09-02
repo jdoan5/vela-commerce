@@ -1,0 +1,56 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="coverlet.collector" Version="6.0.4" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.14.1" />
+    <PackageReference Include="xunit" Version="2.9.3" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="3.1.4" />
+  </ItemGroup>
+
+  <!--
+    ArchUnitNET over NetArchTest.Rules: NetArchTest's last release is 1.3.2 (May 2021) and it
+    pins Mono.Cecil 0.11.3, which predates every .NET release this solution targets. ArchUnitNET
+    ships releases against current runtimes (0.13.4, August 2026) on Mono.Cecil 0.11.6, so the
+    IL reader that decides whether these rules pass is one that has actually seen net10.0
+    metadata. The .xUnit package is the xunit v2 assertion bridge, matching the xunit 2.9.3 used
+    by the other two test projects.
+
+    ArchUnitNET also refuses to pass a rule that matched nothing ("the rule requires positive
+    evaluation, not just absence of violations"), which is the failure mode that matters most
+    here: an architecture test whose predicate has drifted out of date reports a green tick over
+    a boundary it is no longer looking at. NetArchTest passes such a rule silently.
+
+    Mono.Cecil is referenced explicitly rather than leaned on transitively: ClockRules and
+    PersistenceBoundaryRules read method bodies directly, which is a first-class dependency of
+    this project and should be visible in the manifest rather than inherited by accident.
+  -->
+  <ItemGroup>
+    <PackageReference Include="Mono.Cecil" Version="0.11.6" />
+    <PackageReference Include="TngTech.ArchUnitNET" Version="0.13.4" />
+    <PackageReference Include="TngTech.ArchUnitNET.xUnit" Version="0.13.4" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Using Include="Xunit" />
+  </ItemGroup>
+
+  <!--
+    All three production projects are referenced so the rules can be stated as facts about real
+    types rather than about strings. That is deliberate and safe: this project is a leaf that
+    nothing else references, so referencing the Api here cannot create a cycle or smuggle a
+    dependency into the layers under test.
+  -->
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\VelaCommerce.Api\VelaCommerce.Api.csproj" />
+    <ProjectReference Include="..\..\src\VelaCommerce.Domain\VelaCommerce.Domain.csproj" />
+    <ProjectReference Include="..\..\src\VelaCommerce.Infrastructure\VelaCommerce.Infrastructure.csproj" />
+  </ItemGroup>
+
+</Project>

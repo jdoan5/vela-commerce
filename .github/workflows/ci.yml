@@ -47,6 +47,13 @@ jobs:
       # Testcontainers starts a real PostgreSQL 18. The ubuntu-latest runner ships
       # a working Docker daemon, so no service container is declared here; letting
       # Testcontainers own the lifecycle keeps this identical to a local run.
+      - name: Architecture tests
+        run: >-
+          dotnet test tests/VelaCommerce.Architecture.Tests
+          --no-build --configuration Release
+          --logger "trx;LogFileName=architecture.trx"
+          --results-directory artifacts/test-results
+
       - name: Integration tests
         run: >-
           dotnet test tests/VelaCommerce.Integration.Tests
