@@ -1,6 +1,7 @@
 # Vela Commerce
 
 [![CI](https://github.com/jdoan5/vela-commerce/actions/workflows/ci.yml/badge.svg)](https://github.com/jdoan5/vela-commerce/actions/workflows/ci.yml)
+[![CodeQL](https://github.com/jdoan5/vela-commerce/actions/workflows/codeql.yml/badge.svg)](https://github.com/jdoan5/vela-commerce/actions/workflows/codeql.yml)
 
 A storefront built for the first sixty seconds.
 
