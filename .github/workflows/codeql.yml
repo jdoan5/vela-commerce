@@ -1,0 +1,78 @@
+# Advanced setup rather than default, for one concrete reason: build mode.
+#
+# GitHub's own comparison rates a manual build as the most accurate option, and rates
+# build-mode "none" as less accurate when "the repository normally generates code during
+# the build process". This repo does: ImplicitUsings emits global usings, EF Core and
+# ASP.NET Core ship analyzers and source generators, and OpenAPI documents are generated
+# at build time. Buildless analysis would also have to guess at NuGet dependencies.
+#
+# The second reason is the SDK. .NET 10 is recent enough that relying on whatever the
+# runner's autobuild happens to find is a gamble; global.json pins 10.0.400 and
+# setup-dotnet honours it, so analysis compiles exactly what CI compiles.
+name: CodeQL
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  schedule:
+    # Weekly, so a newly published query finds old code without waiting for a commit.
+    - cron: "27 5 * * 1"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: codeql-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  analyze:
+    name: Analyze ${{ matrix.language }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    permissions:
+      # Writing results to the Security tab is the whole point; everything else is read.
+      security-events: write
+      contents: read
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - language: csharp
+            build-mode: manual
+          # Scans the workflow files themselves. Worth having in a repo that is about to
+          # grow a deploy pipeline with cloud credentials and OIDC trust policies.
+          - language: actions
+            build-mode: none
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Set up .NET
+        if: matrix.language == 'csharp'
+        uses: actions/setup-dotnet@v5
+        with:
+          global-json-file: global.json
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v3
+        with:
+          languages: ${{ matrix.language }}
+          build-mode: ${{ matrix.build-mode }}
+          # Everything in the default suite plus lower-precision queries. On a portfolio
+          # repo the extra false positives are cheap and a missed finding is not.
+          queries: security-extended
+
+      - name: Build
+        if: matrix.build-mode == 'manual'
+        shell: bash
+        run: dotnet build --configuration Release
+
+      - name: Perform CodeQL analysis
+        uses: github/codeql-action/analyze@v3
+        with:
+          category: "/language:${{ matrix.language }}"
