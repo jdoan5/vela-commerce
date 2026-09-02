@@ -1,0 +1,6 @@
+@VelaCommerce.Api_HostAddress = http://localhost:5008
+
+GET {{VelaCommerce.Api_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###

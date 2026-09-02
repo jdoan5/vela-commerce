@@ -1,0 +1,11 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/VelaCommerce.Api/VelaCommerce.Api.csproj" />
+    <Project Path="src/VelaCommerce.Domain/VelaCommerce.Domain.csproj" />
+    <Project Path="src/VelaCommerce.Infrastructure/VelaCommerce.Infrastructure.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/VelaCommerce.Domain.Tests/VelaCommerce.Domain.Tests.csproj" />
+    <Project Path="tests/VelaCommerce.Integration.Tests/VelaCommerce.Integration.Tests.csproj" />
+  </Folder>
+</Solution>
