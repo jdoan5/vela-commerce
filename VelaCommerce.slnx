@@ -8,4 +8,7 @@
     <Project Path="tests/VelaCommerce.Domain.Tests/VelaCommerce.Domain.Tests.csproj" />
     <Project Path="tests/VelaCommerce.Integration.Tests/VelaCommerce.Integration.Tests.csproj" />
   </Folder>
+  <Folder Name="/tools/">
+    <Project Path="tools/VelaCommerce.SeedGen/VelaCommerce.SeedGen.csproj" />
+  </Folder>
 </Solution>
