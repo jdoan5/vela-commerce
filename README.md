@@ -83,6 +83,15 @@ export VELA_DB_CONNECTION="Host=localhost;Port=5432;Database=vela_dev;Username=$
 dotnet run --project src/VelaCommerce.Api
 ```
 
+No connection string is committed. It is machine-specific, so it comes from the
+environment variable above, or from user-secrets if you prefer it to persist:
+
+```bash
+dotnet user-secrets set "ConnectionStrings:Vela" \
+  "Host=localhost;Port=5432;Database=vela_dev;Username=$USER" \
+  --project src/VelaCommerce.Api
+```
+
 The API migrates and seeds itself on first run in Development, then serves interactive
 API documentation at `/scalar`. To regenerate the catalog:
 

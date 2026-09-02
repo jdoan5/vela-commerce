@@ -22,7 +22,7 @@ public sealed class DesignTimeDbContextFactory : IDesignTimeDbContextFactory<Vel
     private const string EnvironmentVariableName = "VELA_DB_CONNECTION";
 
     private const string LocalDevelopmentFallback =
-        "Host=localhost;Port=5432;Database=vela_commerce;Username=vela;Password=vela";
+        "Host=localhost;Port=5432;Database=vela_dev";
 
     public VelaCommerceDbContext CreateDbContext(string[] args)
     {
