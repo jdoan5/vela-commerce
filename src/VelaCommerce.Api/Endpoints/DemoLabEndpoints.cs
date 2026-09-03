@@ -92,7 +92,7 @@ namespace VelaCommerce.Api.Endpoints;
 /// The Demo Lab: a catalogue of the invariants this shop claims, and a button that proves each one
 /// against the running system.
 /// </summary>
-public static class DemoLabEndpoints
+public static partial class DemoLabEndpoints
 {
     /// <summary>
     /// Log category. <c>ILogger&lt;T&gt;</c> is unavailable because a static class cannot be a type
@@ -1629,7 +1629,11 @@ public static class DemoLabEndpoints
     /// exception escaping it would replace a completed run's transcript with a 500.
     /// </para>
     /// </summary>
-    private static async Task<LabTeardown> DestroyFixtureAsync(
+    // internal, not private, so a test can call it directly. The bug this method once had — it
+    // deleted real visitors' paid orders — was invisible to every test in the suite because there
+    // was no seam to reach it through, and reproducing it over HTTP means winning a race against a
+    // fixture that exists for about fifty milliseconds.
+    internal static async Task<LabTeardown> DestroyFixtureAsync(
         VelaCommerceDbContext db,
         LabFixture fixture,
         IReadOnlyCollection<Guid> fixtureSessionIds,
@@ -2683,7 +2687,7 @@ public static class DemoLabEndpoints
     private sealed record LabNotification(byte[] Payload, string SignatureHeader);
 
     /// <summary>One variant this run seeded for itself.</summary>
-    private sealed record LabFixtureVariant(
+    internal sealed record LabFixtureVariant(
         Guid VariantId,
         string Sku,
         string DisplayName,
@@ -2691,7 +2695,7 @@ public static class DemoLabEndpoints
         int OnHand);
 
     /// <summary>The private product a run races against.</summary>
-    private sealed record LabFixture(Guid ProductId, string Slug, IReadOnlyList<LabFixtureVariant> Variants)
+    internal sealed record LabFixture(Guid ProductId, string Slug, IReadOnlyList<LabFixtureVariant> Variants)
     {
         /// <summary>The ids every teardown statement is scoped by.</summary>
         public IReadOnlyList<Guid> VariantIds { get; } =
@@ -2708,7 +2712,7 @@ public static class DemoLabEndpoints
     /// and it printed zero on the very runs that were deleting real people's paid orders — the one
     /// number whose job was to catch that could not see it.
     /// </param>
-    private sealed record LabTeardown(
+    internal sealed record LabTeardown(
         bool Clean,
         IReadOnlyList<LabRowsRemovedResponse> Removed,
         string? Warning,

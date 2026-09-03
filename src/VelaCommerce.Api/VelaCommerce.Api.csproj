@@ -60,4 +60,12 @@
     <ProjectReference Include="..\VelaCommerce.Infrastructure\VelaCommerce.Infrastructure.csproj" />
   </ItemGroup>
 
+
+  <ItemGroup>
+    <!-- The Demo Lab's teardown deletes rows with the query filters suppressed. That is the most
+         dangerous code in the repository and it had no test, because reaching it over HTTP means
+         winning a race against a fixture that lives for milliseconds. -->
+    <InternalsVisibleTo Include="VelaCommerce.Integration.Tests" />
+  </ItemGroup>
+
 </Project>
