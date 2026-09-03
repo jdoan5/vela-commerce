@@ -1,0 +1,294 @@
+@*
+    What the database says, read after the run finished and outside every visitor's session.
+
+    THE LEDGER GOES FIRST AND IT SHOWS BOTH ENDS. A single "after" reading proves nothing on its
+    own — the claim is that the ledger moved by exactly the amount sold, and the only way to see
+    that is to have the figure it started from. So on-hand, reserved and available are shown before
+    and after, with the difference derived once.
+
+    THE TRANSCRIPT ABOVE IS WHAT THE SHOP ANSWERED; THIS IS WHAT IT DID. They are not the same
+    claim: a shop that replied 201 to five shoppers and reserved eight units would produce a
+    perfect transcript. Every number in the verdict that matters is drawn from these rows.
+
+    Wide tables scroll inside their own box rather than making the page scroll sideways, which is
+    what would otherwise happen at 375px with seven columns of order.
+*@
+@using VelaCommerce.Storefront.Lab
+
+<div class="vc-lab-evidence">
+
+    @if (ShowLedger && Evidence.AllLedger.Count > 0)
+    {
+        <section class="vc-lab-evidence__section">
+            <h4 class="vc-lab-evidence__title">The stock ledger, before and after</h4>
+
+            @foreach (var row in Evidence.AllLedger)
+            {
+                <div class="vc-lab-ledger" @key="row.Sku">
+                    <p class="vc-lab-ledger__head">
+                        <span class="vc-lab-ledger__name">@row.DisplayName</span>
+                        <span class="vc-lab-ledger__sku vc-tabular">@row.Sku</span>
+                    </p>
+
+                    @* A real table rather than a grid of spans wearing ARIA roles: the ledger is
+                       tabular data, and a hand-rolled role="table" missing its row roles announces
+                       worse than no markup at all. Three columns fit 375px without scrolling. *@
+                    <table class="vc-lab-ledger__grid">
+                        <caption class="vc-visually-hidden">Stock ledger for @row.Sku, before and after the run</caption>
+                        <thead>
+                            <tr>
+                                <td></td>
+                                <th scope="col">Before</th>
+                                <th scope="col">After</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr>
+                                <th scope="row">On hand</th>
+                                <td class="vc-tabular">@row.OnHandBefore</td>
+                                <td class="vc-tabular">@row.OnHandAfter</td>
+                            </tr>
+                            <tr>
+                                <th scope="row">Reserved</th>
+                                <td class="vc-tabular">@row.ReservedBefore</td>
+                                <td class="vc-tabular vc-lab-ledger__cell--key">@row.ReservedAfter</td>
+                            </tr>
+                            <tr>
+                                <th scope="row">Available</th>
+                                <td class="vc-tabular">@row.AvailableBefore</td>
+                                <td class="vc-tabular">@row.AvailableAfter</td>
+                            </tr>
+                        </tbody>
+                    </table>
+
+                    <p class="vc-lab-ledger__foot vc-tabular">
+                        Sold this run: @row.Sold of @row.OnHandBefore
+                    </p>
+                </div>
+            }
+        </section>
+    }
+
+    @if (ShowRest && Evidence.AllOrders.Count > 0)
+    {
+        <section class="vc-lab-evidence__section">
+            <h4 class="vc-lab-evidence__title">
+                @Evidence.AllOrders.Count @(Evidence.AllOrders.Count == 1 ? "order" : "orders") the run created
+            </h4>
+            <p class="vc-lab-evidence__note">
+                <strong>Visitor</strong> is a fingerprint of the owning session, never the session id:
+                enough to see that five orders belong to five different shoppers, which is the
+                assertion, without publishing an identifier that names one of them.
+                @if (Evidence.AllOrders.Any(order => order.RowVersion is { Length: > 0 }))
+                {
+                    <text>
+                        <strong>xmin</strong> is PostgreSQL's own record of which transaction last
+                        wrote the row — the one piece of evidence a duplicate delivery cannot satisfy
+                        by writing the same values a second time.
+                    </text>
+                }
+            </p>
+
+            <div class="vc-lab-scroll">
+                <table class="vc-lab-table">
+                    <thead>
+                        <tr>
+                            <th scope="col">Order</th>
+                            <th scope="col">Status</th>
+                            <th scope="col">Units</th>
+                            <th scope="col">Total</th>
+                            <th scope="col">Captured</th>
+                            <th scope="col">Visitor</th>
+                            @if (ShowRowVersion)
+                            {
+                                <th scope="col">xmin</th>
+                            }
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var order in Evidence.AllOrders)
+                        {
+                            <tr @key="order.OrderNumber">
+                                <th scope="row" class="vc-tabular">@order.OrderNumber</th>
+                                <td>@order.Status</td>
+                                <td class="vc-tabular">@order.Quantity</td>
+                                <td class="vc-tabular">@Money(order.Total)</td>
+                                <td class="vc-tabular">@Money(order.Captured)</td>
+                                <td class="vc-tabular">@order.Visitor</td>
+                                @if (ShowRowVersion)
+                                {
+                                    <td class="vc-tabular">@(order.RowVersion ?? "—")</td>
+                                }
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </section>
+    }
+
+    @if (ShowRest && Evidence.AllReservations.Count > 0)
+    {
+        <section class="vc-lab-evidence__section">
+            <h4 class="vc-lab-evidence__title">
+                @Evidence.AllReservations.Count stock
+                @(Evidence.AllReservations.Count == 1 ? "reservation" : "reservations")
+            </h4>
+
+            <div class="vc-lab-scroll">
+                <table class="vc-lab-table">
+                    <thead>
+                        <tr>
+                            <th scope="col">SKU</th>
+                            <th scope="col">Order</th>
+                            <th scope="col">Units</th>
+                            <th scope="col">Status</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var reservation in Evidence.AllReservations)
+                        {
+                            <tr>
+                                <th scope="row" class="vc-tabular">@reservation.Sku</th>
+                                <td class="vc-tabular">@reservation.OrderNumber</td>
+                                <td class="vc-tabular">@reservation.Quantity</td>
+                                <td>@reservation.Status</td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </section>
+    }
+
+    @if (ShowRest && Evidence.AllSettlements.Count > 0)
+    {
+        <section class="vc-lab-evidence__section">
+            <h4 class="vc-lab-evidence__title">
+                @Evidence.AllSettlements.Count gateway
+                @(Evidence.AllSettlements.Count == 1 ? "notification" : "notifications")
+            </h4>
+            <p class="vc-lab-evidence__note">
+                <strong>Times applied</strong> is the exactly-once claim as an integer: how many rows
+                this event id has in <code class="vc-code">processed_webhook_events</code>. Anything
+                but one is a broken invariant. The signature is shown in full on purpose — it is a
+                MAC over bytes and a timestamp, not a secret, and seeing it is how a reader confirms
+                a redelivery carried the gateway's own signature rather than a freshly minted one.
+            </p>
+
+            @foreach (var settlement in Evidence.AllSettlements)
+            {
+                <div class="vc-lab-record" @key="settlement.EventId">
+                    <p class="vc-lab-record__head">
+                        <span class="vc-tabular">@settlement.OrderNumber</span>
+                        <span class="vc-lab-record__sep" aria-hidden="true">&middot;</span>
+                        <span class="vc-tabular">@settlement.MessageType</span>
+                        <span class="vc-tag @(settlement.TimesApplied == 1 ? "vc-tag--sea" : "vc-tag--signal")">
+                            applied @(settlement.TimesApplied) time@(settlement.TimesApplied == 1 ? "" : "s")
+                        </span>
+                    </p>
+
+                    <dl class="vc-gateway">
+                        <div class="vc-gateway__row">
+                            <dt class="vc-gateway__key">Event id</dt>
+                            <dd class="vc-gateway__value vc-tabular">@settlement.EventId</dd>
+                        </div>
+                        <div class="vc-gateway__row">
+                            <dt class="vc-gateway__key">Outbox</dt>
+                            <dd class="vc-gateway__value">
+                                @settlement.Status, @settlement.Attempts
+                                @(settlement.Attempts == 1 ? "attempt" : "attempts") by the shop's own dispatcher
+                            </dd>
+                        </div>
+                        <div class="vc-gateway__row">
+                            <dt class="vc-gateway__key">Deliver after</dt>
+                            <dd class="vc-gateway__value vc-tabular">@settlement.DeliverAfter.ToString("u")</dd>
+                        </div>
+                        <div class="vc-gateway__row">
+                            <dt class="vc-gateway__key">Signature</dt>
+                            <dd class="vc-gateway__value vc-tabular vc-lab-record__signature">@settlement.SignatureHeader</dd>
+                        </div>
+                    </dl>
+                </div>
+            }
+        </section>
+    }
+
+    @if (ShowRest && Evidence.BlastRadius is { } blast)
+    {
+        <section class="vc-lab-evidence__section">
+            <h4 class="vc-lab-evidence__title">What this run did to everybody else's shop</h4>
+
+            <div class="vc-lab-blast @(blast.IsClean ? "vc-lab-blast--clean" : "vc-lab-blast--dirty")">
+                <p class="vc-lab-blast__head">
+                    <span class="vc-tag @(blast.IsClean ? "vc-tag--sea" : "vc-tag--signal")">
+                        @(blast.IsClean ? "clean teardown" : "something was left behind")
+                    </span>
+                    <span class="vc-tabular">
+                        @blast.SharedCatalogRowsTouched shared catalog rows touched
+                    </span>
+                </p>
+
+                @if (blast.Explanation is { Length: > 0 } explanation)
+                {
+                    <p class="vc-lab-blast__body">
+                        <strong>@(blast.StockStrategy).</strong> @explanation
+                    </p>
+                }
+
+                @if (blast.Warning is { Length: > 0 } warning)
+                {
+                    <p class="vc-lab-blast__warning" role="alert">@warning</p>
+                }
+
+                @if (blast.All.Count > 0)
+                {
+                    <p class="vc-lab-blast__rows vc-tabular">
+                        Deleted: @Deleted(blast)
+                    </p>
+                }
+            </div>
+        </section>
+    }
+</div>
+
+@code {
+    /// <summary>The evidence to render. Required.</summary>
+    [Parameter, EditorRequired]
+    public LabEvidenceDocument Evidence { get; set; } = default!;
+
+    /// <summary>
+    /// Whether to render the ledger.
+    /// <para>
+    /// The run splits this component in two and renders it twice: the ledger goes directly under
+    /// the verdict, because "five units, five sold" is the headline and it must not be at the
+    /// bottom of a page of transcript; the tables go after the transcript, where a reader who wants
+    /// to check the verdict against the rows will look for them. Two calls rather than two
+    /// components, so the ledger and the tables cannot drift apart.
+    /// </para>
+    /// </summary>
+    [Parameter]
+    public bool ShowLedger { get; set; } = true;
+
+    /// <summary>Whether to render the orders, reservations, settlements and blast radius.</summary>
+    [Parameter]
+    public bool ShowRest { get; set; } = true;
+
+    /// <summary>
+    /// Whether any order carries an <c>xmin</c>. The column is only shown when a scenario needs it —
+    /// the settlement pair — because an empty column of em dashes on the other six would read as
+    /// missing data rather than as "this scenario does not turn on it".
+    /// </summary>
+    private bool ShowRowVersion =>
+        Evidence.AllOrders.Any(order => order.RowVersion is { Length: > 0 });
+
+    private static string Money(LabMoneyDocument? money) => money?.Text ?? "—";
+
+    /// <summary>
+    /// The teardown's tally as one line — "5 × orders, 5 × stock_reservations". Assembled here
+    /// rather than in markup because a lambda inside a Razor implicit expression is a parsing
+    /// accident waiting to happen, and this reads better in C# anyway.
+    /// </summary>
+    private static string Deleted(LabBlastRadiusDocument blast) =>
+        string.Join(", ", blast.All.Select(row => $"{row.Rows} × {row.Table}"));
+}

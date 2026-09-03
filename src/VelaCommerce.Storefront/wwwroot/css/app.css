@@ -3073,3 +3073,900 @@ svg {
         transition: none;
     }
 }
+
+
+/* ==========================================================================
+   6.23  DEMO LAB
+   Added by the lab slice. Like the checkout section above it, everything here
+   composes existing --vc-* tokens: no new colour is born, no second type
+   scale, no second palette.
+
+   THE ONE COLOUR DECISION WORTH STATING. A transcript has three kinds of
+   answer and they are NOT success, warning and error. They are:
+     * 2xx   — the shop did the thing            → --vc-secondary (sea)
+     * 4xx   — the shop refused, which is often the demonstration itself
+                                                 → --vc-accent (brass)
+     * 5xx / no answer — something is broken      → --vc-signal
+   Forty-five refusals is the entire claim of the oversell scenario. Painting
+   them red would tell a reviewer the shop failed forty-five times, which is
+   the opposite of what happened. Brass is the same colour the checkout page
+   already uses for a lost race, so the two screens agree.
+   ========================================================================== */
+
+.vc-lab-honesty {
+    margin-bottom: var(--vc-space-6);
+}
+
+/* Chips used as links: the jump list on the index, and the other
+   demonstrations on a permalink. Wraps to as many rows as it needs at 375px. */
+.vc-lab-jump {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--vc-space-2);
+    margin: 0 0 var(--vc-space-6);
+}
+
+.vc-lab-list {
+    display: flex;
+    flex-direction: column;
+    gap: var(--vc-space-6);
+}
+
+
+/* --- 6.23a One scenario -------------------------------------------------- */
+
+.vc-lab-scenario {
+    display: flex;
+    flex-direction: column;
+    gap: var(--vc-space-3);
+    padding: var(--vc-space-5);
+    background: var(--vc-surface);
+    border: 1px solid var(--vc-rule);
+    border-left: 3px solid var(--vc-rule-strong);
+    border-radius: var(--vc-radius-md);
+    /* The transcript is the widest thing on the page; keeping the panel from
+       growing past its box is what stops a long JSON body pushing the whole
+       document sideways on a phone. */
+    min-width: 0;
+}
+
+/* A permalink: this scenario is the subject of the page, so it gets the brass
+   hairline the shop uses for the one thing being looked at. */
+.vc-lab-scenario--focused {
+    border-left-color: var(--vc-accent-line);
+}
+
+.vc-lab-scenario__head {
+    display: flex;
+    flex-direction: column;
+    gap: var(--vc-space-2);
+}
+
+.vc-lab-scenario__title {
+    font-family: var(--vc-font-display);
+    font-size: var(--vc-text-lg);
+    font-weight: 600;
+}
+
+.vc-lab-scenario__claim {
+    max-width: 68ch;
+    font-size: var(--vc-text-md);
+    color: var(--vc-text);
+}
+
+.vc-lab-scenario__meta {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--vc-space-2) var(--vc-space-3);
+    margin: 0;
+}
+
+.vc-lab-scenario__proof {
+    font-size: var(--vc-text-2xs);
+    color: var(--vc-text-muted);
+    text-decoration: underline;
+    text-decoration-color: var(--vc-rule-strong);
+    text-underline-offset: 0.2em;
+    overflow-wrap: anywhere;
+}
+
+.vc-lab-scenario__proof:hover {
+    color: var(--vc-text);
+    text-decoration-color: var(--vc-accent-line);
+}
+
+.vc-lab-scenario__actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--vc-space-2) var(--vc-space-3);
+}
+
+/* The exact call the button makes. Printed because a reviewer of an API demo
+   will want to curl it, and having to reconstruct the path from a screenshot
+   is exactly the friction this page exists to remove. */
+.vc-lab-scenario__wire {
+    font-size: var(--vc-text-2xs);
+    color: var(--vc-text-faint);
+    overflow-wrap: anywhere;
+}
+
+.vc-lab-scenario__blocked {
+    max-width: 68ch;
+    font-size: var(--vc-text-xs);
+    color: var(--vc-text-muted);
+}
+
+.vc-lab-scenario__detail {
+    font-size: var(--vc-text-xs);
+    color: var(--vc-text-muted);
+}
+
+.vc-lab-scenario__detail summary {
+    cursor: pointer;
+}
+
+.vc-lab-scenario__detail-body {
+    margin-top: var(--vc-space-3);
+    padding-left: var(--vc-space-3);
+    border-left: 2px solid var(--vc-rule);
+}
+
+.vc-lab-running {
+    margin-top: var(--vc-space-2);
+}
+
+/* Elapsed seconds, in the mono face, counting. A fifty-way race against a cold
+   container takes several seconds, and a number that is visibly moving is the
+   difference between "working" and "hung" — which a spinner cannot say. */
+.vc-lab-running__clock {
+    font-family: var(--vc-font-mono);
+    font-variant-numeric: tabular-nums;
+    font-size: var(--vc-text-sm);
+    color: var(--vc-text-muted);
+}
+
+
+/* --- 6.23b The result ---------------------------------------------------- */
+
+.vc-lab-run {
+    display: flex;
+    flex-direction: column;
+    gap: var(--vc-space-5);
+    margin-top: var(--vc-space-3);
+    padding-top: var(--vc-space-5);
+    border-top: 1px solid var(--vc-rule);
+    min-width: 0;
+}
+
+.vc-lab-run__title {
+    font-family: var(--vc-font-display);
+    font-size: var(--vc-text-md);
+    font-weight: 600;
+    margin-bottom: calc(var(--vc-space-3) * -1);
+}
+
+.vc-lab-run__note {
+    max-width: 72ch;
+    font-size: var(--vc-text-sm);
+    color: var(--vc-text-muted);
+}
+
+.vc-lab-run__foot {
+    font-size: var(--vc-text-2xs);
+    color: var(--vc-text-faint);
+    overflow-wrap: anywhere;
+}
+
+
+/* --- 6.23c The verdict ---------------------------------------------------
+   The point of the page, so it is the loudest thing in the result and it sits
+   above the transcript. A verdict that did NOT hold is rendered exactly as
+   prominently — in signal rather than sea — because a lab that could only
+   produce good news would produce it against a broken shop too.
+   ------------------------------------------------------------------------- */
+
+.vc-lab-verdict {
+    display: flex;
+    flex-direction: column;
+    gap: var(--vc-space-3);
+    padding: var(--vc-space-5);
+    background: var(--vc-bg-sunken);
+    border-radius: var(--vc-radius-md);
+    border-left: 3px solid var(--vc-rule-strong);
+}
+
+.vc-lab-verdict--held {
+    border-left-color: var(--vc-secondary);
+}
+
+.vc-lab-verdict--broken {
+    border-left-color: var(--vc-signal);
+}
+
+.vc-lab-verdict__head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--vc-space-2) var(--vc-space-3);
+}
+
+.vc-lab-verdict__mark {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex: none;
+    width: 1.75rem;
+    height: 1.75rem;
+    border-radius: var(--vc-radius-sm);
+}
+
+.vc-lab-verdict--held .vc-lab-verdict__mark {
+    color: var(--vc-on-secondary);
+    background: var(--vc-secondary);
+}
+
+.vc-lab-verdict--broken .vc-lab-verdict__mark {
+    color: var(--vc-surface);
+    background: var(--vc-signal);
+}
+
+.vc-lab-verdict__headings {
+    display: flex;
+    flex-direction: column;
+    gap: 0.1rem;
+}
+
+.vc-lab-verdict__title {
+    font-family: var(--vc-font-display);
+    font-size: var(--vc-text-lg);
+    font-weight: 600;
+}
+
+.vc-lab-verdict__count {
+    margin-left: auto;
+    font-size: var(--vc-text-sm);
+    color: var(--vc-text-muted);
+}
+
+.vc-lab-verdict__rule {
+    max-width: 72ch;
+    font-size: var(--vc-text-sm);
+    font-weight: 600;
+}
+
+.vc-lab-verdict__how {
+    max-width: 72ch;
+    font-size: var(--vc-text-sm);
+    color: var(--vc-text-muted);
+}
+
+.vc-lab-checks {
+    display: flex;
+    flex-direction: column;
+    gap: var(--vc-space-2);
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    counter-reset: none;
+}
+
+.vc-lab-check {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    gap: var(--vc-space-3);
+    padding: var(--vc-space-3);
+    background: var(--vc-surface);
+    border-radius: var(--vc-radius-sm);
+}
+
+.vc-lab-check__mark {
+    font-family: var(--vc-font-mono);
+    font-size: var(--vc-text-sm);
+    line-height: 1.5;
+}
+
+.vc-lab-check--passed .vc-lab-check__mark {
+    color: var(--vc-secondary);
+}
+
+.vc-lab-check--failed .vc-lab-check__mark {
+    color: var(--vc-signal);
+}
+
+.vc-lab-check__body {
+    display: flex;
+    flex-direction: column;
+    gap: var(--vc-space-2);
+    min-width: 0;
+}
+
+.vc-lab-check__claim {
+    font-size: var(--vc-text-sm);
+    font-weight: 600;
+}
+
+.vc-lab-check__pair {
+    display: grid;
+    grid-template-columns: minmax(4.5rem, auto) minmax(0, 1fr);
+    gap: 0.15rem var(--vc-space-3);
+    margin: 0;
+    font-size: var(--vc-text-xs);
+}
+
+.vc-lab-check__pair dt {
+    font-family: var(--vc-font-mono);
+    font-size: var(--vc-text-2xs);
+    letter-spacing: var(--vc-tracking-wide);
+    text-transform: uppercase;
+    color: var(--vc-text-faint);
+}
+
+.vc-lab-check__pair dd {
+    margin: 0;
+    color: var(--vc-text);
+    overflow-wrap: anywhere;
+}
+
+
+/* --- 6.23d Caveats -------------------------------------------------------
+   Never behind a disclosure. A caveat a reader has to open is a caveat the
+   page has decided they probably will not read.
+   ------------------------------------------------------------------------- */
+
+.vc-lab-caveats {
+    display: flex;
+    flex-direction: column;
+    gap: var(--vc-space-2);
+    padding: var(--vc-space-4) var(--vc-space-5);
+    background: var(--vc-surface-alt);
+    border-left: 3px solid var(--vc-accent-line);
+    border-radius: var(--vc-radius-md);
+}
+
+.vc-lab-caveats__title {
+    font-family: var(--vc-font-display);
+    font-size: var(--vc-text-md);
+    font-weight: 600;
+}
+
+.vc-lab-caveats__list {
+    display: flex;
+    flex-direction: column;
+    gap: var(--vc-space-2);
+    max-width: 72ch;
+    margin: 0;
+    padding-left: var(--vc-space-4);
+    font-size: var(--vc-text-sm);
+    color: var(--vc-text-muted);
+}
+
+
+/* --- 6.23e The transcript ------------------------------------------------ */
+
+.vc-lab-steps {
+    display: flex;
+    flex-direction: column;
+    gap: var(--vc-space-3);
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    counter-reset: none;
+}
+
+.vc-lab-step {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    gap: var(--vc-space-3);
+    padding: var(--vc-space-4);
+    background: var(--vc-surface-alt);
+    border: 1px solid var(--vc-rule);
+    border-radius: var(--vc-radius-sm);
+}
+
+/* The only failure state a step can be in. Not a 409 and not a 402 — those are
+   answers. This is "nothing came back". */
+.vc-lab-step--broken {
+    border-color: var(--vc-signal);
+}
+
+.vc-lab-step__num {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex: none;
+    width: 1.5rem;
+    height: 1.5rem;
+    font-size: var(--vc-text-2xs);
+    color: var(--vc-text-inverse);
+    background: var(--vc-surface-inverse);
+    border-radius: var(--vc-radius-sm);
+}
+
+.vc-lab-step__body {
+    display: flex;
+    flex-direction: column;
+    gap: var(--vc-space-2);
+    min-width: 0;
+}
+
+.vc-lab-step__title {
+    font-family: var(--vc-font-display);
+    font-size: var(--vc-text-md);
+    font-weight: 600;
+}
+
+.vc-lab-step__narration {
+    max-width: 72ch;
+    font-size: var(--vc-text-sm);
+    color: var(--vc-text-muted);
+}
+
+.vc-lab-step__flags {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--vc-space-2);
+    margin: 0;
+}
+
+/* The reason a step is less than a live exchange, in the server's own words.
+   Visible, never collapsed: this is the sentence that makes the transcript
+   above it worth reading. */
+.vc-lab-step__fidelity {
+    max-width: 72ch;
+    padding-left: var(--vc-space-3);
+    border-left: 2px solid var(--vc-accent-line);
+    font-size: var(--vc-text-xs);
+    color: var(--vc-text-muted);
+}
+
+/* A fidelity this build does not recognise. Loud on purpose. */
+.vc-lab-step__fidelity--loud {
+    border-left-color: var(--vc-signal);
+    color: var(--vc-signal);
+}
+
+.vc-lab-step__transport {
+    max-width: 72ch;
+    font-size: var(--vc-text-sm);
+    color: var(--vc-signal);
+}
+
+
+/* --- 6.23f The wire line -------------------------------------------------
+   Method, path, status, milliseconds — the four things a reviewer scans for.
+   Mono throughout, because every part of it is literally what went over the
+   wire. Wraps rather than scrolling: at 375px a long path takes two lines,
+   which is fine; a page that scrolls sideways is not.
+   ------------------------------------------------------------------------- */
+
+.vc-lab-wire {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 0.35rem var(--vc-space-2);
+    margin: 0;
+    font-family: var(--vc-font-mono);
+    font-variant-numeric: tabular-nums;
+    font-size: var(--vc-text-xs);
+}
+
+.vc-lab-wire__method {
+    padding: 0.05rem 0.35rem;
+    font-size: var(--vc-text-2xs);
+    letter-spacing: var(--vc-tracking-wide);
+    color: var(--vc-text-muted);
+    background: var(--vc-bg-sunken);
+    border-radius: var(--vc-radius-sm);
+}
+
+.vc-lab-wire__path {
+    color: var(--vc-text);
+    overflow-wrap: anywhere;
+}
+
+.vc-lab-wire--note .vc-lab-wire__path {
+    color: var(--vc-text-faint);
+}
+
+.vc-lab-wire__status {
+    font-weight: 600;
+}
+
+.vc-lab-wire__status--ok {
+    color: var(--vc-secondary);
+}
+
+/* Brass, not red. A refusal is usually the demonstration. */
+.vc-lab-wire__status--refused {
+    color: var(--vc-accent-strong);
+}
+
+.vc-lab-wire__status--broken,
+.vc-lab-wire__status--none {
+    color: var(--vc-signal);
+}
+
+.vc-lab-wire__time {
+    margin-left: auto;
+    color: var(--vc-text-faint);
+}
+
+
+/* --- 6.23g The raw exchange ----------------------------------------------
+   Collapsed by default. Eight bodies of checkout JSON open at once is not
+   evidence, it is a wall — and the interesting half of a race is the status
+   line, which stays visible above this.
+   ------------------------------------------------------------------------- */
+
+.vc-lab-exchange {
+    font-size: var(--vc-text-xs);
+    color: var(--vc-text-muted);
+}
+
+.vc-lab-exchange summary {
+    cursor: pointer;
+}
+
+.vc-lab-exchange__body {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--vc-space-3);
+    margin-top: var(--vc-space-3);
+}
+
+@media (min-width: 60rem) {
+    .vc-lab-exchange__body {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+}
+
+.vc-lab-exchange__half {
+    display: flex;
+    flex-direction: column;
+    gap: var(--vc-space-1);
+    min-width: 0;
+}
+
+.vc-lab-pre {
+    max-height: 24rem;
+    margin: 0;
+    padding: var(--vc-space-3);
+    overflow: auto;
+    overscroll-behavior: contain;
+    font-family: var(--vc-font-mono);
+    font-size: var(--vc-text-2xs);
+    line-height: var(--vc-leading-snug);
+    color: var(--vc-text);
+    background: var(--vc-bg-sunken);
+    border-radius: var(--vc-radius-sm);
+    /* Wrapped rather than scrolled sideways: a minified JSON body is one very
+       long line, and a horizontal scrollbar inside a disclosure inside a card
+       is three nested scroll regions nobody can use on a phone. */
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+}
+
+
+/* --- 6.23h The evidence -------------------------------------------------- */
+
+.vc-lab-evidence {
+    display: flex;
+    flex-direction: column;
+    gap: var(--vc-space-5);
+    min-width: 0;
+}
+
+.vc-lab-evidence__section {
+    display: flex;
+    flex-direction: column;
+    gap: var(--vc-space-3);
+    min-width: 0;
+}
+
+.vc-lab-evidence__title {
+    font-family: var(--vc-font-display);
+    font-size: var(--vc-text-md);
+    font-weight: 600;
+}
+
+.vc-lab-evidence__note {
+    max-width: 72ch;
+    font-size: var(--vc-text-xs);
+    color: var(--vc-text-muted);
+}
+
+.vc-lab-ledger {
+    display: flex;
+    flex-direction: column;
+    gap: var(--vc-space-2);
+    padding: var(--vc-space-4);
+    background: var(--vc-surface-alt);
+    border: 1px solid var(--vc-rule);
+    border-radius: var(--vc-radius-sm);
+}
+
+.vc-lab-ledger__head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: var(--vc-space-2) var(--vc-space-3);
+    margin: 0;
+}
+
+.vc-lab-ledger__name {
+    font-weight: 600;
+}
+
+.vc-lab-ledger__sku {
+    font-size: var(--vc-text-2xs);
+    color: var(--vc-text-faint);
+}
+
+/* Three columns of small numbers: fits 375px without scrolling, which is what
+   makes the headline of the whole page readable on a phone. */
+.vc-lab-ledger__grid {
+    width: 100%;
+    max-width: 24rem;
+    border-collapse: collapse;
+    font-size: var(--vc-text-sm);
+    text-align: left;
+}
+
+.vc-lab-ledger__grid th,
+.vc-lab-ledger__grid td {
+    padding: var(--vc-space-1) var(--vc-space-2);
+    border-bottom: 1px solid var(--vc-rule);
+}
+
+.vc-lab-ledger__grid thead th {
+    font-family: var(--vc-font-mono);
+    font-size: var(--vc-text-2xs);
+    font-weight: 500;
+    letter-spacing: var(--vc-tracking-wide);
+    text-transform: uppercase;
+    color: var(--vc-text-faint);
+}
+
+.vc-lab-ledger__grid tbody th {
+    font-weight: 400;
+    color: var(--vc-text-muted);
+}
+
+/* The number the whole stock argument is about. */
+.vc-lab-ledger__cell--key {
+    font-weight: 600;
+    color: var(--vc-accent-strong);
+}
+
+.vc-lab-ledger__foot {
+    font-size: var(--vc-text-xs);
+    color: var(--vc-text-muted);
+}
+
+/* A wide table scrolls inside its own box. The page itself never scrolls
+   sideways — seven columns of order at 375px is exactly the case this exists
+   for. */
+.vc-lab-scroll {
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+}
+
+.vc-lab-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: var(--vc-text-sm);
+    text-align: left;
+    white-space: nowrap;
+}
+
+.vc-lab-table th,
+.vc-lab-table td {
+    padding: var(--vc-space-2) var(--vc-space-3);
+    border-bottom: 1px solid var(--vc-rule);
+    vertical-align: top;
+}
+
+.vc-lab-table thead th {
+    font-family: var(--vc-font-mono);
+    font-size: var(--vc-text-2xs);
+    font-weight: 500;
+    letter-spacing: var(--vc-tracking-wide);
+    text-transform: uppercase;
+    color: var(--vc-text-faint);
+    white-space: nowrap;
+}
+
+.vc-lab-table tbody th {
+    font-weight: 600;
+}
+
+/* The payment table's last two columns are prose, not readings. */
+.vc-lab-table td:nth-child(n + 4) {
+    white-space: normal;
+    min-width: 14rem;
+}
+
+.vc-lab-record {
+    display: flex;
+    flex-direction: column;
+    gap: var(--vc-space-2);
+    padding: var(--vc-space-4);
+    background: var(--vc-surface-alt);
+    border: 1px solid var(--vc-rule);
+    border-radius: var(--vc-radius-sm);
+}
+
+.vc-lab-record__head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--vc-space-2);
+    margin: 0;
+    font-size: var(--vc-text-sm);
+    font-weight: 600;
+}
+
+.vc-lab-record__sep {
+    color: var(--vc-text-faint);
+}
+
+.vc-lab-record__signature {
+    font-size: var(--vc-text-2xs);
+    overflow-wrap: anywhere;
+}
+
+.vc-lab-blast {
+    display: flex;
+    flex-direction: column;
+    gap: var(--vc-space-2);
+    padding: var(--vc-space-4);
+    background: var(--vc-surface-alt);
+    border-left: 3px solid var(--vc-rule-strong);
+    border-radius: var(--vc-radius-sm);
+}
+
+.vc-lab-blast--clean {
+    border-left-color: var(--vc-secondary);
+}
+
+.vc-lab-blast--dirty {
+    border-left-color: var(--vc-signal);
+}
+
+.vc-lab-blast__head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--vc-space-2) var(--vc-space-3);
+    margin: 0;
+    font-family: var(--vc-font-mono);
+    font-variant-numeric: tabular-nums;
+    font-size: var(--vc-text-xs);
+    color: var(--vc-text-muted);
+}
+
+.vc-lab-blast__body {
+    max-width: 72ch;
+    font-size: var(--vc-text-sm);
+    color: var(--vc-text-muted);
+}
+
+.vc-lab-blast__warning {
+    max-width: 72ch;
+    font-size: var(--vc-text-sm);
+    color: var(--vc-signal);
+}
+
+.vc-lab-blast__rows {
+    font-size: var(--vc-text-xs);
+    color: var(--vc-text-faint);
+}
+
+
+/* --- 6.23i Around the edges ---------------------------------------------- */
+
+.vc-lab-others {
+    margin-top: var(--vc-space-7);
+    padding-top: var(--vc-space-5);
+    border-top: 1px solid var(--vc-rule);
+}
+
+.vc-lab-others__title {
+    margin-bottom: var(--vc-space-3);
+    font-family: var(--vc-font-display);
+    font-size: var(--vc-text-md);
+    font-weight: 600;
+}
+
+.vc-lab-appendix {
+    display: flex;
+    flex-direction: column;
+    gap: var(--vc-space-3);
+    margin-top: var(--vc-space-8);
+    padding-top: var(--vc-space-5);
+    border-top: 1px solid var(--vc-rule);
+}
+
+.vc-lab-appendix__detail {
+    font-size: var(--vc-text-sm);
+    color: var(--vc-text-muted);
+}
+
+.vc-lab-appendix__detail summary {
+    cursor: pointer;
+    font-weight: 600;
+    color: var(--vc-text);
+}
+
+.vc-lab-appendix__body {
+    display: flex;
+    flex-direction: column;
+    gap: var(--vc-space-3);
+    margin-top: var(--vc-space-3);
+    min-width: 0;
+}
+
+.vc-lab-appendix__note {
+    max-width: 72ch;
+    font-size: var(--vc-text-sm);
+    color: var(--vc-text-muted);
+}
+
+.vc-lab-appendix__foot {
+    font-size: var(--vc-text-2xs);
+    color: var(--vc-text-faint);
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .vc-lab-scenario {
+        transition: none;
+    }
+}
+
+
+/* --- 6.23j The footer entry ----------------------------------------------
+   The lab's one link, in the footer's first column. It uses the header token
+   family because the footer is painted with the enamel navy in both themes,
+   so --vc-text there would be invisible half the time.
+
+   It is NOT in .vc-nav, and that is a decision rather than an omission: the
+   shelf navigation is a shopper's, it already scrolls horizontally on a phone,
+   and a reviewer-facing page in it would cost a shelf its place on the row.
+   ------------------------------------------------------------------------- */
+
+.vc-footer__lab {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--vc-space-2);
+    margin-top: var(--vc-space-4);
+    padding: 0.35rem var(--vc-space-3);
+    font-size: var(--vc-text-sm);
+    font-weight: 600;
+    color: var(--vc-header-accent);
+    background: var(--vc-header-field);
+    border: 1px solid var(--vc-header-rule);
+    border-radius: var(--vc-radius-md);
+    transition: background var(--vc-duration) var(--vc-ease),
+                border-color var(--vc-duration) var(--vc-ease);
+}
+
+.vc-footer__lab:hover {
+    background: var(--vc-header-field-hover);
+    border-color: var(--vc-header-accent);
+}
+
+.vc-footer__lab-note {
+    max-width: 38ch;
+    margin-top: var(--vc-space-2);
+    font-size: var(--vc-text-2xs);
+    line-height: var(--vc-leading-normal);
+    color: var(--vc-header-muted);
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .vc-footer__lab {
+        transition: none;
+    }
+}

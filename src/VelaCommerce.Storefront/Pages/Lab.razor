@@ -1,0 +1,614 @@
+@*
+    The Demo Lab, at "/lab" and "/lab/{scenarioId}".
+
+    WHY IT EXISTS. This repository claims a set of invariants. The suite proves them on every push,
+    but a reviewer with ten minutes will not run a test suite and a README assertion is worth
+    approximately nothing. So this page lets a stranger press a button and watch an invariant hold
+    against the same code a purchase runs through: the HTTP that went out, what came back, how long
+    it took, and what changed in the database. It is only worth having if it is honest, which is why
+    every step carries its own fidelity and why a verdict that did not hold is rendered exactly as
+    loudly as one that did.
+
+    THE FIRST-PAINT RULE STILL HOLDS. The catalog browses, searches, filters and sorts from a static
+    file with the API and the database switched off. This page is not on that path: nothing here is
+    fetched until it has already painted, and a shopper who never opens the lab wakes nothing. It is
+    linked from the footer rather than the shelf navigation, because it is for a reviewer and not
+    for somebody buying rope.
+
+    THE PERMALINK IS THE POINT OF THE ROUTE. "/lab/oversell" is a link that goes in a CV, a README
+    or a job application and opens on one demonstration, described, ready to run. So the scenario's
+    title is this page's h1 on that route rather than a generic one.
+
+    NOTHING ABOUT A SCENARIO IS WRITTEN DOWN HERE. The claim, the invariant, the enforcing statement
+    and the test file all come from GET /api/demo/lab/scenarios, which is the server's own
+    catalogue. A storefront that restated them would be the thing that made a button's label
+    disagree with what the button does.
+*@
+@page "/lab/{ScenarioId?}"
+@using System.Diagnostics
+@using Microsoft.Extensions.DependencyInjection
+@using VelaCommerce.Storefront.Lab
+@implements IDisposable
+@inject HttpClient Http
+@inject IServiceProvider Services
+
+<PageTitle>@DocumentTitle</PageTitle>
+
+<nav class="vc-crumbs" aria-label="Breadcrumb">
+    <a class="vc-crumbs__link" href="">Catalog</a>
+    <span class="vc-crumbs__sep" aria-hidden="true">/</span>
+    @if (Focused is { } crumb)
+    {
+        <a class="vc-crumbs__link" href="lab">Demo lab</a>
+        <span class="vc-crumbs__sep" aria-hidden="true">/</span>
+        <span>@crumb.Heading</span>
+    }
+    else
+    {
+        <span>Demo lab</span>
+    }
+</nav>
+
+<div class="vc-hero">
+    @if (Focused is { } scenario)
+    {
+        <span class="vc-eyebrow">Demo lab &middot; one demonstration</span>
+        <h1 class="vc-section-title">@scenario.Heading</h1>
+        <p class="vc-lede">@scenario.Claim</p>
+    }
+    else
+    {
+        <span class="vc-eyebrow">Demo lab</span>
+        <h1 class="vc-section-title">Press a button, watch an invariant hold</h1>
+        <p class="vc-lede">
+            Every claim this shop makes about overselling, double-clicks and duplicate settlements
+            is proved by a test. Tests are not something you are going to run. So each of these
+            buttons runs the same demonstration against the live shop and hands back the transcript:
+            every request, every answer, the milliseconds, and the rows afterwards.
+        </p>
+    }
+</div>
+
+@* The honesty statement, above everything, on both routes. It is the claim the rest of the page
+   depends on being true, so it is not tucked into a disclosure. *@
+<div class="vc-notice vc-lab-honesty">
+    <p class="vc-notice__title">This runs against the shop, not against a mock</p>
+    <p class="vc-notice__body">
+        Every shopper below is a real HTTP request from the API to its own listening address: a real
+        session cookie minted by the real middleware, a real cart, a real checkout, the same guarded
+        <code class="vc-code">UPDATE</code> and the same signed webhook a purchase goes through.
+        Nothing calls an internal method with a hand-made session, and where a step is anything less
+        than a live exchange it says so on itself rather than in a footnote.
+    </p>
+    @if (Catalog?.StockPolicy is { Length: > 0 } policy)
+    {
+        <p class="vc-notice__body">@policy</p>
+    }
+</div>
+
+@if (Catalog is null && _catalogLoading)
+{
+    <div class="vc-waking" role="status" aria-live="polite">
+        <span class="vc-waking__pip" aria-hidden="true"></span>
+        <div class="vc-waking__body">
+            <p class="vc-waking__title">@(_catalogWaking ? "Waking the shop up" : "Fetching the lab's catalogue")</p>
+            <p class="vc-waking__note">
+                @if (ScenarioId is { Length: > 0 } pending)
+                {
+                    <text>
+                        Reading what <code class="vc-code">@pending</code> will do. The description of
+                        a scenario is served by the API rather than baked into this page, so a button
+                        and what the button does cannot disagree — which means there is nothing
+                        truthful to show until the shop answers.
+                    </text>
+                }
+                else
+                {
+                    <text>
+                        The API sleeps when nobody is buying, which is what keeps it free to run. The
+                        first call after a quiet spell waits for a container to start and a database
+                        to resume. The catalog you were just browsing is a static file and never
+                        needed any of this.
+                    </text>
+                }
+            </p>
+        </div>
+    </div>
+}
+else if (Catalog is null && _state.CatalogFailure is { } failure)
+{
+    <div class="vc-alert vc-alert--error" role="alert">
+        <h2 class="vc-alert__title">@failure.Message</h2>
+        <p class="vc-alert__body">
+            The lab is the one part of this build that cannot work without the API — a scenario is
+            run <em>by</em> the shop, so there is nothing to demonstrate while the shop is
+            unreachable. Nothing else is affected: the catalog is a static file and browsing,
+            searching and sorting all still work.
+        </p>
+        @if (failure.Detail is { Length: > 0 } detail)
+        {
+            <details class="vc-alert__detail">
+                <summary>Technical detail</summary>
+                @detail
+            </details>
+        }
+        <div class="vc-alert__actions">
+            <button type="button" class="vc-btn vc-btn--primary" @onclick="LoadCatalogAsync">Try again</button>
+            <a class="vc-btn" href="">Back to the catalog</a>
+        </div>
+    </div>
+}
+else if (Catalog is { } catalog)
+{
+    @if (Limits is { Enabled: false })
+    {
+        <div class="vc-alert vc-alert--notice" role="status">
+            <h2 class="vc-alert__title">Runs are switched off on this deployment</h2>
+            <p class="vc-alert__body">
+                The scenarios are still described below and the endpoint still publishes them, but
+                this deployment will not execute one. Every button is disabled rather than being
+                left to fail, and the descriptions are worth reading either way — each names the
+                test that proves the same thing in CI.
+            </p>
+        </div>
+    }
+
+    @if (ScenarioId is { Length: > 0 } requested && Focused is null)
+    {
+        <div class="vc-empty">
+            <span class="vc-eyebrow">404</span>
+            <h2 class="vc-empty__title">No demonstration by that name</h2>
+            <p class="vc-empty__body">
+                <code class="vc-code">@requested</code> is not one of the scenarios this build
+                offers. The permalink may predate a rename. These are the ones that exist:
+            </p>
+            <p class="vc-lab-jump">
+                @foreach (var known in catalog.All)
+                {
+                    <a class="vc-chip" href="@($"lab/{known.Key}")">@known.Heading</a>
+                }
+            </p>
+        </div>
+    }
+    else if (Focused is { } only)
+    {
+        <LabScenarioPanel Scenario="only"
+                          Detailed="true"
+                          Heading="Run this scenario"
+                          Result="_state.ResultFor(only.Key)"
+                          IsRunning="@(_runningId == only.Key)"
+                          IsWaking="_waking"
+                          Elapsed="ElapsedSeconds"
+                          CanRun="CanRun(only)"
+                          Blocked="@BlockedReason(only)"
+                          OnRun="RunAsync" />
+
+        <section class="vc-lab-others">
+            <h2 class="vc-lab-others__title">The other demonstrations</h2>
+            <p class="vc-lab-jump">
+                @foreach (var other in catalog.All.Where(candidate => !string.Equals(candidate.Key, only.Key, StringComparison.OrdinalIgnoreCase)))
+                {
+                    <a class="vc-chip" href="@($"lab/{other.Key}")">@other.Heading</a>
+                }
+                <a class="vc-chip" href="lab">All of them, on one page</a>
+            </p>
+        </section>
+    }
+    else
+    {
+        <p class="vc-lab-jump">
+            @foreach (var listed in catalog.All)
+            {
+                <a class="vc-chip" href="@($"#scenario-{listed.Key}")">@listed.Heading</a>
+            }
+        </p>
+
+        <div class="vc-lab-list">
+            @foreach (var listed in catalog.All)
+            {
+                <LabScenarioPanel Scenario="listed"
+                                  @key="listed.Key"
+                                  Heading="@listed.Heading"
+                                  Result="_state.ResultFor(listed.Key)"
+                                  IsRunning="@(_runningId == listed.Key)"
+                                  IsWaking="_waking"
+                                  Elapsed="ElapsedSeconds"
+                                  CanRun="CanRun(listed)"
+                                  Blocked="@BlockedReason(listed)"
+                                  OnRun="RunAsync" />
+            }
+        </div>
+    }
+
+    <section class="vc-lab-appendix">
+        @if (Limits is { } limits)
+        {
+            <details class="vc-lab-appendix__detail">
+                <summary>What this endpoint refuses to do</summary>
+                <div class="vc-lab-appendix__body">
+                    @if (limits.Policy is { Length: > 0 } policy)
+                    {
+                        <p class="vc-lab-appendix__note">@policy</p>
+                    }
+                    <dl class="vc-specs">
+                        <dt class="vc-specs__key">Runs accepted</dt>
+                        <dd class="vc-specs__value">@(limits.Enabled ? "Yes" : "No — switched off here")</dd>
+                        <dt class="vc-specs__key">Max shoppers</dt>
+                        <dd class="vc-specs__value vc-specs__value--numeric">@limits.MaxParticipants per run</dd>
+                        <dt class="vc-specs__key">Concurrent runs</dt>
+                        <dd class="vc-specs__value vc-specs__value--numeric">@limits.MaxConcurrentRuns across the whole shop</dd>
+                        <dt class="vc-specs__key">Cooldown</dt>
+                        <dd class="vc-specs__value vc-specs__value--numeric">@limits.CooldownSeconds s per visitor</dd>
+                        <dt class="vc-specs__key">Run budget</dt>
+                        <dd class="vc-specs__value vc-specs__value--numeric">@limits.RunTimeoutSeconds s wall clock</dd>
+                    </dl>
+                </div>
+            </details>
+        }
+
+        @if (catalog.Payments.Count > 0)
+        {
+            <details class="vc-lab-appendix__detail">
+                <summary>The six ways the simulated gateway can behave</summary>
+                <div class="vc-lab-appendix__body">
+                    <p class="vc-lab-appendix__note">
+                        Rendered from the shop's own <code class="vc-code">PaymentScenarioCatalog</code>
+                        rather than restated here, so this table and the one in the docs cannot
+                        disagree. A checkout selects one by an explicit hint, or — with no hint — by
+                        the trailing cents of the order total.
+                    </p>
+                    <div class="vc-lab-scroll">
+                        <table class="vc-lab-table">
+                            <thead>
+                                <tr>
+                                    <th scope="col">Scenario</th>
+                                    <th scope="col">Amount trigger</th>
+                                    <th scope="col">Checkout answers</th>
+                                    <th scope="col">Afterwards</th>
+                                    <th scope="col">Demonstrates</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var payment in catalog.Payments)
+                                {
+                                    <tr @key="payment.Scenario">
+                                        <th scope="row" class="vc-tabular">@payment.Scenario</th>
+                                        <td class="vc-tabular">@payment.AmountTrigger</td>
+                                        <td>@payment.AuthorizationResult</td>
+                                        <td>@payment.Webhooks</td>
+                                        <td>@payment.Demonstrates</td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </details>
+        }
+
+        <p class="vc-lab-appendix__foot vc-tabular">
+            GET /@(LabApiClient.CatalogPath) &mdash; the same document this page is built from
+        </p>
+    </section>
+}
+
+@code {
+    /// <summary>How long the catalogue fetch is given before the page admits defeat and offers a retry.</summary>
+    private static readonly TimeSpan CatalogDeadline = TimeSpan.FromSeconds(45);
+
+    /// <summary>How long a request may run before the page says the shop is asleep. The same two seconds the cart and the checkout use.</summary>
+    private static readonly TimeSpan WakeNotice = TimeSpan.FromSeconds(2);
+
+    /// <summary>
+    /// The client-side budget when the endpoint has not published its own.
+    /// <para>
+    /// Deliberately longer than any run should take. The server abandons a run on its own budget and
+    /// tears the fixture down in a <c>finally</c> either way, so the only thing a short client
+    /// deadline buys is a reviewer who is told nothing happened when in fact it did.
+    /// </para>
+    /// </summary>
+    private const int FallbackRunSeconds = 120;
+
+    /// <summary>Margin over the server's own budget: a cold start, plus the transcript on the wire.</summary>
+    private const int RunDeadlineMarginSeconds = 30;
+
+    /// <summary>How often the running clock and the cooldown countdown repaint.</summary>
+    private static readonly TimeSpan Tick = TimeSpan.FromMilliseconds(250);
+
+    private readonly Stopwatch _clock = new();
+
+    private LabApiClient _api = default!;
+    private LabState _state = default!;
+    private CancellationTokenSource? _ticker;
+    private string? _runningId;
+    private bool _waking;
+    private bool _catalogLoading;
+    private bool _catalogWaking;
+
+    /// <summary>
+    /// The permalink's scenario id, or null on <c>/lab</c>.
+    /// <para>
+    /// Declared as an optional route parameter on one <c>page</c> directive rather than as two, which
+    /// is what makes navigating from a permalink back to the index reset it: an unmatched parameter
+    /// on a second route directive would keep its previous value and strand the page on a scenario
+    /// nobody asked for.
+    /// </para>
+    /// </summary>
+    [Parameter]
+    public string? ScenarioId { get; set; }
+
+    private LabCatalogDocument? Catalog => _state.Catalog;
+
+    private LabLimitsDocument? Limits => Catalog?.Limits;
+
+    /// <summary>The scenario a permalink names, once the catalogue has arrived to name it with.</summary>
+    private LabScenarioDocument? Focused => Catalog?.Find(ScenarioId);
+
+    private string DocumentTitle => Focused is { } scenario
+        ? $"{scenario.Heading} · Demo lab · Vela Commerce"
+        : "Demo lab · Vela Commerce";
+
+    private double ElapsedSeconds => _clock.Elapsed.TotalSeconds;
+
+    /// <summary>The cooldown, from the endpoint's published limits. Zero when it has not said.</summary>
+    private int CooldownSeconds => Limits?.CooldownSeconds ?? 0;
+
+    protected override void OnInitialized()
+    {
+        _api = new LabApiClient(Http);
+
+        // Resolved rather than injected, so a missing AddStorefrontLab() registration costs
+        // transcripts that do not survive navigation instead of a page that throws. See
+        // LabServiceCollectionExtensions for the one line that should be in Program.cs.
+        _state = Services.GetService<LabState>() ?? new LabState();
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender)
+        {
+            return;
+        }
+
+        // AFTER the first render, never before it. Awaiting the catalogue in OnInitializedAsync
+        // would hold this page blank for as long as a sleeping API takes to answer, which is the
+        // spinner-that-looks-broken this whole shop is built to avoid. The shell and the honesty
+        // notice paint first, and say what they are waiting for.
+        await LoadCatalogAsync();
+    }
+
+    /// <summary>
+    /// Fetches the menu once per tab, and again on demand after a failure.
+    /// <para>
+    /// Reachable twice — from the first render and from Try again — and idempotent in both
+    /// directions: a catalogue already in hand short-circuits, and a fetch already in flight is not
+    /// duplicated by an impatient second press.
+    /// </para>
+    /// </summary>
+    private async Task LoadCatalogAsync()
+    {
+        if (_state.Catalog is not null || _catalogLoading)
+        {
+            return;
+        }
+
+        _catalogLoading = true;
+        _catalogWaking = false;
+        StateHasChanged();
+
+        try
+        {
+            using var deadline = new CancellationTokenSource(CatalogDeadline);
+
+            var work = _api.GetCatalogAsync(deadline.Token);
+
+            // A call that is slow rather than failing is a cold start, and saying so beats a
+            // spinner. Not tied to the deadline token on purpose: a stray two-second timer costs
+            // nothing, and cancelling it would mean the notice never appeared on its one path.
+            if (await Task.WhenAny(work, Task.Delay(WakeNotice)) != work)
+            {
+                _catalogWaking = true;
+                StateHasChanged();
+            }
+
+            _state.Remember(await work);
+        }
+        catch (LabApiException exception)
+        {
+            _state.RememberFailure(exception);
+        }
+        catch (Exception exception)
+        {
+            // The client turns every documented failure into a LabApiException, so reaching here
+            // means something unforeseen. Reported rather than thrown: an unhandled exception would
+            // show the Blazor error bar and take the shop's shell down with this page.
+            _state.RememberFailure(new LabApiException(
+                "The lab's catalogue could not be read.",
+                $"{exception.GetType().Name}: {exception.Message}"));
+        }
+        finally
+        {
+            _catalogLoading = false;
+            _catalogWaking = false;
+            StateHasChanged();
+        }
+    }
+
+    /// <summary>
+    /// Runs one scenario.
+    /// <para>
+    /// One at a time, which is not merely a nicety: the endpoint serialises runs across the whole
+    /// shop, so a second press while one is in flight buys a 429 rather than a second transcript.
+    /// The button is disabled for the same reason, and the reason is written under it.
+    /// </para>
+    /// </summary>
+    private async Task RunAsync(LabScenarioDocument scenario)
+    {
+        if (_runningId is not null || scenario.Key.Length == 0)
+        {
+            return;
+        }
+
+        var id = scenario.Key;
+
+        _runningId = id;
+        _waking = false;
+        _state.Forget(id);
+        _clock.Restart();
+        StartTicker();
+        StateHasChanged();
+
+        LabRunResult result;
+
+        try
+        {
+            using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(RunDeadlineSeconds));
+
+            // Never a lowered participant count. A fifty-way race demonstrated with eight is a
+            // weaker claim than the one on the button, and the button says fifty.
+            var work = _api.RunAsync(id, participants: null, deadline.Token);
+
+            if (await Task.WhenAny(work, Task.Delay(WakeNotice)) != work)
+            {
+                _waking = true;
+                StateHasChanged();
+            }
+
+            result = await work;
+        }
+        catch (Exception exception)
+        {
+            // The client answers every documented refusal with a result rather than an exception, so
+            // this is the unforeseen case. Reported as unreachable because that is what it is from
+            // here: no transcript arrived, and the server cleans up after itself regardless.
+            result = LabRunResult.Unreachable($"{exception.GetType().Name}: {exception.Message}");
+        }
+        finally
+        {
+            _clock.Stop();
+            _runningId = null;
+            _waking = false;
+        }
+
+        _state.Remember(id, result);
+
+        // The endpoint's own Retry-After where it sent one, its published cooldown otherwise. A run
+        // that got no answer still spends the visitor's turn on the server, so the countdown starts
+        // on every outcome rather than only on the happy one.
+        _state.StartCooldown(result.RetryAfterSeconds ?? CooldownSeconds);
+
+        StateHasChanged();
+    }
+
+    /// <summary>The client's deadline: the server's own budget plus a cold start, or a generous fallback.</summary>
+    private int RunDeadlineSeconds => Limits is { RunTimeoutSeconds: > 0 } limits
+        ? limits.RunTimeoutSeconds + RunDeadlineMarginSeconds
+        : FallbackRunSeconds;
+
+    /// <summary>Whether a scenario's Run button is live.</summary>
+    private bool CanRun(LabScenarioDocument scenario) =>
+        Limits is not { Enabled: false }
+        && scenario.Key.Length > 0
+        && _runningId is null
+        && _state.SecondsUntilReady <= 0;
+
+    /// <summary>
+    /// Why the button is disabled, in words, under the button.
+    /// <para>
+    /// Null while <em>this</em> scenario is the one running, because the notice beside it already
+    /// says so and repeating it under the button would read as a second, different problem.
+    /// </para>
+    /// </summary>
+    private string? BlockedReason(LabScenarioDocument scenario)
+    {
+        if (Limits is { Enabled: false })
+        {
+            return "This deployment has the lab's runs switched off.";
+        }
+
+        if (_runningId is { } running)
+        {
+            return string.Equals(running, scenario.Key, StringComparison.OrdinalIgnoreCase)
+                ? null
+                : "Another demonstration is running. The lab takes one run at a time across the "
+                  + "whole shop, because two overlapping fifty-way races would exhaust the "
+                  + "connection pool the shop serves everybody else from.";
+        }
+
+        var wait = _state.SecondsUntilReady;
+
+        return wait > 0
+            ? $"Ready in {wait}s. The lab holds each visitor to one run per cooldown — a single "
+              + "press becomes up to a hundred and fifty real requests."
+            : null;
+    }
+
+    /// <summary>
+    /// Starts the repaint loop that drives the running clock and the cooldown countdown.
+    /// <para>
+    /// A timer rather than a CSS animation because both numbers are text a reader is meant to read:
+    /// "8.4 s elapsed" on a fifty-way race against a cold container is the difference between a page
+    /// that is working and a page that has hung, and an animated bar says neither. It costs one
+    /// re-render every 250 ms and only while there is something counting.
+    /// </para>
+    /// </summary>
+    private void StartTicker()
+    {
+        if (_ticker is not null)
+        {
+            return;
+        }
+
+        var own = new CancellationTokenSource();
+        _ticker = own;
+
+        _ = TickAsync(own);
+    }
+
+    private async Task TickAsync(CancellationTokenSource own)
+    {
+        try
+        {
+            using var timer = new PeriodicTimer(Tick);
+
+            while (await timer.WaitForNextTickAsync(own.Token))
+            {
+                await InvokeAsync(StateHasChanged);
+
+                // Repaint first, then stop: the last tick is the one that re-enables the buttons
+                // when the cooldown expires, and breaking before it would leave them disabled until
+                // something else happened to re-render the page.
+                if (_runningId is null && _state.SecondsUntilReady <= 0)
+                {
+                    break;
+                }
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            // Disposed while counting. Nothing to recover.
+        }
+        finally
+        {
+            if (ReferenceEquals(_ticker, own))
+            {
+                _ticker = null;
+            }
+
+            own.Dispose();
+        }
+    }
+
+    public void Dispose()
+    {
+        try
+        {
+            _ticker?.Cancel();
+        }
+        catch (ObjectDisposedException)
+        {
+            // The loop finished and disposed its own source between the null check and here.
+            // Harmless: there is nothing left to cancel.
+        }
+    }
+}

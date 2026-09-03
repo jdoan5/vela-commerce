@@ -1,0 +1,92 @@
+@*
+    The verdict, which is the point of the whole page.
+
+    It sits above the transcript rather than below it because that is the order the argument reads
+    in: here is whether the invariant held, here is the rule it is, here is which evidence settles
+    it, and here are the individual comparisons — then, underneath, the hundred and fifty requests
+    that produced them.
+
+    A FAILING VERDICT IS RENDERED AS LOUDLY AS A PASSING ONE. A lab that could only produce good
+    news would be worthless as evidence, because it would produce good news against a broken shop
+    too. Every check states what was expected and what was actually found, so a reader can disagree
+    with the conclusion using the same numbers it was drawn from.
+*@
+@using VelaCommerce.Storefront.Lab
+
+<section class="vc-lab-verdict @(Verdict.Held ? "vc-lab-verdict--held" : "vc-lab-verdict--broken")"
+         aria-labelledby="@($"{Id}-verdict")">
+    <div class="vc-lab-verdict__head">
+        <span class="vc-lab-verdict__mark" aria-hidden="true">
+            @if (Verdict.Held)
+            {
+                <svg viewBox="0 0 16 16" width="15" height="15" fill="none" focusable="false">
+                    <path d="M2.5 8.5 6.2 12.2 13.5 4.2" stroke="currentColor" stroke-width="1.8" stroke-linecap="square" />
+                </svg>
+            }
+            else
+            {
+                <svg viewBox="0 0 16 16" width="15" height="15" fill="none" focusable="false">
+                    <path d="M3 3l10 10M13 3 3 13" stroke="currentColor" stroke-width="1.8" stroke-linecap="square" />
+                </svg>
+            }
+        </span>
+
+        <div class="vc-lab-verdict__headings">
+            <span class="vc-eyebrow">Verdict</span>
+            <h3 class="vc-lab-verdict__title" id="@($"{Id}-verdict")">
+                @(Verdict.Held ? "The invariant held" : "The invariant did not hold")
+            </h3>
+        </div>
+
+        <span class="vc-lab-verdict__count vc-tabular">
+            @Verdict.Passed / @Verdict.All.Count checks
+        </span>
+    </div>
+
+    @if (Verdict.Invariant is { Length: > 0 } invariant)
+    {
+        <p class="vc-lab-verdict__rule">@invariant</p>
+    }
+
+    @if (Verdict.HowWeKnow is { Length: > 0 } how)
+    {
+        <p class="vc-lab-verdict__how">@how</p>
+    }
+
+    @if (Verdict.All.Count > 0)
+    {
+        <ol class="vc-lab-checks">
+            @foreach (var check in Verdict.All)
+            {
+                <li class="vc-lab-check @(check.Passed ? "vc-lab-check--passed" : "vc-lab-check--failed")">
+                    <span class="vc-lab-check__mark" aria-hidden="true">@(check.Passed ? "✓" : "✗")</span>
+                    <div class="vc-lab-check__body">
+                        <p class="vc-lab-check__claim">
+                            <span class="vc-visually-hidden">@(check.Passed ? "Passed:" : "Failed:")</span>
+                            @check.Claim
+                        </p>
+                        <dl class="vc-lab-check__pair">
+                            <dt>Expected</dt>
+                            <dd class="vc-tabular">@check.Expected</dd>
+                            <dt>Found</dt>
+                            <dd class="vc-tabular">@check.Actual</dd>
+                        </dl>
+                    </div>
+                </li>
+            }
+        </ol>
+    }
+</section>
+
+@code {
+    /// <summary>The verdict to render. Required.</summary>
+    [Parameter, EditorRequired]
+    public LabVerdictDocument Verdict { get; set; } = default!;
+
+    /// <summary>
+    /// A prefix unique to the scenario, so the heading this section is labelled by has a unique id
+    /// even when several completed runs are on the index page at once.
+    /// </summary>
+    [Parameter, EditorRequired]
+    public string Id { get; set; } = "";
+}

@@ -1,0 +1,171 @@
+@*
+    One line of a lab transcript: what the run did, the HTTP it sent, what came back, how long it
+    took, and how honest the line is.
+
+    THREE THINGS ARE NEVER COLLAPSED, because collapsing them is how a demo starts flattering
+    itself:
+      * the fidelity, whenever it is anything other than a live exchange printed as it happened;
+      * the reason for it, in the server's own words;
+      * a transport failure, which is the only thing on this page that is actually broken.
+    The raw request and response ARE collapsed, because eight bodies of checkout JSON open at once
+    is not evidence, it is a wall — and the interesting half of a race is the status line, which
+    stays visible.
+
+    A 409 AND A 402 ARE NOT ERRORS HERE. Forty-five refusals is the whole claim of the oversell
+    scenario, and a page that painted them red would be telling a reviewer the shop failed
+    forty-five times. Refusals get their own colour, distinct from both success and breakage.
+*@
+@using VelaCommerce.Storefront.Lab
+
+<li class="vc-lab-step @(Step.IsTransportFailure ? "vc-lab-step--broken" : null)">
+    <span class="vc-lab-step__num vc-tabular" aria-hidden="true">@Step.Number</span>
+
+    <div class="vc-lab-step__body">
+        <h4 class="vc-lab-step__title">
+            <span class="vc-visually-hidden">Step @Step.Number:</span>
+            @Step.Title
+        </h4>
+
+        @if (Step.Request is { } request)
+        {
+            <p class="vc-lab-wire">
+                <span class="vc-lab-wire__method">@(request.Method ?? "?")</span>
+                <span class="vc-lab-wire__path">@(request.Path ?? "?")</span>
+                <span class="vc-lab-wire__status vc-lab-wire__status--@Family">@StatusLine</span>
+                @if (Step.ElapsedMilliseconds is long elapsed)
+                {
+                    <span class="vc-lab-wire__time">@elapsed ms</span>
+                }
+            </p>
+        }
+        else
+        {
+            @* Commentary rather than an exchange. Said plainly, so a reader never mistakes a
+               sentence the run wrote for something the server answered. *@
+            <p class="vc-lab-wire vc-lab-wire--note">
+                <span class="vc-lab-wire__method">NOTE</span>
+                <span class="vc-lab-wire__path">no request — this step is the run explaining itself</span>
+            </p>
+        }
+
+        <p class="vc-lab-step__narration">@Step.Narration</p>
+
+        <p class="vc-lab-step__flags">
+            @if (Step.Concurrency > 1)
+            {
+                <span class="vc-tag vc-tag--sea">@Step.Concurrency in flight together</span>
+            }
+            @if (Step.Represents > 1)
+            {
+                <span class="vc-tag vc-tag--brass">1 of @Step.Represents shown</span>
+            }
+            <span class="vc-tag @FidelityTag">@FidelityLabel</span>
+        </p>
+
+        @if (!Step.IsGenuine && Step.FidelityNote is { Length: > 0 } note)
+        {
+            <p class="vc-lab-step__fidelity @(Step.IsSimulated ? "vc-lab-step__fidelity--loud" : null)">
+                @note
+            </p>
+        }
+
+        @if (Step.Response?.Transport is { Length: > 0 } transport)
+        {
+            <p class="vc-lab-step__transport" role="alert">
+                Nothing answered: @transport
+            </p>
+        }
+
+        @if (Step.Request is not null || Step.Response is not null)
+        {
+            <details class="vc-lab-exchange">
+                <summary>Raw request and response</summary>
+
+                <div class="vc-lab-exchange__body">
+                    @if (Step.Request is { } shown)
+                    {
+                        <div class="vc-lab-exchange__half">
+                            <span class="vc-eyebrow">Request</span>
+                            <pre class="vc-lab-pre"><code>@Wire(shown.Line, shown.All, shown.Body)</code></pre>
+                        </div>
+                    }
+
+                    @if (Step.Response is { } answer)
+                    {
+                        <div class="vc-lab-exchange__half">
+                            <span class="vc-eyebrow">Response</span>
+                            <pre class="vc-lab-pre"><code>@Wire(StatusLine, answer.All, answer.Body)</code></pre>
+                        </div>
+                    }
+                </div>
+            </details>
+        }
+    </div>
+</li>
+
+@code {
+    /// <summary>The step to render. Required.</summary>
+    [Parameter, EditorRequired]
+    public LabStepDocument Step { get; set; } = default!;
+
+    /// <summary>
+    /// The status family, as a CSS modifier. Falls back to "none" for a commentary step so the
+    /// class name is always well-formed rather than sometimes empty.
+    /// </summary>
+    private string Family => Step.Response?.Family ?? "none";
+
+    /// <summary>
+    /// "201 Created", or a plain sentence when nothing answered. Written once because it is used
+    /// twice — on the visible wire line and at the head of the raw response.
+    /// </summary>
+    private string StatusLine => Step.Response is not { } response
+        ? "—"
+        : response.Status == 0
+            ? "no answer"
+            : $"{response.Status} {response.Reason}".TrimEnd();
+
+    private string FidelityTag => Step switch
+    {
+        { IsGenuine: true } => "vc-tag--sea",
+        { IsSimulated: true } => "vc-tag--signal",
+        _ => "vc-tag--brass",
+    };
+
+    /// <summary>
+    /// The fidelity in words rather than in the wire's vocabulary.
+    /// <para>
+    /// An unrecognised value is printed rather than swallowed, and prefixed so it cannot read as an
+    /// endorsement. This build knows three kinds; a server that grew a fourth must not have it
+    /// rendered as though it were the reassuring one.
+    /// </para>
+    /// </summary>
+    private string FidelityLabel => Step switch
+    {
+        { IsGenuine: true } => "genuine exchange",
+        { IsElided: true } => "elided repeat",
+        { IsNotFollowed: true } => "consequence not followed",
+        _ => $"not a live exchange: {Step.Fidelity ?? "unstated"}",
+    };
+
+    /// <summary>
+    /// Lays one half of the exchange out the way a wire dump reads: the start line, the headers,
+    /// a blank line, the body. Assembled here rather than in markup so the <c>pre</c> contains
+    /// exactly the text and no incidental Razor whitespace.
+    /// </summary>
+    private static string Wire(string startLine, IReadOnlyList<LabHeaderDocument> headers, string? body)
+    {
+        var text = new System.Text.StringBuilder(startLine);
+
+        foreach (var header in headers)
+        {
+            text.Append('\n').Append(header.Name).Append(": ").Append(header.Value);
+        }
+
+        if (body is { Length: > 0 })
+        {
+            text.Append("\n\n").Append(body);
+        }
+
+        return text.ToString();
+    }
+}

@@ -71,7 +71,20 @@ public sealed class DemoLabLoopback : IDisposable
 
         _options = options;
         _ownsHandler = handler is null;
-        _http = handler is null ? new HttpClient() : new HttpClient(handler, disposeHandler: false);
+
+        // UseCookies = false, and it is the single most important line in this class.
+        //
+        // The default handler keeps a CookieContainer shared by every request it makes. With fifty
+        // shoppers going through one client, that container collects fifty Set-Cookie values for
+        // one host, keeps the last, and silently appends it to every subsequent request - so a
+        // request carrying shopper 12's cookie arrives with two vela.session values and the server
+        // believes whichever it parses last. The result is fifty racers who are sometimes one
+        // visitor, which destroys the isolation the whole demonstration rests on AND collapses
+        // fifty rate-limit buckets into one. Turning the container off makes the Cookie header this
+        // class writes the only one there is.
+        _http = handler is null
+            ? new HttpClient(new SocketsHttpHandler { UseCookies = false }, disposeHandler: true)
+            : new HttpClient(handler, disposeHandler: false);
 
         // The real bound is the per-request linked token in SendAsync, which the run's own budget
         // also feeds. This is only a backstop against HttpClient's 100-second default outliving a

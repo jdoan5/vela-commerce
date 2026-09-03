@@ -1,0 +1,409 @@
+@*
+    One scenario: the claim, a button, and — once it has been pressed — the argument.
+
+    THE READING ORDER IS THE ARGUMENT. Verdict first, because that is the point; then the ledger,
+    because "five units, five sold" is the headline and it must not be buried under a hundred lines
+    of JSON; then the transcript, which is the evidence; then the rows the verdict was drawn from.
+    A reviewer with ninety seconds reads the first two and stops, and has not been misled.
+
+    A REFUSAL IS NOT A FAILURE. A 429 is the published cooldown working; a 404 is a permalink that
+    names nothing; a 503 is a host that mapped the endpoints without registering the services, and
+    it arrives carrying the exact line somebody has to add. All three are rendered as notices in
+    brass, with the server's own sentence quoted. The only red state on this page is a run that got
+    no answer at all, and that one offers a retry.
+
+    A VERDICT THAT DID NOT HOLD IS RENDERED JUST AS PROMINENTLY AS ONE THAT DID. That is the whole
+    value of the thing: a lab that could only produce good news would produce it against a broken
+    shop too.
+*@
+@using VelaCommerce.Storefront.Lab
+
+<section class="vc-lab-scenario @(Detailed ? "vc-lab-scenario--focused" : null)"
+         id="@($"scenario-{Scenario.Key}")"
+         aria-label="@Scenario.Heading">
+
+    <div class="vc-lab-scenario__head">
+        <h2 class="vc-lab-scenario__title">@Heading</h2>
+        <p class="vc-lab-scenario__claim">@Scenario.Claim</p>
+    </div>
+
+    <p class="vc-lab-scenario__meta">
+        <span class="vc-tag">@Scenario.Participants @(Scenario.Participants == 1 ? "shopper" : "shoppers")</span>
+        <span class="vc-tag">@Scenario.Units @(Scenario.Units == 1 ? "unit" : "units") of private stock</span>
+        @if (Scenario.ProvenBy is { Length: > 0 } provenBy)
+        {
+            <a class="vc-lab-scenario__proof vc-tabular"
+               href="@($"{Repository}/blob/HEAD/{provenBy}")"
+               target="_blank"
+               rel="noopener noreferrer">
+                proven in CI by @FileName(provenBy)
+            </a>
+        }
+    </p>
+
+    <div class="vc-lab-scenario__actions">
+        <button type="button"
+                class="vc-btn vc-btn--primary"
+                disabled="@(!CanRun)"
+                @onclick="RunAsync">
+            @ButtonLabel
+        </button>
+
+        @if (!Detailed)
+        {
+            <a class="vc-btn vc-btn--sm" href="@($"lab/{Scenario.Key}")">Permalink</a>
+        }
+
+        @if (Scenario.RunPath is { Length: > 0 } runPath)
+        {
+            <span class="vc-lab-scenario__wire vc-tabular">POST @runPath</span>
+        }
+    </div>
+
+    @if (!CanRun && Blocked is { Length: > 0 } blocked)
+    {
+        <p class="vc-lab-scenario__blocked">@blocked</p>
+    }
+
+    @* The one live region per scenario. It exists in every state so a change to it is announced;
+       a region that only appears when there is news is a region that arrives too late to be read. *@
+    <p class="vc-visually-hidden" role="status" aria-live="polite">@Announcement</p>
+
+    <details class="vc-lab-scenario__detail" open="@Detailed">
+        <summary>What this proves, and how</summary>
+        <div class="vc-lab-scenario__detail-body">
+            <dl class="vc-gateway">
+                <div class="vc-gateway__row">
+                    <dt class="vc-gateway__key">Invariant</dt>
+                    <dd class="vc-gateway__value">@Scenario.Invariant</dd>
+                </div>
+                <div class="vc-gateway__row">
+                    <dt class="vc-gateway__key">Mechanism</dt>
+                    <dd class="vc-gateway__value">@Scenario.Mechanism</dd>
+                </div>
+                <div class="vc-gateway__row">
+                    <dt class="vc-gateway__key">This run writes</dt>
+                    <dd class="vc-gateway__value">@Scenario.Creates</dd>
+                </div>
+                <div class="vc-gateway__row">
+                    <dt class="vc-gateway__key">Fidelity</dt>
+                    <dd class="vc-gateway__value">@Scenario.Fidelity</dd>
+                </div>
+                <div class="vc-gateway__row">
+                    <dt class="vc-gateway__key">Same claim in CI</dt>
+                    <dd class="vc-gateway__value vc-tabular">
+                        @Scenario.ProvenBy
+                        @if (Scenario.ProvenByTest is { Length: > 0 } test)
+                        {
+                            <text> &middot; @test</text>
+                        }
+                    </dd>
+                </div>
+            </dl>
+        </div>
+    </details>
+
+    @if (IsRunning)
+    {
+        <div class="vc-waking vc-lab-running">
+            <span class="vc-waking__pip" aria-hidden="true"></span>
+            <div class="vc-waking__body">
+                <p class="vc-waking__title">@(IsWaking ? "Waking the shop up" : "Running against the live shop")</p>
+                <p class="vc-waking__note">
+                    @if (IsWaking)
+                    {
+                        <text>
+                            The API sleeps when nobody is buying, which is what keeps it free to run.
+                            The first call after a quiet spell waits for a container to start and a
+                            database to resume, and only then does the run begin.
+                        </text>
+                    }
+                    else
+                    {
+                        <text>
+                            @Scenario.Participants simultaneous shoppers, over real HTTP, against the
+                            same endpoints a purchase uses. The server seeds its own stock, races it,
+                            reads the rows afterwards and destroys the fixture before it answers.
+                        </text>
+                    }
+                </p>
+                <p class="vc-lab-running__clock vc-tabular">@Elapsed.ToString("0.0") s elapsed</p>
+            </div>
+        </div>
+    }
+    else if (Result is { Outcome: LabOutcome.Completed, Run: { } run })
+    {
+        <div class="vc-lab-run">
+
+            @if (run.HasSimulatedSteps)
+            {
+                @* Unreachable against the current server, which never emits anything but the three
+                   honest kinds. Rendered anyway, first, and in the signal colour: the failure mode
+                   this page most has to avoid is quietly presenting a fabricated exchange as a
+                   live one. *@
+                <div class="vc-alert vc-alert--error" role="alert">
+                    <h3 class="vc-alert__title">Part of this transcript is not a live exchange</h3>
+                    <p class="vc-alert__body">
+                        At least one step below reports a fidelity this build does not recognise as
+                        one of genuine, elided or not-followed. Treat those steps as unproven: read
+                        the fidelity note on each one before you believe anything drawn from it.
+                    </p>
+                </div>
+            }
+
+            @if (run.Verdict is { } verdict)
+            {
+                <LabVerdictPanel Verdict="verdict" Id="@Scenario.Key" />
+            }
+
+            @if (run.Evidence is { } ledgerEvidence)
+            {
+                <LabEvidencePanel Evidence="ledgerEvidence" ShowLedger="true" ShowRest="false" />
+            }
+
+            @if (run.Notes.Count > 0)
+            {
+                @* Never behind a disclosure. A caveat a reader has to open is a caveat the page has
+                   decided they probably will not read. *@
+                <div class="vc-lab-caveats">
+                    <h3 class="vc-lab-caveats__title">What this run does not show</h3>
+                    <ul class="vc-lab-caveats__list">
+                        @foreach (var caveat in run.Notes)
+                        {
+                            <li>@caveat</li>
+                        }
+                    </ul>
+                </div>
+            }
+
+            <h3 class="vc-lab-run__title">The transcript</h3>
+            <p class="vc-lab-run__note">
+                Every line below is an exchange between this shop and itself, over HTTP, through the
+                same middleware, rate limiter, tenancy filter and transaction a purchase goes
+                through. Nothing calls an internal method with a hand-made session.
+                @if (run.HasQualifiedSteps)
+                {
+                    <text>
+                        Where a step stands for others that are not printed, or where its
+                        asynchronous consequence was not waited for, the step says so on itself.
+                    </text>
+                }
+            </p>
+
+            <ol class="vc-lab-steps">
+                @foreach (var step in run.Transcript)
+                {
+                    <LabTranscriptStep Step="step" @key="step.Number" />
+                }
+            </ol>
+
+            @if (run.Evidence is { } restEvidence)
+            {
+                <h3 class="vc-lab-run__title">What the database says</h3>
+                <p class="vc-lab-run__note">
+                    Read after the run finished, outside every visitor's session. The transcript above
+                    is what the shop <em>answered</em>; this is what it <em>did</em>, and they are not
+                    the same claim — a shop that replied 201 five times and reserved eight units would
+                    produce a perfect transcript.
+                </p>
+                <LabEvidencePanel Evidence="restEvidence" ShowLedger="false" ShowRest="true" />
+            }
+
+            <p class="vc-lab-run__foot vc-tabular">
+                run @run.RunId &middot; @run.ElapsedMilliseconds ms server-side &middot;
+                started @run.StartedAt.ToLocalTime().ToString("HH:mm:ss")
+                @if (run.Fixture is { ProductSlug: { Length: > 0 } slug })
+                {
+                    <text> &middot; fixture @slug</text>
+                }
+            </p>
+
+            @if (run.Fixture?.Why is { Length: > 0 } why)
+            {
+                <p class="vc-lab-run__note">@why</p>
+            }
+        </div>
+    }
+    else if (Result is { Outcome: LabOutcome.Refused } refused)
+    {
+        <div class="vc-alert vc-alert--notice" role="status">
+            <h3 class="vc-alert__title">@(refused.Problem?.Title ?? "The lab declined to run that")</h3>
+
+            @if (refused.Problem?.Detail is { Length: > 0 } detail)
+            {
+                <p class="vc-alert__body vc-alert__body--quoted">@detail</p>
+            }
+
+            <p class="vc-alert__body">
+                @if (refused.IsCooldown)
+                {
+                    <text>
+                        This is the published limit doing its job, not a fault. One press of a button
+                        becomes up to a hundred and fifty real requests, so the thing being limited
+                        is runs rather than requests — a distinction the shop's general rate limiter
+                        cannot make, because from outside every run looks like one POST.
+                    </text>
+                }
+                else if (refused.IsNotComposed)
+                {
+                    <text>
+                        The endpoints are mapped but their services were never registered. The
+                        detail above names the exact line the composition root is missing. It is
+                        answered as a 503 rather than a 500 deliberately: nothing is broken, a
+                        dependency is simply absent, and answering this way is what stops a wiring
+                        slip from breaking the build-time OpenAPI generator.
+                    </text>
+                }
+                else if (refused.IsUnknownScenario)
+                {
+                    <text>
+                        That permalink does not name a scenario this build offers. The detail above
+                        lists the ids that exist.
+                    </text>
+                }
+                else
+                {
+                    <text>
+                        The endpoint answered @refused.Status and declined to start the run. Nothing
+                        was created and nothing needs cleaning up.
+                    </text>
+                }
+            </p>
+        </div>
+    }
+    else if (Result is { Outcome: LabOutcome.Unreachable } unreachable)
+    {
+        <div class="vc-alert vc-alert--error" role="alert">
+            <h3 class="vc-alert__title">The shop did not answer</h3>
+            <p class="vc-alert__body">
+                This is the one genuine error state on this page. A 409 or a 402 in a transcript is a
+                demonstration; no answer at all is a failure, and the run may or may not have
+                happened on the server. It cleans up after itself either way — the fixture teardown
+                is in a <code class="vc-code">finally</code> — so pressing Run again is safe.
+            </p>
+            @if (unreachable.Detail is { Length: > 0 } detail)
+            {
+                <details class="vc-alert__detail">
+                    <summary>Technical detail</summary>
+                    @detail
+                </details>
+            }
+            <div class="vc-alert__actions">
+                <button type="button" class="vc-btn vc-btn--primary" disabled="@(!CanRun)" @onclick="RunAsync">
+                    Try again
+                </button>
+            </div>
+        </div>
+    }
+</section>
+
+@code {
+    /// <summary>
+    /// The public repository, so "proven in CI by CheckoutStockRaceTests.cs" is a link a reviewer
+    /// can follow rather than a path they have to go and find.
+    /// </summary>
+    /// <remarks>
+    /// <c>blob/HEAD</c> rather than <c>blob/main</c>: HEAD resolves to whatever the default branch
+    /// is called, so renaming it cannot silently turn every one of these into a 404.
+    /// </remarks>
+    private const string Repository = "https://github.com/jdoan5/vela-commerce";
+
+    /// <summary>The scenario this panel offers. Required.</summary>
+    [Parameter, EditorRequired]
+    public LabScenarioDocument Scenario { get; set; } = default!;
+
+    /// <summary>
+    /// True on a permalink, where this scenario is the subject of the page: the description opens
+    /// by default, and the permalink link is dropped because the reader is already standing on it.
+    /// </summary>
+    [Parameter]
+    public bool Detailed { get; set; }
+
+    /// <summary>The panel's own heading. The index passes the scenario's title; a permalink, whose h1 already carries it, passes a section label.</summary>
+    [Parameter]
+    public string Heading { get; set; } = "";
+
+    /// <summary>This scenario's last result in this tab, or null if it has not been run.</summary>
+    [Parameter]
+    public LabRunResult? Result { get; set; }
+
+    /// <summary>True while this scenario's run is in flight.</summary>
+    [Parameter]
+    public bool IsRunning { get; set; }
+
+    /// <summary>True once a run has been slow enough to be a cold start rather than a slow query.</summary>
+    [Parameter]
+    public bool IsWaking { get; set; }
+
+    /// <summary>Seconds this run has been going, for the clock in the running notice.</summary>
+    [Parameter]
+    public double Elapsed { get; set; }
+
+    /// <summary>Whether the Run button is live. False while any run is in flight, during the cooldown, and when the deployment has the lab switched off.</summary>
+    [Parameter]
+    public bool CanRun { get; set; }
+
+    /// <summary>Why the button is disabled, in words, shown under it. Null when it is not.</summary>
+    [Parameter]
+    public string? Blocked { get; set; }
+
+    /// <summary>Raised when Run is pressed. The page owns the deadline, the cooldown and the single-flight rule.</summary>
+    [Parameter]
+    public EventCallback<LabScenarioDocument> OnRun { get; set; }
+
+    private Task RunAsync() => OnRun.InvokeAsync(Scenario);
+
+    private string ButtonLabel => IsRunning
+        ? "Running…"
+        : Result is { Outcome: LabOutcome.Completed }
+            ? "Run it again"
+            : "Run it";
+
+    /// <summary>
+    /// What a screen reader is told when this panel changes.
+    /// <para>
+    /// The verdict is stated as a count rather than as the word "passed", for the same reason the
+    /// verdict panel shows one: a reader who cannot see the checks is entitled to the number they
+    /// would have counted.
+    /// </para>
+    /// </summary>
+    private string Announcement
+    {
+        get
+        {
+            if (IsRunning)
+            {
+                return $"Running {Scenario.Heading}.";
+            }
+
+            return Result switch
+            {
+                { Outcome: LabOutcome.Completed, Run.Verdict: { } verdict } =>
+                    $"{Scenario.Heading} finished. "
+                    + (verdict.Held ? "The invariant held. " : "The invariant did not hold. ")
+                    + $"{verdict.Passed} of {verdict.All.Count} checks passed.",
+
+                { Outcome: LabOutcome.Completed } => $"{Scenario.Heading} finished.",
+
+                { Outcome: LabOutcome.Refused } refused =>
+                    $"{Scenario.Heading} was declined: {refused.Problem?.Title ?? refused.Status.ToString()}.",
+
+                { Outcome: LabOutcome.Unreachable } => $"{Scenario.Heading} got no answer from the shop.",
+
+                _ => "",
+            };
+        }
+    }
+
+    /// <summary>
+    /// The last segment of a repository path. The full path is still shown in the description; the
+    /// meta line wants the file name, because "CheckoutStockRaceTests.cs" is what a reviewer
+    /// recognises and the three directories in front of it are not what makes the point.
+    /// </summary>
+    private static string FileName(string path)
+    {
+        var slash = path.LastIndexOf('/');
+
+        return slash >= 0 && slash < path.Length - 1 ? path[(slash + 1)..] : path;
+    }
+}
