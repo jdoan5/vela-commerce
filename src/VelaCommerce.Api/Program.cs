@@ -1,8 +1,11 @@
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Diagnostics;
 using Scalar.AspNetCore;
 using VelaCommerce.Api.Endpoints;
 using VelaCommerce.Api.Tenancy;
 using VelaCommerce.Infrastructure.Checkout;
+using VelaCommerce.Infrastructure.Fulfilment;
+using VelaCommerce.Infrastructure.Messaging;
 using VelaCommerce.Infrastructure.Payments;
 using VelaCommerce.Infrastructure.Persistence;
 using VelaCommerce.Infrastructure.Seeding;
@@ -21,6 +24,14 @@ builder.Services.AddDbContext<VelaCommerceDbContext>(options =>
         ?? builder.Configuration.GetConnectionString("Vela")
         ?? throw new InvalidOperationException(
             "No database connection string. Set VELA_DB_CONNECTION or ConnectionStrings:Vela.");
+
+    // A duplicate settlement delivery is EXPECTED: the receiver deliberately lets the insert
+    // into processed_webhook_events lose on the primary key rather than checking first, because
+    // check-then-insert is the race this design exists to avoid. EF logs that failure and two
+    // stack traces at Error before the handler ever sees it, so the headline "Duplicate" demo
+    // scenario printed a page of alarm for a mechanism working correctly.
+    options.ConfigureWarnings(warnings =>
+        warnings.Log((CoreEventId.SaveChangesFailed, LogLevel.Debug)));
 
     options.UseNpgsql(connectionString, npgsql =>
     {
@@ -46,6 +57,16 @@ builder.Services.AddCheckout();
 // purchase with no payment account and no network. The environment flag makes it refuse to
 // start outside Development while the committed development signing secret is in use.
 builder.Services.AddPaymentSimulator(builder.Configuration, builder.Environment.IsDevelopment());
+
+// The outbox makes "the payment was authorized" and "a settlement webhook will arrive" the
+// same fact: the notification is written in the transaction that persists the order, so one
+// cannot happen without the other. Takes root configuration because it discovers the
+// receiver's address from the host's own urls.
+builder.Services.AddOutbox(builder.Configuration);
+
+// Advances paid orders through Packed and Shipped on a demo clock, so a reviewer watches the
+// lifecycle in a minute rather than a week.
+builder.Services.AddOrderTimeline(builder.Configuration);
 
 // Identity on a site with no accounts: a signed cookie, and a scoped holder the DbContext reads
 // when it filters carts and orders. Registering it here is what turns tenancy on — and forgetting
@@ -96,6 +117,7 @@ if (app.Environment.IsDevelopment())
 app.MapCatalogEndpoints();
 app.MapCartEndpoints();
 app.MapCheckoutEndpoints();
+app.MapWebhookEndpoints();
 
 // Two separate probes: liveness must never touch the database, or a sleeping
 // database would get the container killed rather than merely reported unhealthy.

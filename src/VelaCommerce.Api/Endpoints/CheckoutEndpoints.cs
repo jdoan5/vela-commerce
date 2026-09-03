@@ -52,9 +52,12 @@ using VelaCommerce.Api.Contracts;
 using VelaCommerce.Domain.Carts;
 using VelaCommerce.Domain.Common;
 using VelaCommerce.Domain.Inventory;
+using VelaCommerce.Domain.Messaging;
 using VelaCommerce.Domain.Orders;
 using VelaCommerce.Domain.Payments;
 using VelaCommerce.Infrastructure.Checkout;
+using VelaCommerce.Infrastructure.Messaging;
+using VelaCommerce.Infrastructure.Payments;
 using VelaCommerce.Infrastructure.Persistence;
 using VelaCommerce.Infrastructure.Tenancy;
 
@@ -161,6 +164,7 @@ public static class CheckoutEndpoints
         VelaCommerceDbContext db,
         ICurrentDemoSession session,
         IPaymentGateway gateway,
+        IPaymentSimulator simulator,
         IDataProtectionProvider dataProtection,
         TimeProvider clock,
         ILoggerFactory loggerFactory,
@@ -273,17 +277,19 @@ public static class CheckoutEndpoints
             };
         }
 
+        // Built once and used twice: to authorize, and — only if the gateway defers — to ask the
+        // simulator for the settlement notifications that belong to this same authorization.
+        var paymentRequest = new PaymentAuthorizationRequest(
+            order.Total,
+            order.OrderNumber,
+            idempotencyKey!,
+            now,
+            request.PaymentScenario);
+
         PaymentAuthorizationResult authorization;
         try
         {
-            authorization = await gateway.AuthorizeAsync(
-                new PaymentAuthorizationRequest(
-                    order.Total,
-                    order.OrderNumber,
-                    idempotencyKey!,
-                    now,
-                    request.PaymentScenario),
-                cancellationToken);
+            authorization = await gateway.AuthorizeAsync(paymentRequest, cancellationToken);
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
@@ -316,6 +322,24 @@ public static class CheckoutEndpoints
             return PaymentNotCompletedProblem(order.OrderNumber, payment);
         }
 
+        // THE DELIVERY PLAN IS ASKED FOR ONLY AFTER THE GATEWAY HAS ANSWERED, AND ONLY WHEN THE
+        // ANSWER DEFERS.
+        //
+        // Order matters here. Enqueuing a settlement before knowing the authorization succeeded
+        // would be promising money that was never authorized — and AuthorizeAsync is where the
+        // simulator refuses to sign with the committed development secret outside Development, so
+        // reaching past it to Simulate would also quietly step around that refusal. Asking
+        // afterwards costs a second call to a pure function: Simulate is deterministic in the
+        // request, so the plan it returns is the plan that belongs to the answer already in hand —
+        // same gateway reference, same event ids, same bytes.
+        //
+        // IPaymentSimulator rather than IPaymentGateway on purpose. A real gateway sends its own
+        // webhooks from its own infrastructure; there would be nothing to enqueue and this block
+        // would go away with the simulator. The domain port stays free of the concept.
+        IReadOnlyList<SignedPaymentNotification> notifications = authorization.AwaitsSettlement
+            ? simulator.Simulate(paymentRequest).Notifications
+            : [];
+
         Order? settled;
         try
         {
@@ -323,7 +347,8 @@ public static class CheckoutEndpoints
             // answer, and for a capture that means the money has moved. Abandoning the write
             // because the shopper closed the tab would leave a paid order sitting in Pending with
             // nothing to reconcile it against — the one outcome worse than a slow response.
-            settled = await SettleAsync(db, order.Id, authorization, now, logger, CancellationToken.None);
+            settled = await SettleAsync(
+                db, order.Id, authorization, notifications, now, logger, CancellationToken.None);
         }
         catch (Exception exception) when (exception is DomainException or DbUpdateException)
         {
@@ -546,11 +571,18 @@ public static class CheckoutEndpoints
     /// than passing silently. Reloading turns that into the harmless "already settled, nothing to
     /// do" branch below.
     /// </para>
+    /// <para>
+    /// It is also where the settlement notifications are enqueued, so that the promise of a webhook
+    /// and the order state it will settle are one commit rather than two things that can disagree.
+    /// See the comment at the <c>AddRange</c> below for why posting them here instead would be
+    /// wrong.
+    /// </para>
     /// </summary>
     private static async Task<Order?> SettleAsync(
         VelaCommerceDbContext db,
         Guid orderId,
         PaymentAuthorizationResult authorization,
+        IReadOnlyList<SignedPaymentNotification> notifications,
         DateTimeOffset now,
         ILogger logger,
         CancellationToken cancellationToken)
@@ -655,6 +687,42 @@ public static class CheckoutEndpoints
                         }
                     }
                 }
+
+                // THE PROMISE AND THE STATE CHANGE ARE ONE COMMIT.
+                //
+                // These rows go in here, inside the settle transaction, so that "a settlement
+                // notification will arrive for this order" is written by the same SaveChangesAsync
+                // that records what the gateway said. This transaction really can roll back — it
+                // also clears the cart, and two tabs racing to delete the same lines produce a
+                // concurrency failure, which is why the caller catches DbUpdateException — and when
+                // it does, the notification rolls back with it. Never a queued settlement for an
+                // order state that was not committed; never a committed state waiting on a
+                // settlement nobody queued.
+                //
+                // POSTING THE WEBHOOK INLINE INSTEAD WOULD BE WRONG, in three separate ways:
+                //
+                //   * It could not be atomic with anything. An HTTP call cannot join a database
+                //     transaction. Post-then-commit delivers a settlement for a state that may
+                //     never exist; commit-then-post loses the settlement outright if this process
+                //     dies in between — which for a container that scales to zero is an ordinary
+                //     event rather than a disaster scenario. A row makes both halves one fact,
+                //     which is the only shape in which they cannot disagree.
+                //   * There would be nowhere to record a failure. A receiver that is briefly down
+                //     is ordinary. Inline, the only choices are to fail the checkout for something
+                //     the shopper did not do, or to swallow the error and silently lose the
+                //     payment. The outbox turns that into an attempt count, a backoff and a
+                //     retry — none of which the shopper waits for.
+                //   * It would ignore DeliverAfter, and with it the point of the exercise. The
+                //     simulator's deferred scenarios settle seconds later, twice, or in the wrong
+                //     order; delivering inline collapses all three into "immediately, once, in
+                //     order", which is the one case the receiver was never at risk from.
+                //
+                // The order row is already committed by the time this runs — checkout deliberately
+                // holds no transaction across the gateway call — so the race the simulator's own
+                // documentation warns about, a webhook arriving before its order exists, is not
+                // the danger at this point. The danger here is the mirror image: an order settled
+                // in this transaction with a notification already sent for it.
+                db.Set<OutboxMessage>().AddRange(OutboxNotifications.ToMessages(notifications, now));
 
                 await db.SaveChangesAsync(token);
                 await transaction.CommitAsync(token);

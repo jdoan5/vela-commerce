@@ -70,77 +70,156 @@ public sealed class ReservationReaper(
         }
     }
 
-    /// <summary>Releases every reservation whose window has closed. Returns how many it reclaimed.</summary>
+    /// <summary>
+    /// Releases every reservation whose window has closed. Returns how many units it reclaimed.
+    /// <para>
+    /// The whole sweep is ONE transaction and every row is claimed under a lock, because this
+    /// worker races the settlement receiver over the same rows. Without that, an adversarial
+    /// review reproduced two money-losing interleavings every run: the reaper reading an order
+    /// as Pending, a settlement paying it, and the reaper's blind write turning a captured
+    /// payment into a Cancelled order; and the mirror, where a settlement paid the order while
+    /// the reaper released its reservations, so the timeline later shipped it having moved zero
+    /// units and the stock went back on sale already sold.
+    /// </para>
+    /// <para>
+    /// Reads use bare <c>IgnoreQueryFilters()</c>: the tenancy filter fails closed and would
+    /// blind a worker with no visitor, and the surviving soft-delete filter alone is enough to
+    /// make EF wrap the statement and bury the locking clause.
+    /// </para>
+    /// </summary>
     public async Task<int> SweepAsync(CancellationToken cancellationToken)
     {
         await using var scope = scopeFactory.CreateAsyncScope();
         var db = scope.ServiceProvider.GetRequiredService<VelaCommerceDbContext>();
 
-        var now = timeProvider.GetUtcNow();
+        var strategy = db.Database.CreateExecutionStrategy();
 
-        var lapsed = await db.StockReservations
-            .Where(reservation => reservation.Status == ReservationStatus.Held && reservation.ExpiresAt <= now)
-            .OrderBy(reservation => reservation.ExpiresAt)
-            .Take(BatchSize)
-            .ToListAsync(cancellationToken);
-
-        if (lapsed.Count == 0)
-            return 0;
-
-        var reclaimed = 0;
-
-        foreach (var reservation in lapsed)
+        return await strategy.ExecuteAsync(async () =>
         {
-            // Mirrors the checkout's reservation statement exactly, guarded so it cannot
-            // underflow. A row count of zero means the ledger no longer holds what this
-            // reservation claims — worth a warning, not worth failing the sweep.
-            var released = await db.Database.ExecuteSqlAsync(
-                $"""
-                 UPDATE stock_items
-                 SET reserved = reserved - {reservation.Quantity}
-                 WHERE variant_id = {reservation.VariantId}
-                   AND deleted_at IS NULL
-                   AND reserved >= {reservation.Quantity}
-                 """,
-                cancellationToken);
+            await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
 
-            if (released != 1)
+            var now = timeProvider.GetUtcNow();
+            var held = (int)ReservationStatus.Held;
+
+            // SKIP LOCKED so two replicas share the work instead of queueing behind each other.
+            var lapsed = await db.StockReservations
+                .FromSql(
+                    $"""
+                     SELECT *
+                     FROM stock_reservations
+                     WHERE status = {held}
+                       AND expires_at <= {now}
+                       AND deleted_at IS NULL
+                     ORDER BY expires_at
+                     LIMIT {BatchSize}
+                     FOR UPDATE SKIP LOCKED
+                     """)
+                .IgnoreQueryFilters()
+                .ToListAsync(cancellationToken);
+
+            if (lapsed.Count == 0)
             {
-                logger.LogWarning(
-                    "Reservation {ReservationId} claimed {Quantity} of variant {VariantId}, but the "
-                    + "ledger did not hold them. Marking it released anyway so it stops being swept.",
-                    reservation.Id,
-                    reservation.Quantity,
-                    reservation.VariantId);
+                await transaction.RollbackAsync(cancellationToken);
+                return 0;
             }
 
-            reservation.Release();
-            reclaimed += reservation.Quantity;
-        }
+            var reclaimed = 0;
+            var releasedIds = new List<Guid>(lapsed.Count);
 
-        // Cancel the orders those reservations were holding stock for. An order still Pending
-        // when its window closes was never paid, and leaving it Pending would leave the shopper
-        // looking at a purchase that is never going to happen.
-        var orderIds = lapsed.Select(reservation => reservation.OrderId).Distinct().ToList();
+            foreach (var reservation in lapsed)
+            {
+                // Guarded on status, not just on the in-memory copy. StockReservation.Release()
+                // refuses a Confirmed row, but it judges the object loaded a moment ago and EF
+                // then emits an unguarded UPDATE by primary key. Under the race above that
+                // overwrote a reservation the settlement had just confirmed — the domain guard
+                // read as protection and provided none. The row count is the real answer.
+                var claimed = await db.Database.ExecuteSqlAsync(
+                    $"""
+                     UPDATE stock_reservations
+                     SET status = {(int)ReservationStatus.Released}
+                     WHERE id = {reservation.Id}
+                       AND status = {held}
+                     """,
+                    cancellationToken);
 
-        var abandoned = await db.Orders
-            .IgnoreQueryFilters([VelaCommerceDbContext.DemoTenancyFilter])
-            .Where(order => orderIds.Contains(order.Id) && order.Status == OrderStatus.Pending)
-            .ToListAsync(cancellationToken);
+                if (claimed != 1)
+                {
+                    // Somebody confirmed it between the claim and here. Its units are genuinely
+                    // sold, so the ledger must not be touched.
+                    logger.LogInformation(
+                        "Reservation {ReservationId} was confirmed while this sweep held it. "
+                        + "Leaving its {Quantity} unit(s) on the ledger.",
+                        reservation.Id,
+                        reservation.Quantity);
+                    continue;
+                }
 
-        foreach (var order in abandoned)
-        {
-            order.Cancel();
-        }
+                var released = await db.Database.ExecuteSqlAsync(
+                    $"""
+                     UPDATE stock_items
+                     SET reserved = reserved - {reservation.Quantity}
+                     WHERE variant_id = {reservation.VariantId}
+                       AND deleted_at IS NULL
+                       AND reserved >= {reservation.Quantity}
+                     """,
+                    cancellationToken);
 
-        await db.SaveChangesAsync(cancellationToken);
+                if (released != 1)
+                {
+                    logger.LogWarning(
+                        "Reservation {ReservationId} claimed {Quantity} of variant {VariantId}, but "
+                        + "the ledger did not hold them. It is released regardless so it stops being swept.",
+                        reservation.Id,
+                        reservation.Quantity,
+                        reservation.VariantId);
+                }
 
-        logger.LogInformation(
-            "Reclaimed {Units} unit(s) from {Reservations} lapsed reservation(s) and cancelled {Orders} order(s).",
-            reclaimed,
-            lapsed.Count,
-            abandoned.Count);
+                reclaimed += reservation.Quantity;
+                releasedIds.Add(reservation.OrderId);
+            }
 
-        return reclaimed;
+            var cancelled = 0;
+
+            foreach (var orderId in releasedIds.Distinct())
+            {
+                // FOR UPDATE without SKIP LOCKED: this one must wait rather than skip, so a
+                // settlement in flight either commits first and takes the order out of Pending,
+                // or waits behind this transaction and finds it Cancelled. Either way the two
+                // never both believe they won.
+                var pending = (int)OrderStatus.Pending;
+
+                var claimedOrders = await db.Orders
+                    .FromSql(
+                        $"""
+                         SELECT *
+                         FROM orders
+                         WHERE id = {orderId}
+                           AND status = {pending}
+                           AND deleted_at IS NULL
+                         FOR UPDATE
+                         """)
+                    .IgnoreQueryFilters()
+                    .ToListAsync(cancellationToken);
+
+                if (claimedOrders.Count == 0)
+                {
+                    continue;
+                }
+
+                claimedOrders[0].Cancel();
+                cancelled++;
+            }
+
+            await db.SaveChangesAsync(cancellationToken);
+            await transaction.CommitAsync(cancellationToken);
+
+            logger.LogInformation(
+                "Reclaimed {Units} unit(s) from {Reservations} lapsed reservation(s) and cancelled {Orders} order(s).",
+                reclaimed,
+                lapsed.Count,
+                cancelled);
+
+            return reclaimed;
+        });
     }
 }

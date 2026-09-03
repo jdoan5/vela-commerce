@@ -465,6 +465,88 @@
         }
       }
     },
+    "/api/payments/webhook": {
+      "post": {
+        "tags": [
+          "Payments"
+        ],
+        "summary": "Receive a signed settlement notification from the payment gateway",
+        "description": "The inbound half of the payment integration. Every request must carry an X-Vela-Signature header in the documented 't=<unix>,v1=<hex>' shape, computed over the exact bytes of the body; the body is verified as transmitted and never re-serialized, so a proxy that reformats JSON in flight will break the signature. A verified event is deduplicated by its gateway-assigned id and applied in one transaction, so delivering the same event twice moves the order once and answers 200 both times. 200 is also the answer when the event cannot be applied at all - the order is already Paid, or was cancelled, or no longer exists - because none of those are the sender's fault and none of them are fixed by retrying. 409 means the money in the event disagrees with the order total and a human has to look. Requests that fail verification are answered identically whatever went wrong with them.",
+        "operationId": "ReceivePaymentSettlement",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PaymentSettlementEvent"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PaymentSettlementAcknowledgement"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Payload Too Large",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too Many Requests",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/health": {
       "get": {
         "tags": [
@@ -1001,6 +1083,93 @@
           }
         }
       },
+      "PaymentSettlementAcknowledgement": {
+        "required": [
+          "eventId",
+          "outcome",
+          "applied",
+          "orderNumber",
+          "orderStatus"
+        ],
+        "type": "object",
+        "properties": {
+          "eventId": {
+            "type": "string"
+          },
+          "outcome": {
+            "type": "string"
+          },
+          "applied": {
+            "type": "boolean"
+          },
+          "orderNumber": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "orderStatus": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        }
+      },
+      "PaymentSettlementEvent": {
+        "required": [
+          "eventId",
+          "eventType",
+          "gatewayReference",
+          "orderReference",
+          "settlementCorrelationId",
+          "amount",
+          "currency",
+          "sequence",
+          "occurredAt"
+        ],
+        "type": "object",
+        "properties": {
+          "eventId": {
+            "type": "string"
+          },
+          "eventType": {
+            "type": "string"
+          },
+          "gatewayReference": {
+            "type": "string"
+          },
+          "orderReference": {
+            "type": "string"
+          },
+          "settlementCorrelationId": {
+            "type": "string"
+          },
+          "amount": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int64"
+          },
+          "currency": {
+            "type": "string"
+          },
+          "sequence": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "occurredAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
       "ProblemDetails": {
         "type": "object",
         "properties": {
@@ -1201,6 +1370,9 @@
     },
     {
       "name": "Checkout"
+    },
+    {
+      "name": "Payments"
     },
     {
       "name": "VelaCommerce.Api"
