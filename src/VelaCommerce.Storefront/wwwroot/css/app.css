@@ -329,6 +329,16 @@ svg {
     border-radius: var(--vc-radius-sm);
 }
 
+/* Blazor's FocusOnNavigate stamps tabindex="-1" on the destination heading and focuses it so
+   a screen reader announces the new page. Chrome can match :focus-visible on that purely
+   programmatic focus, which draws a ring around the page title on arrival — visible in a
+   cold load of the catalog. A heading is not an interactive control, so the ring says
+   nothing; suppressing it here leaves every real control's indicator untouched. */
+:is(h1, h2)[tabindex="-1"]:focus,
+:is(h1, h2)[tabindex="-1"]:focus-visible {
+    outline: none;
+}
+
 ::selection {
     background: var(--vc-accent-soft);
     color: var(--vc-text);
