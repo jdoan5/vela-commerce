@@ -30,7 +30,9 @@ internal static class CatalogGenerator
 
     private const int TargetProductCount = 288; // 36 per family, so facets are evenly populated
     private const int MaxNamingAttempts = 64;
-    private const string ImageRoot = "/images/catalog";
+    // internal because the client snapshot factors this prefix out of 691 image paths and
+    // publishes it once as its imageBase; both files must agree on where the pictures live.
+    internal const string ImageRoot = "/images/catalog";
 
     public static SeedCatalog Generate()
     {
