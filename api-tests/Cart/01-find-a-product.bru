@@ -1,0 +1,31 @@
+meta {
+  name: Find a product to add
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{baseUrl}}/api/catalog/products?pageSize=1&sort=price_asc
+  body: none
+  auth: none
+}
+
+params:query {
+  pageSize: 1
+  sort: price_asc
+}
+
+assert {
+  res.status: eq 200
+}
+
+script:post-response {
+  bru.setVar("cartSlug", res.body.items[0].slug);
+}
+
+tests {
+  test("found a product to build the lifecycle around", function() {
+    expect(res.body.items).to.have.length(1);
+    expect(res.body.items[0].slug).to.be.a("string").and.not.be.empty;
+  });
+}

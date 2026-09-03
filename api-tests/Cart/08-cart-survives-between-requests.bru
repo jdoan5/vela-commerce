@@ -1,0 +1,37 @@
+meta {
+  name: The cart survives between requests
+  type: http
+  seq: 8
+}
+
+get {
+  url: {{baseUrl}}/api/cart
+  body: none
+  auth: none
+}
+
+assert {
+  res.status: eq 200
+  res.body.totalQuantity: eq 5
+  res.body.lines[0].variantId: eq {{cartVariantId}}
+}
+
+tests {
+  test("a fresh GET sees what the writes did", function() {
+    // Reads and writes resolve "the cart" through the same code path and the same cookie.
+    // If the session were re-minted per request, this would be an empty cart.
+    expect(res.body.lines).to.have.length(1);
+    expect(res.body.lines[0].quantity).to.equal(5);
+  });
+
+  test("reading reports the live catalog price alongside the captured one", function() {
+    const line = res.body.lines[0];
+    expect(line.currentUnitPrice).to.not.equal(null);
+    expect(line.stillInCatalog).to.equal(true);
+    expect(line.priceChanged).to.equal(false);
+    expect(line.priceDifference).to.equal(null);
+    // Nothing was repriced between the add and now, so the two agree -- but they are two
+    // separate fields on purpose: a line is never silently repriced under the shopper.
+    expect(line.currentUnitPrice.amount).to.equal(line.unitPrice.amount);
+  });
+}

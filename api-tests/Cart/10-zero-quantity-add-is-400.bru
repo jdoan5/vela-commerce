@@ -1,0 +1,31 @@
+meta {
+  name: Adding zero of something is a 400
+  type: http
+  seq: 10
+}
+
+post {
+  url: {{baseUrl}}/api/cart/items
+  body: json
+  auth: none
+}
+
+body:json {
+  {
+    "variantId": "{{cartVariantId}}",
+    "quantity": 0
+  }
+}
+
+assert {
+  res.status: eq 400
+  res.body.status: eq 400
+}
+
+tests {
+  test("add refuses a non-positive quantity instead of no-opping", function() {
+    // PATCH treats 0 as "remove the line"; POST does not, because "add nothing" is a
+    // client mistake rather than an intention. The two verbs disagree on purpose.
+    expect(res.body.title).to.equal("That change to the cart is not allowed");
+  });
+}

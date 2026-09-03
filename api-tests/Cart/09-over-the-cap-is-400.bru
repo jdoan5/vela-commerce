@@ -1,0 +1,35 @@
+meta {
+  name: Over the per-line cap is a 400
+  type: http
+  seq: 9
+}
+
+patch {
+  url: {{baseUrl}}/api/cart/items/{{cartVariantId}}
+  body: json
+  auth: none
+}
+
+body:json {
+  {
+    "quantity": 100
+  }
+}
+
+assert {
+  res.status: eq 400
+  res.body.status: eq 400
+}
+
+tests {
+  test("a broken domain invariant is a 400 problem document, not a 500", function() {
+    expect(res.getHeader("content-type")).to.contain("application/problem+json");
+    expect(res.body.title).to.equal("That change to the cart is not allowed");
+  });
+
+  test("the message names the rule and the number", function() {
+    // The domain's own wording is passed through rather than re-derived in the handler,
+    // so the error says 99 and stays right if the cap ever moves.
+    expect(res.body.detail).to.contain("99");
+  });
+}

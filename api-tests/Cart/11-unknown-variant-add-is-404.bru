@@ -1,0 +1,35 @@
+meta {
+  name: Adding an unknown variant is a 404
+  type: http
+  seq: 11
+}
+
+post {
+  url: {{baseUrl}}/api/cart/items
+  body: json
+  auth: none
+}
+
+body:json {
+  {
+    "variantId": "01a00000-0000-7000-8000-0000000dead0",
+    "quantity": 1
+  }
+}
+
+assert {
+  res.status: eq 404
+  res.body.status: eq 404
+}
+
+tests {
+  test("no catalog row means no price, so there is nothing to add", function() {
+    expect(res.body.title).to.equal("No such variant");
+  });
+
+  test("a withdrawn variant reads the same as one that never existed", function() {
+    // Stated in the response detail on purpose: distinguishing the two would leak the
+    // existence of rows the catalog has stopped serving.
+    expect(res.body.detail).to.contain("never");
+  });
+}

@@ -1,0 +1,45 @@
+meta {
+  name: Sort by price ascending
+  type: http
+  seq: 2
+}
+
+get {
+  url: {{baseUrl}}/api/catalog/products?sort=price_asc&pageSize=20
+  body: none
+  auth: none
+}
+
+params:query {
+  sort: price_asc
+  pageSize: 20
+}
+
+assert {
+  res.status: eq 200
+  res.body.pageSize: eq 20
+}
+
+tests {
+  test("cheapest first, compared as integers and not as formatted strings", function() {
+    // The bug this guards against is sorting "$9.00" after "$10.00". Comparing amounts
+    // proves the ordering happened on the minor-unit column.
+    const amounts = res.body.items
+      .map(item => item.fromPrice)
+      .filter(price => price !== null)
+      .map(price => price.amount);
+
+    expect(amounts.length).to.be.above(1);
+    for (let i = 1; i < amounts.length; i++) {
+      expect(amounts[i]).to.be.at.least(amounts[i - 1]);
+    }
+  });
+
+  test("the tiebreaker keeps equally-priced products off two pages at once", function() {
+    // Every ordering carries slug as a unique final key. Without one, two products at the
+    // same price can swap places between page 1 and page 2 -- the shopper sees one twice
+    // and the other never. Asserted as: no slug appears more than once in a page.
+    const slugs = res.body.items.map(item => item.slug);
+    expect(new Set(slugs).size).to.equal(slugs.length);
+  });
+}

@@ -13,7 +13,13 @@ internal sealed class CartConfiguration : IEntityTypeConfiguration<Cart>
 {
     public void Configure(EntityTypeBuilder<Cart> builder)
     {
-        builder.ToTable("carts");
+        // The all-zero GUID is the shape a "no session" sentinel takes when someone reaches for
+        // one, and a row carrying it would belong to whichever visitor the code next decided to
+        // compare against Guid.Empty. Refusing it in the database means the tenancy filter never
+        // has to defend against a row that plausibly belongs to everybody.
+        builder.ToTable("carts", table => table.HasCheckConstraint(
+            "ck_carts_demo_session_id_present",
+            "demo_session_id <> '00000000-0000-0000-0000-000000000000'"));
 
         builder.HasKey(cart => cart.Id).HasName("pk_carts");
 
@@ -53,6 +59,10 @@ internal sealed class CartConfiguration : IEntityTypeConfiguration<Cart>
         builder.HasIndex(cart => cart.DemoSessionId)
             .HasDatabaseName("ix_carts_demo_session_id");
 
+        // The cart's second filter, "DemoTenancy", is added in VelaCommerceDbContext.OnModelCreating
+        // rather than here: its predicate has to read an instance member of the context so that EF
+        // parameterises the session id per request instead of baking one visitor's id into the
+        // cached model, and a configuration found by assembly scan has no context to read.
         builder.HasQueryFilter("SoftDelete", cart => cart.DeletedAt == null);
     }
 }

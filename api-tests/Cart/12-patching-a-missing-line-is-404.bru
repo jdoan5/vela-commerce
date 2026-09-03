@@ -1,0 +1,32 @@
+meta {
+  name: Patching a line that is not in the cart is a 404
+  type: http
+  seq: 12
+}
+
+patch {
+  url: {{baseUrl}}/api/cart/items/01a00000-0000-7000-8000-0000000dead0
+  body: json
+  auth: none
+}
+
+body:json {
+  {
+    "quantity": 1
+  }
+}
+
+assert {
+  res.status: eq 404
+  res.body.status: eq 404
+}
+
+tests {
+  test("PATCH addresses a line, so a missing line is a missing resource", function() {
+    expect(res.body.title).to.equal("Not a line in this cart");
+  });
+
+  test("the error points at the verb that would have worked", function() {
+    expect(res.body.detail).to.contain("POST /api/cart/items");
+  });
+}

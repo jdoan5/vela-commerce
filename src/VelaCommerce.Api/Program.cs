@@ -1,8 +1,10 @@
 using Microsoft.EntityFrameworkCore;
 using Scalar.AspNetCore;
 using VelaCommerce.Api.Endpoints;
+using VelaCommerce.Api.Tenancy;
 using VelaCommerce.Infrastructure.Persistence;
 using VelaCommerce.Infrastructure.Seeding;
+using VelaCommerce.Infrastructure.Tenancy;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -26,7 +28,28 @@ builder.Services.AddDbContext<VelaCommerceDbContext>(options =>
 });
 
 builder.Services.AddProblemDetails();
+
+// Model-binding failures are the caller's fault, so they must read as 400 in every
+// environment. Left at its default this throws in Development only, and the exception
+// handler turns that into a 500 — so a typo in a request body looked like a server bug
+// locally and in CI, but not in production.
+builder.Services.Configure<RouteHandlerOptions>(options => options.ThrowOnBadRequest = false);
 builder.Services.AddScoped<CatalogSeeder>();
+
+// Identity on a site with no accounts: a signed cookie, and a scoped holder the DbContext reads
+// when it filters carts and orders. Registering it here is what turns tenancy on — and forgetting
+// to would hide every cart rather than share them, which is the only acceptable direction for that
+// mistake to fail in.
+builder.Services.AddDemoSessionTenancy();
+
+// The default key ring is fine locally: keys land under ~/.aspnet/DataProtection-Keys and survive
+// a restart, so a session outlives `dotnet run`. Production needs a persisted, shared ring —
+// PersistKeysToAzureBlobStorage plus ProtectKeysToAzureKeyVault for a container app — because keys
+// generated inside an ephemeral filesystem die with the container and keys generated per-instance
+// are not shared across them. The symptom either way is the same and is easy to misread: every
+// visitor silently loses their cart on deploy or on a scale-out, because their cookie no longer
+// decrypts. Not built now — the demo is a single instance and the phase this belongs to is deploy.
+builder.Services.AddDataProtection();
 
 var app = builder.Build();
 
@@ -46,6 +69,12 @@ if (app.Environment.IsDevelopment())
 app.UseExceptionHandler();
 app.UseStatusCodePages();
 
+// Before the endpoints, and after the error handlers so that a failure while establishing the
+// session still comes back as ProblemDetails. Every request downstream of this line has a demo
+// session bound; every request upstream of it — and every code path that never sees a request at
+// all — has none, and the query filter shows such a caller nothing rather than everything.
+app.UseDemoSession();
+
 // Scalar is Development-only, per Microsoft's guidance for the built-in OpenAPI document.
 if (app.Environment.IsDevelopment())
 {
@@ -54,6 +83,7 @@ if (app.Environment.IsDevelopment())
 }
 
 app.MapCatalogEndpoints();
+app.MapCartEndpoints();
 
 // Two separate probes: liveness must never touch the database, or a sleeping
 // database would get the container killed rather than merely reported unhealthy.

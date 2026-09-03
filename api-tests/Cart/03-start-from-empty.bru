@@ -1,0 +1,26 @@
+meta {
+  name: Start from an empty cart
+  type: http
+  seq: 3
+}
+
+delete {
+  url: {{baseUrl}}/api/cart
+  body: none
+  auth: none
+}
+
+assert {
+  res.status: eq 200
+  res.body.isEmpty: eq true
+}
+
+docs {
+  Housekeeping, not a test of clearing -- that is the last request in the folder.
+
+  Measured: the CLI's cookie jar is per-run and in memory, so `bru run` always starts as a
+  brand-new visitor with an empty cart and this request is a no-op there. The Bruno GUI is
+  the opposite -- its jar persists, so without this the second run in a desktop session
+  would start with the leftovers of the first and every quantity below would be wrong.
+  One request buys a folder that means the same thing in both.
+}

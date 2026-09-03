@@ -1,0 +1,45 @@
+meta {
+  name: Get the empty cart
+  type: http
+  seq: 4
+}
+
+get {
+  url: {{baseUrl}}/api/cart
+  body: none
+  auth: none
+}
+
+assert {
+  res.status: eq 200
+  res.body.isEmpty: eq true
+  res.body.totalQuantity: eq 0
+  res.body.subtotal.amount: eq 0
+  res.body.hasPriceChanges: eq false
+  res.body.hasUnavailableLines: eq false
+}
+
+tests {
+  test("an empty cart is 200 with an empty cart, never a 404", function() {
+    expect(res.body.lines).to.be.an("array").that.is.empty;
+  });
+
+  test("THE COOKIE CARRIED: the server did not have to issue a second session", function() {
+    // This is the assertion that proves Bruno's cookie jar is doing its job, and it is
+    // sharper than "the cart persisted". The middleware issues Set-Cookie only when the
+    // request arrived without a readable vela.session. By this point in the run the
+    // catalog requests have already been answered, so a session exists; if Bruno had
+    // dropped it, the server would mint a fresh one here and every later request in this
+    // folder would be a different visitor -- which would show up as a mysteriously empty
+    // cart six requests later instead of as a failure here.
+    expect(res.getHeader("set-cookie"), "server issued a new session, so the cookie was not sent").to.be.undefined;
+  });
+
+  test("no shared cache may hold a cart", function() {
+    // Set by a group-level endpoint filter, so a cart endpoint added later cannot forget
+    // it. Without it a CDN would happily serve one visitor's cart to the next, defeating
+    // the tenancy filter from outside the process where its guarantees do not reach.
+    expect(res.getHeader("cache-control")).to.equal("no-store");
+    expect(res.getHeader("vary")).to.contain("Cookie");
+  });
+}

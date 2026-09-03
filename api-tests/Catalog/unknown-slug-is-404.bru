@@ -1,0 +1,26 @@
+meta {
+  name: Unknown slug is a 404 problem document
+  type: http
+  seq: 5
+}
+
+get {
+  url: {{baseUrl}}/api/catalog/products/there-is-no-such-product-here
+  body: none
+  auth: none
+}
+
+assert {
+  res.status: eq 404
+  res.body.status: eq 404
+}
+
+tests {
+  test("errors are RFC 9457 problem documents, not bare status codes", function() {
+    // AddProblemDetails + UseStatusCodePages turn even a bodyless TypedResults.NotFound()
+    // into a document a generated client can deserialise. Worth pinning: losing it is silent.
+    expect(res.getHeader("content-type")).to.contain("application/problem+json");
+    expect(res.body.title).to.be.a("string");
+    expect(res.body.type).to.be.a("string");
+  });
+}

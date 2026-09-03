@@ -136,6 +136,194 @@
         }
       }
     },
+    "/api/cart": {
+      "get": {
+        "tags": [
+          "Cart"
+        ],
+        "summary": "Get the current visitor's cart",
+        "description": "Always 200, never 404: a visitor who has never added anything gets an empty cart rather than an error, and reading a cart never creates one, so browsing writes no rows. Each line reports the price captured when it was added alongside the catalog's current price, with 'priceChanged' and a signed 'priceDifference' when the two disagree; lines are never silently repriced. A line whose variant has been withdrawn reports 'stillInCatalog: false' and no current price. Which cart you get is decided entirely by the signed session cookie.",
+        "operationId": "GetCart",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CartResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Cart"
+        ],
+        "summary": "Empty the cart",
+        "description": "Removes every line. The cart itself survives, so the next add does not have to recreate it and the nightly demo reset still has one row per visitor to reap. Idempotent, and never creates a cart. Returns the emptied cart.",
+        "operationId": "ClearCart",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CartResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/cart/items": {
+      "post": {
+        "tags": [
+          "Cart"
+        ],
+        "summary": "Add a variant to the cart",
+        "description": "The body carries a variant id and a quantity and nothing else - price, SKU and display name are read from the catalog, so a client cannot name its own price. Adding a variant already in the cart increases that line rather than appending a second one, which makes the quantity an increment; use PATCH to set an absolute value. Responds 404 for a variant that is not in the live catalog and 400 when the domain refuses the change - a non-positive quantity, a resulting line above the per-line cap of 99, or an item priced in a currency this cart is not in. The cart row is created on this call, not on a read. Returns the whole cart so the caller needs no follow-up GET.",
+        "operationId": "AddCartItem",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CartAddItemRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CartResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/cart/items/{variantId}": {
+      "patch": {
+        "tags": [
+          "Cart"
+        ],
+        "summary": "Set a line's quantity",
+        "description": "The quantity is absolute, not a delta, so a retried request cannot add a unit. Zero removes the line. Responds 404 when that variant is not a line in this cart and 400 for a negative quantity or one above the per-line cap of 99. This endpoint never creates a cart. Returns the whole cart.",
+        "operationId": "ChangeCartItemQuantity",
+        "parameters": [
+          {
+            "name": "variantId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CartChangeQuantityRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CartResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Cart"
+        ],
+        "summary": "Remove a line from the cart",
+        "description": "Idempotent: removing a line that is already gone - or one from a cart that does not exist - is 200 with the cart as it stands, not 404, because the caller's desired end state is already true and a double-clicked remove button should not produce an error. Never creates a cart. Returns the whole cart.",
+        "operationId": "RemoveCartItem",
+        "parameters": [
+          {
+            "name": "variantId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CartResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/health": {
       "get": {
         "tags": [
@@ -153,6 +341,137 @@
   },
   "components": {
     "schemas": {
+      "CartAddItemRequest": {
+        "required": [
+          "variantId",
+          "quantity"
+        ],
+        "type": "object",
+        "properties": {
+          "variantId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "quantity": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          }
+        }
+      },
+      "CartChangeQuantityRequest": {
+        "required": [
+          "quantity"
+        ],
+        "type": "object",
+        "properties": {
+          "quantity": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          }
+        }
+      },
+      "CartLineResponse": {
+        "required": [
+          "variantId",
+          "sku",
+          "displayName",
+          "unitPrice",
+          "quantity",
+          "currentUnitPrice"
+        ],
+        "type": "object",
+        "properties": {
+          "variantId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "sku": {
+            "type": "string"
+          },
+          "displayName": {
+            "type": "string"
+          },
+          "unitPrice": {
+            "$ref": "#/components/schemas/MoneyDto"
+          },
+          "quantity": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "currentUnitPrice": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/MoneyDto"
+              }
+            ]
+          },
+          "lineTotal": {
+            "$ref": "#/components/schemas/MoneyDto"
+          },
+          "priceDifference": {
+            "$ref": "#/components/schemas/MoneyDto"
+          },
+          "priceChanged": {
+            "type": "boolean"
+          },
+          "stillInCatalog": {
+            "type": "boolean"
+          }
+        }
+      },
+      "CartResponse": {
+        "required": [
+          "currency",
+          "lines"
+        ],
+        "type": "object",
+        "properties": {
+          "currency": {
+            "type": "string"
+          },
+          "lines": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CartLineResponse"
+            }
+          },
+          "subtotal": {
+            "$ref": "#/components/schemas/MoneyDto"
+          },
+          "totalQuantity": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "isEmpty": {
+            "type": "boolean"
+          },
+          "hasPriceChanges": {
+            "type": "boolean"
+          },
+          "hasUnavailableLines": {
+            "type": "boolean"
+          }
+        }
+      },
       "CategoryResponse": {
         "required": [
           "name",
@@ -251,6 +570,44 @@
           },
           "hasNextPage": {
             "type": "boolean"
+          }
+        }
+      },
+      "ProblemDetails": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "title": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "status": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "detail": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "instance": {
+            "type": [
+              "null",
+              "string"
+            ]
           }
         }
       },
@@ -410,6 +767,9 @@
   "tags": [
     {
       "name": "Catalog"
+    },
+    {
+      "name": "Cart"
     },
     {
       "name": "VelaCommerce.Api"

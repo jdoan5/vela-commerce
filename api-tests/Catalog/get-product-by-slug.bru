@@ -1,0 +1,57 @@
+meta {
+  name: Get one product by slug
+  type: http
+  seq: 4
+}
+
+get {
+  url: {{baseUrl}}/api/catalog/products/{{catalogSlug}}
+  body: none
+  auth: none
+}
+
+script:pre-request {
+  // Fail with a sentence rather than with a 404 on the literal string "{{catalogSlug}}".
+  // Slugs come from the seed, so this request cannot carry its own; running the folder is
+  // what supplies it.
+  if (!bru.getVar("catalogSlug")) {
+    throw new Error("No catalogSlug. Run the Catalog folder rather than this file alone - 'Browse products' captures it.");
+  }
+}
+
+assert {
+  res.status: eq 200
+}
+
+tests {
+  test("the slug in the URL is the slug that came back", function() {
+    expect(res.body.slug).to.equal(bru.getVar("catalogSlug"));
+  });
+
+  test("detail carries every live variant with its own price and availability", function() {
+    expect(res.body.variants).to.be.an("array").with.length.above(0);
+    res.body.variants.forEach(function(variant) {
+      expect(variant.id).to.be.a("string");
+      expect(variant.sku).to.match(/^VC-/);
+      expect(variant.price.amount).to.be.above(0);
+      expect(variant.available).to.be.a("number").and.to.be.at.least(0);
+      expect(variant.inStock).to.equal(variant.available > 0);
+    });
+  });
+
+  test("variants are cheapest first", function() {
+    const amounts = res.body.variants.map(v => v.price.amount);
+    for (let i = 1; i < amounts.length; i++) {
+      expect(amounts[i]).to.be.at.least(amounts[i - 1]);
+    }
+  });
+
+  test("the 'from' price equals the cheapest variant", function() {
+    expect(res.body.fromPrice.amount).to.equal(res.body.variants[0].price.amount);
+  });
+}
+
+docs {
+  Depends on `catalogSlug`, captured by "Browse products". Run the folder, not this file
+  alone, unless you set that variable yourself.
+}

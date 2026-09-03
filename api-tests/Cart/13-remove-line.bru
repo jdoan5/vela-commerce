@@ -1,0 +1,30 @@
+meta {
+  name: Remove the line
+  type: http
+  seq: 13
+}
+
+delete {
+  url: {{baseUrl}}/api/cart/items/{{cartVariantId}}
+  body: none
+  auth: none
+}
+
+assert {
+  res.status: eq 200
+  res.body.isEmpty: eq true
+  res.body.totalQuantity: eq 0
+  res.body.subtotal.amount: eq 0
+}
+
+tests {
+  test("the line is gone and the cart is returned in full", function() {
+    expect(res.body.lines).to.be.an("array").that.is.empty;
+  });
+
+  test("the failed 400 and 404 requests above left nothing behind", function() {
+    // Five requests were refused between the last successful write and this one. If any of
+    // them had half-applied, the cart would not be empty now.
+    expect(res.body.totalQuantity).to.equal(0);
+  });
+}

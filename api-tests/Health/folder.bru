@@ -1,0 +1,11 @@
+meta {
+  name: Health
+  seq: 3
+}
+
+docs {
+  Two probes, kept apart on purpose. Liveness answers "is this process running"; readiness
+  answers "can it serve". Wiring a container's liveness probe to the database-touching one
+  is how a sleeping database gets the container killed and restarted in a loop instead of
+  merely reported unhealthy.
+}

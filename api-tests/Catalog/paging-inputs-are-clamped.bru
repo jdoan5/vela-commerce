@@ -1,0 +1,32 @@
+meta {
+  name: Paging inputs are clamped, not rejected
+  type: http
+  seq: 3
+}
+
+get {
+  url: {{baseUrl}}/api/catalog/products?page=0&pageSize=9999&sort=nonsense
+  body: none
+  auth: none
+}
+
+params:query {
+  page: 0
+  pageSize: 9999
+  sort: nonsense
+}
+
+assert {
+  res.status: eq 200
+  res.body.page: eq 1
+  res.body.pageSize: eq 100
+}
+
+tests {
+  test("a mistyped shared link still renders a storefront", function() {
+    // Deliberately not a 400. Page floors at 1, pageSize is held to the 100 ceiling, and an
+    // unknown sort key falls back to name -- so a bad query string degrades to a grid.
+    expect(res.status).to.equal(200);
+    expect(res.body.items.length).to.equal(100);
+  });
+}

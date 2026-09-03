@@ -3,6 +3,7 @@ using Npgsql;
 using VelaCommerce.Domain.Catalog;
 using VelaCommerce.Domain.Common;
 using VelaCommerce.Domain.Inventory;
+using VelaCommerce.Infrastructure.Persistence;
 using Xunit;
 
 namespace VelaCommerce.Integration.Tests;
@@ -107,7 +108,7 @@ public sealed class DatabaseInvariantTests(PostgresFixture fixture)
                                 shipping_address, placed_at, shipping_amount, shipping_currency,
                                 tax_amount, tax_currency, captured_amount, captured_currency,
                                 refunded_amount, refunded_currency)
-            VALUES (gen_random_uuid(), gen_random_uuid(), {$"VELA-{Guid.CreateVersion7():N}"[..16]}, {$"key-{Guid.CreateVersion7():N}"},
+            VALUES (gen_random_uuid(), gen_random_uuid(), {$"VELA-{Guid.NewGuid():N}"[..16]}, {$"key-{Guid.CreateVersion7():N}"},
                     1, 'USD', {EmptyJson}::jsonb, now(), 0, 'USD', 0, 'USD', 1000, 'USD', 5000, 'USD')
             """));
 
@@ -131,15 +132,23 @@ public sealed class DatabaseInvariantTests(PostgresFixture fixture)
                     0, 'USD', 0, 'USD', 0, 'USD', 0, 'USD')
             """);
 
-        Assert.Equal(1, await Submit($"VELA-{Guid.CreateVersion7():N}"[..16]));
+        Assert.Equal(1, await Submit($"VELA-{Guid.NewGuid():N}"[..16]));
 
         // The shopper double-clicked. Same session, same key, new order number.
-        var ex = await Assert.ThrowsAsync<PostgresException>(() => Submit($"VELA-{Guid.CreateVersion7():N}"[..16]));
+        var ex = await Assert.ThrowsAsync<PostgresException>(() => Submit($"VELA-{Guid.NewGuid():N}"[..16]));
 
         Assert.Equal("23505", ex.SqlState);
         Assert.Contains("idempotency_key", ex.ConstraintName, StringComparison.Ordinal);
 
-        var count = await db.Orders.CountAsync(o => o.DemoSessionId == session);
+        // Orders now carry the DemoTenancy filter, and the fixture's context is deliberately
+        // session-less, so a plain read here fails closed and counts zero. That is the filter
+        // working, not breaking: this test is asking about a uniqueness constraint in the
+        // database, not about who may see the row, so it steps outside that one filter by name.
+        // Suppressing it by name rather than wholesale leaves SoftDelete in force, which is the
+        // reason the two filters are named separately.
+        var count = await db.Orders
+            .IgnoreQueryFilters([VelaCommerceDbContext.DemoTenancyFilter])
+            .CountAsync(o => o.DemoSessionId == session);
         Assert.Equal(1, count);
     }
 }

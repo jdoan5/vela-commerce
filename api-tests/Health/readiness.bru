@@ -1,0 +1,25 @@
+meta {
+  name: Readiness
+  type: http
+  seq: 2
+}
+
+get {
+  url: {{baseUrl}}/health
+  body: none
+  auth: none
+}
+
+assert {
+  res.status: eq 200
+  res.body.status: eq healthy
+  res.body.database: eq reachable
+}
+
+tests {
+  test("readiness reports the dependency it actually checked", function() {
+    // A readiness probe that returns a bare "ok" tells an operator nothing at 3am. This
+    // one names the thing it proved: the database answered.
+    expect(res.body.database).to.equal("reachable");
+  });
+}

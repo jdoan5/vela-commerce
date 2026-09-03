@@ -42,6 +42,13 @@ internal sealed class OrderConfiguration : IEntityTypeConfiguration<Order>
             table.HasCheckConstraint("ck_orders_captured_non_negative", "captured_amount >= 0");
             table.HasCheckConstraint("ck_orders_refunded_non_negative", "refunded_amount >= 0");
             table.HasCheckConstraint("ck_orders_refund_within_capture", "refunded_amount <= captured_amount");
+
+            // Same reasoning as the carts table: the all-zero GUID is what a "no session" sentinel
+            // looks like, and an order carrying it would read as belonging to whoever happened to
+            // be compared against Guid.Empty. Unrepresentable is better than filtered.
+            table.HasCheckConstraint(
+                "ck_orders_demo_session_id_present",
+                "demo_session_id <> '00000000-0000-0000-0000-000000000000'");
         });
 
         builder.HasKey(order => order.Id).HasName("pk_orders");
@@ -152,6 +159,13 @@ internal sealed class OrderConfiguration : IEntityTypeConfiguration<Order>
         builder.HasIndex(order => new { order.DemoSessionId, order.PlacedAt })
             .HasDatabaseName("ix_orders_demo_session_id_placed_at");
 
+        // The order's second filter, "DemoTenancy", is added in VelaCommerceDbContext.OnModelCreating
+        // rather than here: its predicate has to read an instance member of the context so that EF
+        // parameterises the session id per request instead of baking one visitor's id into the
+        // cached model, and a configuration found by assembly scan has no context to read.
+        //
+        // Note what that filter does NOT cover: the unique index above is deliberately unfiltered,
+        // so a replayed idempotency key still collides even for a session the reader cannot see.
         builder.HasQueryFilter("SoftDelete", order => order.DeletedAt == null);
     }
 }

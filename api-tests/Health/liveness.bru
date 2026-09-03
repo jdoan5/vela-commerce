@@ -1,0 +1,29 @@
+meta {
+  name: Liveness
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{baseUrl}}/alive
+  body: none
+  auth: none
+}
+
+assert {
+  res.status: eq 200
+  res.body.status: eq alive
+}
+
+tests {
+  test("liveness answers without touching the database", function() {
+    // Not directly observable over HTTP -- the guarantee lives in the handler, which takes
+    // no DbContext. What is asserted here is the contract that lets it stay that way: the
+    // response says only that the process is up, so nothing can creep into it later.
+    expect(Object.keys(res.body)).to.deep.equal(["status"]);
+  });
+
+  test("it is fast enough to be a probe", function() {
+    expect(res.responseTime).to.be.below(1000);
+  });
+}

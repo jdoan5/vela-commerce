@@ -1,0 +1,33 @@
+meta {
+  name: Adding the same variant merges
+  type: http
+  seq: 6
+}
+
+post {
+  url: {{baseUrl}}/api/cart/items
+  body: json
+  auth: none
+}
+
+body:json {
+  {
+    "variantId": "{{cartVariantId}}",
+    "quantity": 1
+  }
+}
+
+assert {
+  res.status: eq 200
+  res.body.totalQuantity: eq 3
+  res.body.lines[0].quantity: eq 3
+}
+
+tests {
+  test("one line, not two: POST quantity is an increment", function() {
+    // 2 + 1 = 3 in a single line. This is the behaviour that makes POST unsafe to retry,
+    // which is why PATCH exists and is absolute.
+    expect(res.body.lines).to.have.length(1);
+    expect(res.body.lines[0].quantity).to.equal(3);
+  });
+}

@@ -1,0 +1,21 @@
+meta {
+  name: Cart
+  seq: 2
+}
+
+docs {
+  The full lifecycle, in order, against one visitor's cart.
+
+  Two things make this folder work, and both are asserted rather than assumed:
+
+  1. **The session cookie.** There is no login. `vela.session` is a signed, HttpOnly cookie
+     issued on the first response of the run, and it is the only thing that decides whose
+     cart these requests touch. Bruno's cookie jar carries it; "Get the empty cart" proves
+     it by asserting the server did *not* issue a second one.
+  2. **A real variant id.** The first two requests discover one from the catalog. Ids are
+     generated when the seed is applied, so a hard-coded id would pass here and 404 in CI.
+
+  The folder is re-runnable: it deletes the cart before it starts rather than assuming it
+  begins empty. In the CLI the jar is per-run so it always would be; in the GUI the jar
+  persists and it would not.
+}

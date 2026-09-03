@@ -1,0 +1,10 @@
+meta {
+  name: Catalog
+  seq: 1
+}
+
+docs {
+  The public, anonymous read surface. It runs first because the Cart folder needs a real
+  variant id and there is no fixture file to take one from: ids are generated when the seed
+  is applied, so hard-coding one here would pass on this machine and 404 in CI.
+}

@@ -1,0 +1,14 @@
+headers {
+  Accept: application/json
+}
+
+docs {
+  # Vela Commerce API collection
+
+  Collection-level settings. The `Accept` header is set once here rather than on every
+  request, so a request added later cannot forget it and start negotiating for HTML.
+
+  The cart requests depend on a session cookie that the API issues on the first response
+  of the run. Nothing here manages that cookie: Bruno's own cookie jar does, and the
+  Cart folder asserts that it worked instead of assuming it.
+}

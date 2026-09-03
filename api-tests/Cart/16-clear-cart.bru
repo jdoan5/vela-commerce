@@ -1,0 +1,30 @@
+meta {
+  name: Clear the cart
+  type: http
+  seq: 16
+}
+
+delete {
+  url: {{baseUrl}}/api/cart
+  body: none
+  auth: none
+}
+
+assert {
+  res.status: eq 200
+  res.body.isEmpty: eq true
+  res.body.totalQuantity: eq 0
+  res.body.subtotal.amount: eq 0
+}
+
+tests {
+  test("every line is removed and the cart is returned empty", function() {
+    expect(res.body.lines).to.be.an("array").that.is.empty;
+  });
+
+  test("the cart itself survives, keeping its currency", function() {
+    // Clearing empties the lines; it does not delete the cart row. The currency coming
+    // back proves the row is still there rather than a fresh default being invented.
+    expect(res.body.currency).to.equal(bru.getVar("cartCurrency"));
+  });
+}

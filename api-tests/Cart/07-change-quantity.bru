@@ -1,0 +1,34 @@
+meta {
+  name: Set the quantity absolutely
+  type: http
+  seq: 7
+}
+
+patch {
+  url: {{baseUrl}}/api/cart/items/{{cartVariantId}}
+  body: json
+  auth: none
+}
+
+body:json {
+  {
+    "quantity": 5
+  }
+}
+
+assert {
+  res.status: eq 200
+  res.body.totalQuantity: eq 5
+  res.body.lines[0].quantity: eq 5
+}
+
+tests {
+  test("PATCH sets, it does not add: 3 becomes 5, not 8", function() {
+    // The point of the absolute form is that a retried request cannot add a unit.
+    expect(res.body.lines[0].quantity).to.equal(5);
+  });
+
+  test("the subtotal followed the new quantity", function() {
+    expect(res.body.subtotal.amount).to.equal(Number(bru.getVar("cartUnitAmount")) * 5);
+  });
+}

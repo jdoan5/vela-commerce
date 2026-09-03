@@ -1,0 +1,37 @@
+meta {
+  name: Category facets add up
+  type: http
+  seq: 6
+}
+
+get {
+  url: {{baseUrl}}/api/catalog/categories
+  body: none
+  auth: none
+}
+
+assert {
+  res.status: eq 200
+}
+
+tests {
+  test("every facet names a category that still has products", function() {
+    expect(res.body).to.be.an("array").with.length.above(0);
+    res.body.forEach(function(facet) {
+      expect(facet.name).to.be.a("string").and.not.be.empty;
+      expect(facet.productCount).to.be.above(0);
+    });
+  });
+
+  test("facets are ordered by name", function() {
+    const names = res.body.map(f => f.name);
+    expect(names).to.deep.equal(names.slice().sort());
+  });
+
+  test("the facet counts sum to the catalog total", function() {
+    // The real check. Facets and the product list are two different queries over the same
+    // soft-delete predicate; if one of them stops filtering, these two numbers diverge.
+    const sum = res.body.reduce((acc, facet) => acc + facet.productCount, 0);
+    expect(sum).to.equal(Number(bru.getVar("catalogTotal")));
+  });
+}

@@ -1,0 +1,29 @@
+meta {
+  name: Refill before clearing
+  type: http
+  seq: 15
+}
+
+post {
+  url: {{baseUrl}}/api/cart/items
+  body: json
+  auth: none
+}
+
+body:json {
+  {
+    "variantId": "{{cartVariantId}}",
+    "quantity": 4
+  }
+}
+
+assert {
+  res.status: eq 200
+  res.body.totalQuantity: eq 4
+}
+
+tests {
+  test("there is something to clear", function() {
+    expect(res.body.isEmpty).to.equal(false);
+  });
+}

@@ -1,0 +1,56 @@
+meta {
+  name: Add two of a variant
+  type: http
+  seq: 5
+}
+
+post {
+  url: {{baseUrl}}/api/cart/items
+  body: json
+  auth: none
+}
+
+body:json {
+  {
+    "variantId": "{{cartVariantId}}",
+    "quantity": 2
+  }
+}
+
+assert {
+  res.status: eq 200
+  res.body.isEmpty: eq false
+  res.body.totalQuantity: eq 2
+  res.body.lines[0].quantity: eq 2
+  res.body.lines[0].variantId: eq {{cartVariantId}}
+  res.body.lines[0].sku: eq {{cartVariantSku}}
+  res.body.lines[0].stillInCatalog: eq true
+  res.body.lines[0].priceChanged: eq false
+}
+
+tests {
+  test("200 with the whole cart, not 201 with a location", function() {
+    // The cart has no public id -- the cookie is the identifier -- so there is no resource
+    // URL to hand back, and returning the whole cart saves the caller a follow-up GET.
+    expect(res.status).to.equal(200);
+    expect(res.body.lines).to.have.length(1);
+  });
+
+  test("the price came from the catalog, not from the request", function() {
+    // The body carried a variant id and a quantity and nothing else. If a client could
+    // name its own price, this is where it would show.
+    const expected = Number(bru.getVar("cartUnitAmount"));
+    expect(res.body.lines[0].unitPrice.amount).to.equal(expected);
+    expect(res.body.lines[0].unitPrice.currency).to.equal(bru.getVar("cartCurrency"));
+  });
+
+  test("subtotal is unit price times quantity, computed server-side", function() {
+    const unit = Number(bru.getVar("cartUnitAmount"));
+    expect(res.body.lines[0].lineTotal.amount).to.equal(unit * 2);
+    expect(res.body.subtotal.amount).to.equal(unit * 2);
+  });
+
+  test("the cart took the currency of the first thing put in it", function() {
+    expect(res.body.currency).to.equal(bru.getVar("cartCurrency"));
+  });
+}

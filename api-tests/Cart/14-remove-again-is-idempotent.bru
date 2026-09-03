@@ -1,0 +1,24 @@
+meta {
+  name: Removing again is idempotent
+  type: http
+  seq: 14
+}
+
+delete {
+  url: {{baseUrl}}/api/cart/items/{{cartVariantId}}
+  body: none
+  auth: none
+}
+
+assert {
+  res.status: eq 200
+  res.body.isEmpty: eq true
+}
+
+tests {
+  test("a double-clicked remove button is a 200, not a 404", function() {
+    // DELETE is defined by the end state the caller wants, and that state is already true.
+    // This is the deliberate asymmetry with PATCH, which 404s on the same missing line.
+    expect(res.status).to.equal(200);
+  });
+}
