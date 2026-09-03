@@ -1,0 +1,586 @@
+@*
+    THE SIGN ON THE DOOR.
+
+    A public demo that takes an address and says "order placed" owes the person using it three
+    sentences before they type anything: this is not a real shop, nothing is charged, and here is
+    how to put it back the way you found it. That is what this strip is. It is not a cookie banner
+    and it does not ask for anything.
+
+    THREE CONSTRAINTS SHAPE EVERY DECISION BELOW.
+
+    1. IT MUST NOT TOUCH THE NETWORK UNTIL SOMEBODY PRESSES THE BUTTON. The whole storefront is
+       built so that browsing, searching, filtering and sorting work from a static snapshot with
+       the API and the database asleep. A banner that checked something on first paint would wake
+       them for every visitor who only wanted to look at rope. Nothing here fetches; the scenario
+       list is a constant, and the reset is a click.
+
+    2. IT MUST NOT SHIFT THE LAYOUT WHEN IT APPEARS. Whether the banner is showing depends on
+       localStorage, and the obvious way to read that - JS interop in OnAfterRenderAsync - renders
+       the page once without it and then again with it, which is a visible jump on every load for
+       a visitor who has already dismissed it. WebAssembly can read localStorage SYNCHRONOUSLY
+       through IJSInProcessRuntime, so the answer is known before the first render and the banner
+       is either in the first painted frame or was never there. See ReadDismissed.
+
+    3. IT MUST NOT COVER ANYTHING. It is in the normal document flow above the header, not fixed
+       over the page. A fixed bar would sit on top of the catalog or the cart drawer, and on a
+       phone it would eat the part of the screen the shopper is actually using.
+*@
+
+@implements IDisposable
+@using System.Text.Json
+@inject HttpClient Http
+@inject IJSRuntime JS
+@inject CartState Cart
+
+@* One @if around everything, so a dismissed banner costs a returning visitor nothing at all: no
+   markup, and no stylesheet either. *@
+@if (_visible)
+{
+<HeadContent>
+    @* Component-scoped CSS is not available: index.html deliberately does not link the SDK's
+       scoped-style bundle (there is no .razor.css anywhere in the project, so no bundle is
+       emitted and the link would 404 on every page load). The styles therefore travel with the
+       component, and go into <head> through HeadOutlet rather than being left mid-document.
+       Every colour is a --vc-* token, so light and dark are already handled and no colour is
+       born here - the rule the design system states at the top of app.css. *@
+    <style>
+        .vc-demo {
+            background: var(--vc-header-bg);
+            color: var(--vc-header-text);
+            border-bottom: 1px solid var(--vc-header-rule);
+            font-size: var(--vc-text-sm);
+        }
+
+        .vc-demo__bar {
+            display: flex;
+            flex-wrap: wrap;
+            align-items: center;
+            gap: var(--vc-space-2) var(--vc-space-4);
+            padding-block: var(--vc-space-2);
+        }
+
+        .vc-demo__tag {
+            font-family: var(--vc-font-mono);
+            font-size: var(--vc-text-xs);
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+            color: var(--vc-header-accent);
+            border: 1px solid var(--vc-header-accent);
+            border-radius: var(--vc-radius-sm);
+            padding: 0.1rem 0.4rem;
+            flex: none;
+        }
+
+        .vc-demo__text {
+            flex: 1 1 22rem;
+            min-width: 0;
+            margin: 0;
+            color: var(--vc-header-text);
+        }
+
+        .vc-demo__actions {
+            display: flex;
+            align-items: center;
+            gap: var(--vc-space-2);
+            flex: none;
+            margin-left: auto;
+        }
+
+        .vc-demo__button {
+            font: inherit;
+            font-size: var(--vc-text-sm);
+            color: var(--vc-header-text);
+            background: var(--vc-header-field);
+            border: 1px solid var(--vc-header-rule);
+            border-radius: var(--vc-radius-md);
+            padding: 0.3rem var(--vc-space-3);
+            cursor: pointer;
+        }
+
+        .vc-demo__button:hover:not(:disabled) {
+            background: var(--vc-header-field-hover);
+        }
+
+        .vc-demo__button:disabled {
+            cursor: default;
+            opacity: 0.6;
+        }
+
+        .vc-demo__dismiss {
+            font: inherit;
+            line-height: 1;
+            color: var(--vc-header-muted);
+            background: none;
+            border: 0;
+            border-radius: var(--vc-radius-sm);
+            padding: 0.25rem 0.4rem;
+            cursor: pointer;
+        }
+
+        .vc-demo__dismiss:hover {
+            color: var(--vc-header-text);
+        }
+
+        .vc-demo :focus-visible {
+            outline: 2px solid var(--vc-header-accent);
+            outline-offset: 2px;
+        }
+
+        .vc-demo__scenarios {
+            margin: 0;
+            flex: 1 1 100%;
+        }
+
+        .vc-demo__scenarios > summary {
+            cursor: pointer;
+            color: var(--vc-header-accent);
+            font-family: var(--vc-font-mono);
+            font-size: var(--vc-text-xs);
+            letter-spacing: 0.04em;
+        }
+
+        .vc-demo__table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-block: var(--vc-space-2) var(--vc-space-3);
+            font-size: var(--vc-text-xs);
+            color: var(--vc-header-text);
+        }
+
+        .vc-demo__table th,
+        .vc-demo__table td {
+            text-align: left;
+            vertical-align: top;
+            padding: 0.25rem var(--vc-space-3) 0.25rem 0;
+            border-bottom: 1px solid var(--vc-header-rule);
+        }
+
+        .vc-demo__table th {
+            color: var(--vc-header-muted);
+            font-family: var(--vc-font-mono);
+            font-weight: 500;
+            white-space: nowrap;
+        }
+
+        .vc-demo__scenario {
+            font-family: var(--vc-font-mono);
+            color: var(--vc-header-accent);
+            white-space: nowrap;
+        }
+
+        .vc-demo__status {
+            color: var(--vc-header-muted);
+            flex: 1 1 100%;
+            min-width: 0;
+            margin: 0;
+        }
+
+        /* A failure is marked by full contrast and weight rather than by a colour. Two reasons.
+           The design system forbids a component reaching for a raw --vela-* ramp, and the only
+           semantic error token, --vc-signal, is tuned against the paper ground rather than against
+           the navy this strip sits on - it would be a dark red on dark ink in light mode. And a
+           state carried by colour alone is one a colour-blind reader does not receive; the
+           sentence itself always says whether anything was deleted. */
+        .vc-demo__status--error {
+            color: var(--vc-header-text);
+            font-weight: 500;
+        }
+
+        /* The strip is a horizontal band, so on a narrow screen the actions belong under the
+           sentence rather than squeezed beside it. */
+        @@media (max-width: 40rem) {
+            .vc-demo__actions {
+                margin-left: 0;
+            }
+        }
+    </style>
+</HeadContent>
+
+<section class="vc-demo" aria-label="Demo notice">
+    <div class="vc-container">
+        <div class="vc-demo__bar">
+            <span class="vc-demo__tag">Demo</span>
+
+            <p class="vc-demo__text">
+                This is a portfolio demo of a shop, not a shop. <strong>Nothing is charged</strong>,
+                no card is ever asked for, and every payment is simulated — so you can place an
+                order, watch it ship, and have a card declined on purpose.
+            </p>
+
+            <div class="vc-demo__actions">
+                <button type="button"
+                        class="vc-demo__button"
+                        @onclick="ResetAsync"
+                        disabled="@_resetting">
+                    @(_resetting ? "Resetting…" : "Reset my demo data")
+                </button>
+
+                <button type="button"
+                        class="vc-demo__dismiss"
+                        @onclick="Dismiss"
+                        aria-label="Dismiss the demo notice">
+                    &times;
+                </button>
+            </div>
+
+            @* Everything below wraps onto its own line inside the same flex row rather than
+               living in a second container. A disclosure that changed lines when it opened
+               would move the thing the reader just clicked; giving it a full-width basis from
+               the start means opening it only ever grows the strip downwards. *@
+            <details class="vc-demo__scenarios">
+                <summary>Test payment scenarios</summary>
+                @* The six names, and the two ways to reach each one, are the demo's contract with
+                   whoever is trying it. They are written out here rather than fetched because of
+                   constraint 1 at the top of this file: a banner that called the API to find out
+                   what to say would wake a sleeping database for a visitor who only wanted to
+                   browse. The authority is PaymentScenarioCatalog in the Infrastructure project,
+                   which generates PAYMENT-SCENARIOS.md from the same list; if a scenario is ever
+                   added there, it has to be added here too. That duplication is deliberate and is
+                   the price of the storefront reaching no network on first paint - the storefront
+                   does not reference Infrastructure, and it must not. *@
+                <table class="vc-demo__table">
+                    <caption class="vc-visually-hidden">
+                        Payment scenarios you can drive from the checkout page, and what each one proves.
+                    </caption>
+                    <thead>
+                        <tr>
+                            <th scope="col">Scenario</th>
+                            <th scope="col">Ends the order total in</th>
+                            <th scope="col">What happens</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var scenario in Scenarios)
+                        {
+                            <tr>
+                                <th scope="row" class="vc-demo__scenario">@scenario.Name</th>
+                                <td class="vc-tabular">@scenario.Cents</td>
+                                <td>@scenario.Effect</td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </details>
+
+            @if (_status is { Length: > 0 })
+            {
+                <p class="vc-demo__status @(_failed ? "vc-demo__status--error" : null)"
+                   role="status"
+                   aria-live="polite">
+                    @_status
+                </p>
+            }
+        </div>
+    </div>
+</section>
+}
+
+@code {
+    /// <summary>
+    /// Where the dismissal is remembered.
+    /// <para>
+    /// Versioned in the name rather than in the value, so that changing what this banner says is
+    /// enough to show it again to everyone: a v2 key has never been written and therefore reads as
+    /// "not dismissed", with no migration and no stale value to interpret. localStorage rather than
+    /// a cookie, because this is a per-browser display preference that the server has no use for
+    /// and should not be sent 288 product requests' worth of times.
+    /// </para>
+    /// </summary>
+    private const string DismissedKey = "vela.demo-banner.dismissed.v1";
+
+    /// <summary>
+    /// How long to wait for the reset before giving up.
+    /// <para>
+    /// Generous on purpose, and for the same reason the cart's deadlines are: the API scales to
+    /// zero, so the first call after a quiet period is waiting on a container starting and a
+    /// database resuming, not on a slow query. The endpoint itself finishes in tens of
+    /// milliseconds once it is awake.
+    /// </para>
+    /// </summary>
+    private static readonly TimeSpan ResetDeadline = TimeSpan.FromSeconds(30);
+
+    /// <summary>
+    /// The point at which "working" becomes worth explaining. Below this a message would flash and
+    /// be gone; above it, silence looks like something is broken.
+    /// </summary>
+    private static readonly TimeSpan WakingAfter = TimeSpan.FromSeconds(2);
+
+    /// <summary>
+    /// The payment simulator's scenarios, as a shopper needs to know them. Mirrors
+    /// <c>PaymentScenarioCatalog.Descriptors</c> — see the note beside the table above for why this
+    /// is a copy rather than a fetch.
+    /// </summary>
+    private static readonly (string Name, string Cents, string Effect)[] Scenarios =
+    [
+        ("Succeed", ".00", "Paid inside the checkout request. The order then packs and ships on a demo clock."),
+        ("Decline", ".01", "The card is refused. Stock goes back on the shelf and your cart survives."),
+        ("Abandon", ".02", "Nothing is taken and no webhook follows. The stock reservation lapses on its own."),
+        ("Duplicate", ".03", "The same settlement is delivered twice. It is applied exactly once."),
+        ("Delay", ".04", "Settlement arrives later, so the order sits at Pending and says so."),
+        ("Reorder", ".05", "Two settlements arrive in the wrong order. The order state machine sorts it out."),
+    ];
+
+    private bool _visible;
+    private bool _resetting;
+    private bool _failed;
+    private string? _status;
+    private CancellationTokenSource? _inFlight;
+
+    /// <summary>
+    /// Decides visibility before the first render, so the banner never appears late.
+    /// <para>
+    /// Synchronous, and that is the whole point — see constraint 2 at the top of this file.
+    /// </para>
+    /// </summary>
+    protected override void OnInitialized() => _visible = !ReadDismissed();
+
+    /// <summary>
+    /// Reads the dismissal flag through the in-process JavaScript runtime, which exists only in
+    /// WebAssembly and is what makes this a synchronous call rather than an awaited one.
+    /// <para>
+    /// <strong>Every failure answers "not dismissed", and the direction matters.</strong> Private
+    /// browsing throws on localStorage access, a browser can have site data switched off, and a
+    /// future host might not be WebAssembly at all. Showing an honest notice to somebody who had
+    /// dismissed it is a small annoyance; hiding "nothing is charged" from somebody about to type
+    /// an address into a demo is the failure worth avoiding.
+    /// </para>
+    /// </summary>
+    private bool ReadDismissed()
+    {
+        try
+        {
+            return JS is IJSInProcessRuntime inProcess
+                && inProcess.Invoke<string?>("localStorage.getItem", DismissedKey) is { Length: > 0 };
+        }
+        catch (Exception)
+        {
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// Hides the banner and remembers it. The write is best-effort: if storage refuses, the banner
+    /// still closes for this visit and comes back on the next one, which is a far better outcome
+    /// than an error screen over a notice bar.
+    /// </summary>
+    private void Dismiss()
+    {
+        _visible = false;
+
+        try
+        {
+            if (JS is IJSInProcessRuntime inProcess)
+            {
+                inProcess.InvokeVoid("localStorage.setItem", DismissedKey, "1");
+            }
+        }
+        catch (Exception)
+        {
+            // Deliberately swallowed. See the summary above.
+        }
+    }
+
+    /// <summary>
+    /// Asks the API to delete this visitor's own demo data, and reports what it deleted.
+    /// <para>
+    /// <strong>The one network call in this component, and it happens on a click.</strong> The
+    /// session cookie is <c>HttpOnly</c> and <c>SameSite=Lax</c>, so this only works because the
+    /// storefront is served from the same origin as the API. <c>Include</c> is stated rather than
+    /// relied on: <c>fetch</c> defaults to <c>same-origin</c>, which is enough today and would stop
+    /// being enough the moment somebody put the shop on its own domain — and the failure then would
+    /// be a reset that silently resets a brand-new empty session instead of yours.
+    /// </para>
+    /// <para>
+    /// <strong>Not retried.</strong> The endpoint is safe to repeat — a second reset finds nothing
+    /// and answers with a row of zeros — but a retry that a person did not ask for hides the fact
+    /// that the shop is asleep, and this is the one button whose whole job is to be believable.
+    /// A failure says so and leaves the button ready to press again.
+    /// </para>
+    /// </summary>
+    private async Task ResetAsync()
+    {
+        if (_resetting)
+        {
+            return;
+        }
+
+        _resetting = true;
+        _failed = false;
+        _status = "Clearing your demo data…";
+
+        _inFlight?.Cancel();
+        _inFlight?.Dispose();
+        _inFlight = new CancellationTokenSource(ResetDeadline);
+        var token = _inFlight.Token;
+
+        // Says "waking the shop up" only once the wait has gone past the point where a cold start
+        // is the likeliest explanation. Fire and forget on purpose: it is a message, not work, and
+        // it is cancelled by the same token the request is.
+        var explainTheWait = ExplainTheWaitAsync(token);
+
+        try
+        {
+            using var request = new HttpRequestMessage(HttpMethod.Post, "api/demo/reset");
+            request.SetBrowserRequestCredentials(BrowserRequestCredentials.Include);
+            request.SetBrowserRequestCache(BrowserRequestCache.NoStore);
+
+            using var response = await Http.SendAsync(request, token);
+
+            if (response.StatusCode is System.Net.HttpStatusCode.TooManyRequests)
+            {
+                _failed = true;
+                _status = "That was a lot of resets. Give it a few seconds and try again.";
+                return;
+            }
+
+            if (!response.IsSuccessStatusCode)
+            {
+                _failed = true;
+                _status = $"The shop could not reset your data ({(int)response.StatusCode}). Nothing was deleted.";
+                return;
+            }
+
+            var json = await response.Content.ReadAsStringAsync(token);
+            _status = Describe(json);
+
+            // The server has just deleted this session's cart, so the copy in this tab is stale.
+            // CartState.Clear() empties it and asks the API to empty its own — which is already
+            // empty, so the answer is the authoritative empty cart and the header badge settles on
+            // it. It costs one request, and only when there was something in the cart to begin
+            // with: Clear() returns immediately when the tab holds no lines, which is the case for
+            // every visitor who has not opened the drawer. Reaching in and mutating the cart's
+            // internals from here would be faster and would give the tab a second, private opinion
+            // about what the server holds, which is exactly what the cart was rewritten to stop.
+            Cart.Clear();
+        }
+        catch (OperationCanceledException)
+        {
+            _failed = true;
+            _status = "The shop is taking too long to answer. Nothing was deleted — try again.";
+        }
+        catch (HttpRequestException exception)
+        {
+            _failed = true;
+            _status = $"The shop could not be reached, so nothing was deleted. ({exception.Message})";
+        }
+        finally
+        {
+            _resetting = false;
+
+            // Cancelled before it is awaited, not after. Without this the await would sit here for
+            // the remainder of the two-second timer on a fast reset, and the sentence saying what
+            // was deleted would appear two seconds after the work finished — a progress indicator
+            // that makes the thing it describes look slower than it is.
+            _inFlight?.Cancel();
+
+            try
+            {
+                await explainTheWait;
+            }
+            catch (Exception)
+            {
+                // It only ever reports; losing that report is not worth failing the reset over.
+            }
+
+            StateHasChanged();
+        }
+    }
+
+    private async Task ExplainTheWaitAsync(CancellationToken cancellationToken)
+    {
+        try
+        {
+            await Task.Delay(WakingAfter, cancellationToken);
+        }
+        catch (OperationCanceledException)
+        {
+            return;
+        }
+
+        if (!_resetting)
+        {
+            return;
+        }
+
+        _status = "Waking the shop up — this only happens after it has been idle.";
+        await InvokeAsync(StateHasChanged);
+    }
+
+    /// <summary>
+    /// Turns the endpoint's tally into a sentence.
+    /// <para>
+    /// Read with <see cref="JsonDocument"/> rather than deserialized into a record. Two reasons,
+    /// and the first is not style: a published Blazor WebAssembly app is trimmed, and
+    /// reflection-based deserialization of a type nothing else references is exactly what trimming
+    /// removes — the bug appears only in the published build, which is the worst place to find it.
+    /// The alternative is a source-generated serializer context for one response, which is more
+    /// machinery than eight integers deserve. The second reason is that a tally the storefront
+    /// cannot read must still leave the banner honest, so an unreadable body degrades to "your demo
+    /// data has been reset" rather than to an error.
+    /// </para>
+    /// <para>
+    /// The numbers are the server's, not this component's guess at them. That is the point of the
+    /// endpoint returning them: "removed 1 cart and 2 orders, and put 3 units back on the shelf" is
+    /// a demo explaining itself, where "done" is a demo asking to be trusted.
+    /// </para>
+    /// </summary>
+    private static string Describe(string json)
+    {
+        try
+        {
+            using var document = JsonDocument.Parse(json);
+            var root = document.RootElement;
+
+            var carts = Count(root, "cartsRemoved");
+            var orders = Count(root, "ordersRemoved");
+            var units = Count(root, "unitsReturnedToStock");
+
+            if (carts == 0 && orders == 0)
+            {
+                return "There was nothing to reset — this session had no cart and no orders.";
+            }
+
+            var parts = new List<string>(3);
+
+            if (carts > 0)
+            {
+                parts.Add(Plural(carts, "cart", "carts"));
+            }
+
+            if (orders > 0)
+            {
+                parts.Add(Plural(orders, "order", "orders"));
+            }
+
+            var removed = $"Cleared {Join(parts)}.";
+
+            return units > 0
+                ? $"{removed} {Plural(units, "unit", "units")} went back on the shelf."
+                : removed;
+        }
+        catch (JsonException)
+        {
+            return "Your demo data has been reset.";
+        }
+    }
+
+    private static int Count(JsonElement root, string property) =>
+        root.TryGetProperty(property, out var value) && value.TryGetInt32(out var number) ? number : 0;
+
+    private static string Plural(int count, string one, string many) =>
+        $"{count} {(count == 1 ? one : many)}";
+
+    private static string Join(List<string> parts) =>
+        parts.Count switch
+        {
+            0 => "nothing",
+            1 => parts[0],
+            _ => $"{parts[0]} and {parts[1]}",
+        };
+
+    public void Dispose()
+    {
+        _inFlight?.Cancel();
+        _inFlight?.Dispose();
+    }
+}

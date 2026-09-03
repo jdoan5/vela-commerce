@@ -1,0 +1,748 @@
+@*
+    Checkout, at "/checkout".
+
+    THE ONE RULE THIS PAGE HAS TO RESPECT. The catalog browses, searches, filters and sorts
+    from a static file with the API and the database switched off. Checkout cannot: it needs a
+    server. So the API is reached LAZILY — nothing is fetched until this page has already
+    painted — and while the shop is starting the page says so, with a retry, rather than
+    showing a spinner that looks broken. A shopper who never presses Checkout wakes nothing.
+
+    THE IDEMPOTENCY KEY IS THE POINT OF THE SCREEN, and where it is stored is what makes it
+    work. It lives in CheckoutState, which outlives this component, so every retry of a failed
+    submit carries the same string and the server answers a repeat by handing back the order the
+    first send created. It is replaced in exactly one situation — after a 402, where an order
+    already belongs to it — and that decision is stated once, on CheckoutResult.ConsumedTheKey,
+    rather than re-derived here.
+
+    EVERY DOCUMENTED ANSWER GETS ITS OWN WORDS. 201 created, 202 still settling, 200 replay,
+    402 declined, 402 never finished, 409 stock, 409 price, 400 refused, and no answer at all.
+    Collapsing any two of those would be the page lying about something a shopper has to act on:
+    whether money moved, whether stock is being held, and whether trying again is safe.
+*@
+@page "/checkout"
+@using Microsoft.Extensions.DependencyInjection
+@using VelaCommerce.Storefront.Cart
+@using VelaCommerce.Storefront.Checkout
+@implements IDisposable
+@inject HttpClient Http
+@inject CartState Cart
+@inject CartDrawerState Drawer
+@inject NavigationManager Nav
+@inject IServiceProvider Services
+
+<PageTitle>Checkout &middot; Vela Commerce</PageTitle>
+
+<nav class="vc-crumbs" aria-label="Breadcrumb">
+    <a class="vc-crumbs__link" href="">Catalog</a>
+    <span class="vc-crumbs__sep" aria-hidden="true">/</span>
+    <span>Checkout</span>
+</nav>
+
+<div class="vc-hero">
+    <span class="vc-eyebrow">Checkout</span>
+    <h1 class="vc-section-title">Place your order</h1>
+    <p class="vc-lede">
+        The shop reads your cart, revalidates every price against the live catalog and works out
+        the total itself &mdash; no number on this page is trusted. There is no card to enter:
+        this build ships its own payment gateway, and you choose below what it should do.
+    </p>
+</div>
+
+@if (!Cart.IsLoaded && Cart.ErrorMessage is { Length: > 0 } cartError)
+{
+    @* The API is asleep, unreachable, or answered with something unusable. Honest, and
+       recoverable in place: the cart is the only thing missing and one button asks again. *@
+    <div class="vc-alert vc-alert--error" role="alert">
+        <h2 class="vc-alert__title">@cartError</h2>
+        <p class="vc-alert__body">
+            Your cart lives on the server, so checkout cannot start until the shop answers. The
+            catalog is a static file and keeps working either way &mdash; nothing you have added
+            has been lost.
+        </p>
+        @if (Cart.ErrorDetail is { Length: > 0 } cartDetail)
+        {
+            <details class="vc-alert__detail">
+                <summary>Technical detail</summary>
+                @cartDetail
+            </details>
+        }
+        <div class="vc-alert__actions">
+            @if (Cart.CanRetry)
+            {
+                <button type="button" class="vc-btn vc-btn--primary" @onclick="RetryCartAsync">Try again</button>
+            }
+            <a class="vc-btn" href="">Back to the catalog</a>
+        </div>
+    </div>
+}
+else if (!Cart.IsLoaded)
+{
+    <div class="vc-waking" role="status" aria-live="polite">
+        <span class="vc-waking__pip" aria-hidden="true"></span>
+        <div class="vc-waking__body">
+            <p class="vc-waking__title">@(Cart.IsWaking ? "Waking the shop up" : "Reading your cart")</p>
+            <p class="vc-waking__note">
+                The API sleeps when nobody is buying anything, so the first request after a quiet
+                period waits for it to start. This is the only part of the shop that needs it.
+            </p>
+        </div>
+    </div>
+}
+else if (Cart.IsEmpty)
+{
+    <div class="vc-empty">
+        <span class="vc-eyebrow">Nothing to buy</span>
+        <h2 class="vc-empty__title">Your cart is empty</h2>
+        <p class="vc-empty__body">
+            There is nothing to check out. If you have just placed an order that is expected: a
+            completed checkout empties the cart in the same transaction that creates the order.
+        </p>
+        <div class="vc-alert__actions">
+            <a class="vc-btn vc-btn--primary" href="">Back to the catalog</a>
+        </div>
+    </div>
+}
+else
+{
+    @* Validated once per render rather than once per field, so five inputs do not each build
+       their own copy of the same answer. *@
+    _errors = _showErrors ? Draft.Validate() : NoErrors;
+
+    <div class="vc-checkout">
+        <form class="vc-checkout__main" @onsubmit="SubmitAsync" @onsubmit:preventDefault novalidate>
+
+            @if (_result is { Succeeded: false } failure)
+            {
+                <div class="vc-alert @AlertModifier(failure) vc-checkout__result"
+                     role="alert"
+                     tabindex="-1"
+                     @ref="_resultAlert">
+                    <h2 class="vc-alert__title">@Headline(failure)</h2>
+                    <p class="vc-alert__body">@Explanation(failure)</p>
+
+                    @if (failure.Problem?.Detail is { Length: > 0 } serverDetail)
+                    {
+                        @* The server's own wording, not a paraphrase. "Country must be an ISO
+                           alpha-2 code" is the domain's sentence and names the rule better than
+                           anything this page could re-derive from the outside. *@
+                        <p class="vc-alert__body vc-alert__body--quoted">@serverDetail</p>
+                    }
+
+                    @if (failure.Problem?.PriceChanges is { Count: > 0 } changes)
+                    {
+                        <ul class="vc-conflict">
+                            @foreach (var change in changes)
+                            {
+                                <li class="vc-conflict__row">
+                                    <span class="vc-conflict__name">@change.DisplayName</span>
+                                    <span class="vc-conflict__sku vc-tabular">@change.Sku</span>
+                                    @if (change.NoLongerSold)
+                                    {
+                                        <span class="vc-tag vc-tag--signal">No longer sold</span>
+                                    }
+                                    else
+                                    {
+                                        <span class="vc-conflict__prices vc-tabular">
+                                            <s>@Money(change.Was)</s>
+                                            <span aria-hidden="true">&rarr;</span>
+                                            <span class="vc-conflict__now">@Money(change.Now)</span>
+                                            @if (change.Difference is { } difference)
+                                            {
+                                                <span class="vc-conflict__delta">@Signed(difference)</span>
+                                            }
+                                        </span>
+                                    }
+                                </li>
+                            }
+                        </ul>
+                    }
+
+                    @if (failure.Problem?.Shortfall is { } shortfall)
+                    {
+                        <ul class="vc-conflict">
+                            <li class="vc-conflict__row">
+                                <span class="vc-conflict__name">@shortfall.DisplayName</span>
+                                <span class="vc-conflict__sku vc-tabular">@shortfall.Sku</span>
+                                <span class="vc-conflict__prices vc-tabular">
+                                    <span>asked for @shortfall.Requested</span>
+                                    @if (shortfall.Available is { } available)
+                                    {
+                                        <span aria-hidden="true">&middot;</span>
+                                        <span>about @available free</span>
+                                    }
+                                </span>
+                            </li>
+                        </ul>
+                        @if (shortfall.Available is not null)
+                        {
+                            <p class="vc-alert__detail">
+                                That free count is advisory. It was read after the reservation failed, so
+                                somebody else may have taken more of it since; the number that actually
+                                decided this sat inside one conditional UPDATE and never left the database.
+                            </p>
+                        }
+                    }
+
+                    @if (failure.Problem?.Payment is { } gateway)
+                    {
+                        <dl class="vc-gateway">
+                            <div class="vc-gateway__row">
+                                <dt class="vc-gateway__key">Gateway said</dt>
+                                <dd class="vc-gateway__value">
+                                    @gateway.Outcome@(gateway.DeclineReason is { Length: > 0 } reason ? $" — {reason}" : "")
+                                </dd>
+                            </div>
+                            <div class="vc-gateway__row">
+                                <dt class="vc-gateway__key">Reference</dt>
+                                <dd class="vc-gateway__value vc-tabular">@gateway.GatewayReference</dd>
+                            </div>
+                        </dl>
+                    }
+
+                    @if (failure.Detail is { Length: > 0 } clientDetail)
+                    {
+                        <details class="vc-alert__detail">
+                            <summary>Technical detail</summary>
+                            @clientDetail
+                        </details>
+                    }
+
+                    <div class="vc-alert__actions">
+                        @if (failure.Outcome is CheckoutOutcome.Interrupted)
+                        {
+                            <button type="button" class="vc-btn vc-btn--primary" disabled="@_submitting" @onclick="AttemptAsync">
+                                Try again
+                            </button>
+                        }
+                        @if (failure.Outcome is CheckoutOutcome.PriceMoved or CheckoutOutcome.OutOfStock)
+                        {
+                            <button type="button" class="vc-btn" @onclick="OpenCart">Open the cart</button>
+                        }
+                        @if (failure.StrandedOrderNumber is { Length: > 0 } stranded)
+                        {
+                            <a class="vc-btn" href="@($"order/{stranded}")">Open order @stranded</a>
+                        }
+                    </div>
+                </div>
+            }
+
+            @if (Cart.HasPriceChanges || Cart.HasUnavailableLines)
+            {
+                @* Said before the button is pressed rather than after. Every cart response already
+                   reports the captured price beside the live one, so letting a shopper submit into
+                   a certain 409 would mean withholding an answer this page is holding. *@
+                <div class="vc-alert vc-checkout__warning" role="status">
+                    <h2 class="vc-alert__title">This cart will be refused as it stands</h2>
+                    <p class="vc-alert__body">
+                        The shop never reprices a cart quietly, so a line that has moved since you added
+                        it stops the checkout instead of changing what you pay. Remove and add these
+                        again in the cart to accept the current price.
+                    </p>
+                    <ul class="vc-conflict">
+                        @foreach (var line in Cart.Lines)
+                        {
+                            @if (line.PriceChanged || !line.StillInCatalog)
+                            {
+                                <li class="vc-conflict__row" @key="line.Sku">
+                                    <span class="vc-conflict__name">@line.ProductName</span>
+                                    <span class="vc-conflict__sku vc-tabular">@line.Sku</span>
+                                    @if (!line.StillInCatalog)
+                                    {
+                                        <span class="vc-tag vc-tag--signal">No longer sold</span>
+                                    }
+                                    else
+                                    {
+                                        <span class="vc-conflict__prices vc-tabular">
+                                            <s>@MoneyFormatter.Format(line.UnitPrice)</s>
+                                            <span aria-hidden="true">&rarr;</span>
+                                            <span class="vc-conflict__now">@MoneyFormatter.Format(line.CurrentUnitPrice)</span>
+                                        </span>
+                                    }
+                                </li>
+                            }
+                        }
+                    </ul>
+                    <div class="vc-alert__actions">
+                        <button type="button" class="vc-btn" @onclick="OpenCart">Open the cart</button>
+                    </div>
+                </div>
+            }
+
+            <section class="vc-checkout__section">
+                <div class="vc-checkout__section-head">
+                    <h2 class="vc-checkout__section-title">Shipping address</h2>
+                    @if (Draft.IsUntouched)
+                    {
+                        <button type="button" class="vc-btn vc-btn--quiet vc-btn--sm" @onclick="FillSample">
+                            Fill in a sample address
+                        </button>
+                    }
+                </div>
+
+                <div class="vc-formgrid">
+                    <div class="vc-field vc-formgrid__wide">
+                        <label class="vc-label" for="vc-ck-recipient">Recipient</label>
+                        <input class="vc-input" id="vc-ck-recipient" type="text" autocomplete="name"
+                               aria-invalid="@Invalid(nameof(AddressDraft.Recipient))"
+                               aria-describedby="@Describe(nameof(AddressDraft.Recipient))"
+                               disabled="@_submitting"
+                               @bind="Draft.Recipient" @bind:event="oninput" />
+                        @if (Error(nameof(AddressDraft.Recipient)) is { } recipientError)
+                        {
+                            <p class="vc-field__error" id="vc-ck-recipient-error">@recipientError</p>
+                        }
+                    </div>
+
+                    <div class="vc-field vc-formgrid__wide">
+                        <label class="vc-label" for="vc-ck-line1">Address line 1</label>
+                        <input class="vc-input" id="vc-ck-line1" type="text" autocomplete="address-line1"
+                               aria-invalid="@Invalid(nameof(AddressDraft.Line1))"
+                               aria-describedby="@Describe(nameof(AddressDraft.Line1))"
+                               disabled="@_submitting"
+                               @bind="Draft.Line1" @bind:event="oninput" />
+                        @if (Error(nameof(AddressDraft.Line1)) is { } line1Error)
+                        {
+                            <p class="vc-field__error" id="vc-ck-line1-error">@line1Error</p>
+                        }
+                    </div>
+
+                    <div class="vc-field vc-formgrid__wide">
+                        <label class="vc-label" for="vc-ck-line2">
+                            Address line 2 <span class="vc-field__optional">optional</span>
+                        </label>
+                        <input class="vc-input" id="vc-ck-line2" type="text" autocomplete="address-line2"
+                               disabled="@_submitting"
+                               @bind="Draft.Line2" @bind:event="oninput" />
+                    </div>
+
+                    <div class="vc-field">
+                        <label class="vc-label" for="vc-ck-city">City</label>
+                        <input class="vc-input" id="vc-ck-city" type="text" autocomplete="address-level2"
+                               aria-invalid="@Invalid(nameof(AddressDraft.City))"
+                               aria-describedby="@Describe(nameof(AddressDraft.City))"
+                               disabled="@_submitting"
+                               @bind="Draft.City" @bind:event="oninput" />
+                        @if (Error(nameof(AddressDraft.City)) is { } cityError)
+                        {
+                            <p class="vc-field__error" id="vc-ck-city-error">@cityError</p>
+                        }
+                    </div>
+
+                    <div class="vc-field">
+                        <label class="vc-label" for="vc-ck-region">
+                            State or region <span class="vc-field__optional">optional</span>
+                        </label>
+                        <input class="vc-input" id="vc-ck-region" type="text" autocomplete="address-level1"
+                               disabled="@_submitting"
+                               @bind="Draft.Region" @bind:event="oninput" />
+                    </div>
+
+                    <div class="vc-field">
+                        <label class="vc-label" for="vc-ck-postal">Postal code</label>
+                        <input class="vc-input vc-tabular" id="vc-ck-postal" type="text" autocomplete="postal-code"
+                               aria-invalid="@Invalid(nameof(AddressDraft.PostalCode))"
+                               aria-describedby="@Describe(nameof(AddressDraft.PostalCode))"
+                               disabled="@_submitting"
+                               @bind="Draft.PostalCode" @bind:event="oninput" />
+                        @if (Error(nameof(AddressDraft.PostalCode)) is { } postalError)
+                        {
+                            <p class="vc-field__error" id="vc-ck-postal-error">@postalError</p>
+                        }
+                    </div>
+
+                    <div class="vc-field">
+                        <label class="vc-label" for="vc-ck-country">Country</label>
+                        <input class="vc-input vc-tabular" id="vc-ck-country" type="text" autocomplete="country"
+                               maxlength="2" placeholder="US" spellcheck="false"
+                               aria-invalid="@Invalid(nameof(AddressDraft.CountryCode))"
+                               aria-describedby="@CountryDescribedBy()"
+                               disabled="@_submitting"
+                               @bind="Draft.CountryCode" @bind:event="oninput" />
+                        <p class="vc-field__hint" id="vc-ck-country-hint">Two letters, ISO 3166-1 alpha-2.</p>
+                        @if (Error(nameof(AddressDraft.CountryCode)) is { } countryError)
+                        {
+                            <p class="vc-field__error" id="vc-ck-country-error">@countryError</p>
+                        }
+                    </div>
+                </div>
+            </section>
+
+            <section class="vc-checkout__section">
+                @* The @ on Value is load-bearing: a string-typed component parameter written
+                   without it is passed as the literal text "_checkout.PaymentScenario", which
+                   matches no scenario and silently leaves every radio unchecked. *@
+                <PaymentScenarioPicker Value="@_checkout.PaymentScenario"
+                                       ValueChanged="OnScenarioChanged"
+                                       Disabled="_submitting" />
+            </section>
+
+            <div class="vc-checkout__submit">
+                <button type="submit" class="vc-btn vc-btn--primary vc-checkout__place" disabled="@_submitting">
+                    @(_submitting ? "Placing your order…" : "Place order")
+                </button>
+
+                <p class="vc-checkout__submit-note" role="status" aria-live="polite">
+                    @if (_waking)
+                    {
+                        <span>
+                            The shop is still starting up. Nothing has been charged, and this attempt keeps
+                            its reference &mdash; whatever happens next, it cannot become two orders.
+                        </span>
+                    }
+                    else if (_submitting)
+                    {
+                        <span>Reserving stock, revalidating prices and asking the gateway.</span>
+                    }
+                    else
+                    {
+                        <span>No card is taken and nothing is charged. The gateway is simulated.</span>
+                    }
+                </p>
+            </div>
+        </form>
+
+        <aside class="vc-checkout__aside" aria-label="Order summary">
+            <div class="vc-summary">
+                <h2 class="vc-summary__title">Your order</h2>
+
+                <ul class="vc-summary__lines">
+                    @foreach (var line in Cart.Lines)
+                    {
+                        <li class="vc-summary__line" @key="line.Sku">
+                            <div class="vc-summary__line-main">
+                                <span class="vc-summary__name">@line.ProductName</span>
+                                <span class="vc-summary__meta">
+                                    @if (line.VariantName is { Length: > 0 } variantName)
+                                    {
+                                        <span>@variantName</span>
+                                        <span aria-hidden="true">&middot;</span>
+                                    }
+                                    <span class="vc-tabular">@line.Sku</span>
+                                    <span aria-hidden="true">&middot;</span>
+                                    <span class="vc-tabular">&times;@line.Quantity</span>
+                                </span>
+                            </div>
+                            <PriceTag Money="line.LineTotal" />
+                        </li>
+                    }
+                </ul>
+
+                <hr class="vc-rule" />
+
+                <div class="vc-subtotal">
+                    <span class="vc-subtotal__label">Subtotal</span>
+                    <PriceTag Money="Cart.Subtotal" Large="true" />
+                </div>
+
+                <p class="vc-summary__note">
+                    Shipping and tax are worked out by the shop when the order is placed, from prices it
+                    revalidates itself. The exact total is on the confirmation, and it is the figure the
+                    gateway is asked for.
+                </p>
+
+                <hr class="vc-rule" />
+
+                @* Shown rather than hidden. This reference is the whole reason a double submit
+                   cannot become two orders, and a demo about idempotency that never shows the key
+                   is a demo about nothing. *@
+                <div class="vc-readout vc-readout--stacked vc-summary__key">
+                    <span class="vc-readout__label">Attempt reference</span>
+                    <span class="vc-readout__value">@_checkout.IdempotencyKey</span>
+                </div>
+                <p class="vc-summary__note">
+                    Sent with the order as its idempotency key. Every retry of this attempt carries the
+                    same one, so the shop answers a repeat by handing back the order it already made.
+                </p>
+            </div>
+        </aside>
+    </div>
+}
+
+@code {
+    /// <summary>
+    /// How long one checkout attempt is given.
+    /// <para>
+    /// Generous, because the first request after a quiet period is paying for a container to start,
+    /// a connection pool to open and a payment to be authorised. Deliberately one attempt rather
+    /// than an automatic retry loop: the key would make an automatic retry safe, but this is
+    /// somebody's money and the decision to send it again belongs to them. The button that does it
+    /// is one press away and says what it does.
+    /// </para>
+    /// </summary>
+    private static readonly TimeSpan SubmitDeadline = TimeSpan.FromSeconds(45);
+
+    /// <summary>How long a request may run before the page admits the shop is asleep. The same notice the cart uses.</summary>
+    private static readonly TimeSpan WakeNotice = TimeSpan.FromSeconds(2);
+
+    private static readonly IReadOnlyDictionary<string, string> NoErrors =
+        new Dictionary<string, string>(StringComparer.Ordinal);
+
+    private CheckoutApiClient _api = default!;
+    private CheckoutState _checkout = default!;
+    private ElementReference _resultAlert;
+
+    private IReadOnlyDictionary<string, string> _errors = NoErrors;
+    private CheckoutResult? _result;
+    private bool _showErrors;
+    private bool _submitting;
+    private bool _waking;
+    private bool _focusResult;
+
+    private AddressDraft Draft => _checkout.Address;
+
+    protected override void OnInitialized()
+    {
+        _api = new CheckoutApiClient(Http);
+
+        // Resolved rather than injected, so a missing AddStorefrontCheckout() registration costs a
+        // draft that does not survive navigation instead of a checkout page that throws. See
+        // CheckoutServiceCollectionExtensions for the one line that should be in Program.cs.
+        _checkout = Services.GetService<CheckoutState>() ?? new CheckoutState();
+
+        Cart.Changed += OnCartChanged;
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            // AFTER the first render, never before it. Awaiting the cart in OnInitializedAsync would
+            // hold this page blank for as long as a sleeping API takes to answer, which is exactly
+            // the spinner-that-looks-broken this shop is built to avoid. The shell paints first,
+            // says what it is waiting for, and fills in.
+            await Cart.EnsureLoadedAsync();
+        }
+
+        if (_focusResult)
+        {
+            _focusResult = false;
+            await FocusAsync(_resultAlert);
+        }
+    }
+
+    private void OnCartChanged() => StateHasChanged();
+
+    private Task RetryCartAsync() => Cart.RetryAsync();
+
+    private void OpenCart() => Drawer.Open();
+
+    private void OnScenarioChanged(string hint) => _checkout.PaymentScenario = hint;
+
+    private void FillSample() => Draft.FillWithSample();
+
+    private async Task SubmitAsync()
+    {
+        // Errors appear on the first submit and stay live from then on, so a field corrected while
+        // its message is on screen loses the message as it is typed into.
+        _showErrors = true;
+
+        if (Draft.Validate().Count > 0)
+        {
+            return;
+        }
+
+        await AttemptAsync();
+    }
+
+    /// <summary>
+    /// Sends the attempt. Reachable twice — from the submit button and from Try again on an
+    /// interrupted result — and that is the design: the second press carries the same key as the
+    /// first, which is what makes it safe.
+    /// </summary>
+    private async Task AttemptAsync()
+    {
+        if (_submitting || Cart.IsEmpty)
+        {
+            return;
+        }
+
+        _submitting = true;
+        _waking = false;
+        _result = null;
+        StateHasChanged();
+
+        CheckoutResult result;
+
+        try
+        {
+            using var deadline = new CancellationTokenSource(SubmitDeadline);
+
+            var body = new PlaceOrderBody(
+                Draft.ToBody(),
+                _checkout.IdempotencyKey,
+                _checkout.PaymentScenario);
+
+            var work = _api.PlaceOrderAsync(body, deadline.Token);
+
+            // A call that is slow rather than failing is a cold start, and saying so beats a
+            // spinner. The delay is deliberately not tied to the deadline token: a stray
+            // two-second timer costs nothing, and cancelling it would mean the notice never
+            // appeared on the one path it exists for.
+            if (await Task.WhenAny(work, Task.Delay(WakeNotice)) != work)
+            {
+                _waking = true;
+                StateHasChanged();
+            }
+
+            result = await work;
+        }
+        catch (Exception exception)
+        {
+            // The client turns every documented refusal into a result rather than an exception, so
+            // reaching here means something unforeseen. It is reported as interrupted because that
+            // is what it is: the state of the order is unknown, and the same key is the way to find
+            // out safely. An unhandled exception on a payment screen would show the Blazor error
+            // bar and leave the shopper with no idea whether they had bought anything.
+            result = new CheckoutResult(
+                CheckoutOutcome.Interrupted,
+                Order: null,
+                Problem: null,
+                $"{exception.GetType().Name}: {exception.Message}");
+        }
+        finally
+        {
+            _submitting = false;
+            _waking = false;
+        }
+
+        if (result.Succeeded && result.Order is { } order)
+        {
+            // The gateway's answer exists only on this response — it is persisted nowhere for a
+            // later GET to find — so it is handed to the order page rather than dropped.
+            _checkout.RememberReceipt(order);
+
+            // The server emptied the cart inside the same transaction that created the order, so
+            // this is the client catching up rather than a second decision. Clear() is a no-op on an
+            // already-empty cart and the DELETE it sends is idempotent. The accepted edge is a 200
+            // replay of an older order, where anything added since is discarded with it; a
+            // CartState.ReloadAsync() would be the better seam and does not exist yet.
+            Cart.Clear();
+
+            Nav.NavigateTo(OrderPage(order));
+            return;
+        }
+
+        // A 402 means an order already belongs to this key — cancelled, or pending and unpaid — so
+        // sending it again would replay that dead order forever rather than buy anything. Every
+        // other failure created nothing and leaves the key unspent, which is what makes Try again
+        // safe on the interrupted path.
+        if (result.ConsumedTheKey)
+        {
+            _checkout.StartNewAttempt();
+        }
+
+        _result = result;
+        _focusResult = true;
+        StateHasChanged();
+    }
+
+    /// <summary>
+    /// The storefront's own link to the order rather than the API's <c>retrievalPath</c>: the same
+    /// signed token, pointing at a page a shopper can read and bookmark.
+    /// </summary>
+    private static string OrderPage(OrderDocument order) =>
+        $"order/{Uri.EscapeDataString(order.OrderNumber)}?token={Uri.EscapeDataString(order.RetrievalToken)}";
+
+    private string? Error(string field) => _errors.TryGetValue(field, out var message) ? message : null;
+
+    private string? Invalid(string field) => Error(field) is null ? null : "true";
+
+    private string? Describe(string field) => Error(field) is null ? null : FieldErrorId(field);
+
+    /// <summary>The country field always has a hint to point at, and sometimes an error as well.</summary>
+    private string CountryDescribedBy() =>
+        Error(nameof(AddressDraft.CountryCode)) is null
+            ? "vc-ck-country-hint"
+            : "vc-ck-country-hint vc-ck-country-error";
+
+    private static string FieldErrorId(string field) => field switch
+    {
+        nameof(AddressDraft.Recipient) => "vc-ck-recipient-error",
+        nameof(AddressDraft.Line1) => "vc-ck-line1-error",
+        nameof(AddressDraft.City) => "vc-ck-city-error",
+        nameof(AddressDraft.PostalCode) => "vc-ck-postal-error",
+        _ => "vc-ck-country-error",
+    };
+
+    private static string Money(MoneyDocument? money) =>
+        money is null ? "—" : MoneyFormatter.Format(money.Amount, money.Currency);
+
+    /// <summary>A price difference with its sign kept, so "the bargain expired" and "it got cheaper" read differently.</summary>
+    private static string Signed(MoneyDocument difference) =>
+        (difference.Amount > 0 ? "+" : "") + MoneyFormatter.Format(difference.Amount, difference.Currency);
+
+    private static string AlertModifier(CheckoutResult result) =>
+        result.Outcome is CheckoutOutcome.Declined or CheckoutOutcome.Rejected
+            ? "vc-alert--error"
+            : "vc-alert--notice";
+
+    /// <summary>
+    /// The headline for a refusal: the server's own title where it sent one, because it names the
+    /// rule better than a re-derivation would, and a written fallback where nothing came back.
+    /// </summary>
+    private static string Headline(CheckoutResult result) =>
+        result.Problem?.Title is { Length: > 0 } title
+            ? title
+            : result.Outcome switch
+            {
+                CheckoutOutcome.Interrupted => "The shop did not answer",
+                CheckoutOutcome.Declined => "The payment was declined",
+                CheckoutOutcome.OutOfStock => "Not enough stock left",
+                CheckoutOutcome.PriceMoved => "Prices have changed since these items were added",
+                _ => "That checkout could not be accepted",
+            };
+
+    /// <summary>
+    /// What it means, in the two terms a shopper actually needs: whether money moved, and what to do
+    /// next. Distinct per outcome on purpose — a shared "please try again" would be wrong for four
+    /// of these six.
+    /// </summary>
+    private static string Explanation(CheckoutResult result) => result.Outcome switch
+    {
+        CheckoutOutcome.Declined =>
+            "Nothing was charged. The order has been cancelled and its stock released, and your cart is "
+            + "exactly as it was. This attempt has been given a new reference, because the previous one "
+            + "now belongs to the cancelled order — so you can change the simulated outcome below and "
+            + "place a new one.",
+
+        CheckoutOutcome.NotCompleted =>
+            "Nobody refused the payment and nobody made it, so an order exists, is unpaid, and is still "
+            + "holding its reserved stock until that reservation lapses. Nothing was charged. This "
+            + "attempt has a new reference; the order that was created is linked below.",
+
+        CheckoutOutcome.PriceMoved =>
+            "Nothing was created and nothing was charged. The shop refuses to reprice a cart quietly in "
+            + "either direction, so a line that has moved stops the checkout and asks you to look. Remove "
+            + "and add these lines again in the cart to accept the current price.",
+
+        CheckoutOutcome.OutOfStock =>
+            "Nothing was created and nothing was charged. Somebody else reserved the last of one of these "
+            + "while this order was being placed. Lower the quantity in the cart, or take the line out, "
+            + "and place the order again.",
+
+        CheckoutOutcome.Rejected =>
+            "The shop refused the request itself, so no order exists and nothing was charged. The line "
+            + "below is the shop's own wording: it names the rule that was broken.",
+
+        _ =>
+            "No answer arrived, so whether the order was created is genuinely unknown — it may exist, and "
+            + "may even be paid. This is what the attempt reference is for: Try again sends the same one, "
+            + "and the shop answers a repeat by handing back the order it already made rather than making "
+            + "a second. It cannot charge you twice.",
+    };
+
+    /// <summary>Focus, defensively. A stale element reference must never be the thing that takes a payment screen down.</summary>
+    private static async Task FocusAsync(ElementReference element)
+    {
+        try
+        {
+            await element.FocusAsync();
+        }
+        catch (Exception)
+        {
+            // The message is on screen and readable with a pointer either way.
+        }
+    }
+
+    public void Dispose() => Cart.Changed -= OnCartChanged;
+}

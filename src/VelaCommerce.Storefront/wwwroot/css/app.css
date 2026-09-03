@@ -2263,3 +2263,813 @@ svg {
         transition: none;
     }
 }
+
+
+/* ==========================================================================
+   6.18 – 6.22  CHECKOUT AND ORDER
+   Added by the checkout slice. Everything below composes existing --vc-*
+   tokens: no new colour is born here, no second type scale, no second
+   palette. If a role looks missing, it is because an existing one covers it —
+   the "waiting" green is --vc-secondary, the same one the shop already uses
+   for in-stock, and the "reached" brass is --vc-accent.
+   ========================================================================== */
+
+
+/* --- 6.18 Waking notice --------------------------------------------------
+   The one honest thing to show while a sleeping API starts. It is a panel
+   with a sentence in it, not a spinner: a spinner says "wait" and nothing
+   else, and on a cold container it says it for eight seconds, which reads as
+   broken. Sized so the content that replaces it does not jump.
+   ------------------------------------------------------------------------- */
+
+.vc-waking {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--vc-space-4);
+    padding: var(--vc-space-5);
+    margin-top: var(--vc-space-5);
+    background: var(--vc-surface);
+    border: 1px solid var(--vc-rule);
+    border-left: 3px solid var(--vc-secondary);
+    border-radius: var(--vc-radius-md);
+}
+
+.vc-waking__pip {
+    flex: none;
+    width: 0.6rem;
+    height: 0.6rem;
+    margin-top: 0.42rem;
+    border-radius: var(--vc-radius-pill);
+    background: var(--vc-secondary);
+    animation: vc-pip 1.6s var(--vc-ease) infinite;
+}
+
+.vc-waking__body {
+    display: flex;
+    flex-direction: column;
+    gap: var(--vc-space-2);
+}
+
+.vc-waking__title {
+    font-family: var(--vc-font-display);
+    font-size: var(--vc-text-md);
+    font-weight: 600;
+}
+
+.vc-waking__note {
+    max-width: 58ch;
+    font-size: var(--vc-text-sm);
+    color: var(--vc-text-muted);
+}
+
+@keyframes vc-pip {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.25; }
+}
+
+
+/* --- 6.19 Checkout page --------------------------------------------------
+   Form on the left, order summary on the right, stacked below 60rem with the
+   summary underneath — a shopper on a phone should reach the address fields
+   without scrolling past a list they have already read in the cart.
+   ------------------------------------------------------------------------- */
+
+.vc-checkout {
+    display: grid;
+    gap: var(--vc-space-6);
+    align-items: start;
+}
+
+@media (min-width: 60rem) {
+    .vc-checkout {
+        grid-template-columns: minmax(0, 1fr) minmax(0, 22rem);
+        gap: var(--vc-space-7);
+    }
+}
+
+.vc-checkout__main {
+    display: flex;
+    flex-direction: column;
+    gap: var(--vc-space-6);
+    min-width: 0;
+}
+
+.vc-checkout__aside {
+    min-width: 0;
+}
+
+/* The alerts on this page sit inside a flex column that already spaces them,
+   so the component's own top margin would double it. */
+.vc-checkout__result,
+.vc-checkout__warning {
+    margin-top: 0;
+}
+
+.vc-checkout__section {
+    display: flex;
+    flex-direction: column;
+    gap: var(--vc-space-4);
+    padding-top: var(--vc-space-5);
+    border-top: 1px solid var(--vc-rule);
+}
+
+.vc-checkout__section-head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: var(--vc-space-3);
+}
+
+.vc-checkout__section-title {
+    font-family: var(--vc-font-display);
+    font-size: var(--vc-text-lg);
+    font-weight: 600;
+}
+
+.vc-checkout__submit {
+    display: flex;
+    flex-direction: column;
+    gap: var(--vc-space-3);
+    padding-top: var(--vc-space-5);
+    border-top: 2px solid var(--vc-accent-line);
+}
+
+.vc-checkout__place {
+    align-self: flex-start;
+    padding: 0.7rem var(--vc-space-6);
+    font-size: var(--vc-text-base);
+}
+
+/* Reserved height, because this line changes three times during a submit and
+   the button above it must not move while somebody is deciding to press it. */
+.vc-checkout__submit-note {
+    min-height: 2.6rem;
+    max-width: 58ch;
+    font-size: var(--vc-text-xs);
+    color: var(--vc-text-muted);
+}
+
+
+/* --- 6.19b Form grid ----------------------------------------------------- */
+
+.vc-formgrid {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--vc-space-4);
+}
+
+@media (min-width: 40rem) {
+    .vc-formgrid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .vc-formgrid__wide {
+        grid-column: 1 / -1;
+    }
+}
+
+.vc-field__optional {
+    font-weight: 400;
+    letter-spacing: 0;
+    text-transform: none;
+    color: var(--vc-text-faint);
+}
+
+.vc-field__hint {
+    font-size: var(--vc-text-2xs);
+    color: var(--vc-text-faint);
+}
+
+/* Flag red, because a refused field is the one place in this design where the
+   signal colour is not decorative. */
+.vc-field__error {
+    font-size: var(--vc-text-xs);
+    color: var(--vc-signal);
+}
+
+.vc-input[aria-invalid="true"] {
+    border-color: var(--vc-signal);
+}
+
+
+/* --- 6.19c Alert variants used by checkout ------------------------------- */
+
+/* A refusal that is not the shopper's fault and not an error in the shop:
+   a moved price, a lost race, an unanswered request. Brass rather than red. */
+.vc-alert--notice {
+    border-left-color: var(--vc-accent-line);
+}
+
+/* The server's own sentence, quoted rather than paraphrased. Set apart so it
+   reads as something the shop said and not as more of this page's prose. */
+.vc-alert__body--quoted {
+    padding-left: var(--vc-space-3);
+    border-left: 2px solid var(--vc-rule-strong);
+    color: var(--vc-text);
+}
+
+
+/* --- 6.19d Conflict lines and the gateway's answer ----------------------- */
+
+.vc-conflict {
+    display: flex;
+    flex-direction: column;
+    gap: var(--vc-space-2);
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+
+.vc-conflict__row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: var(--vc-space-2) var(--vc-space-3);
+    padding: var(--vc-space-2) var(--vc-space-3);
+    background: var(--vc-bg-sunken);
+    border-radius: var(--vc-radius-sm);
+    font-size: var(--vc-text-sm);
+}
+
+.vc-conflict__name {
+    font-weight: 600;
+}
+
+.vc-conflict__sku {
+    font-size: var(--vc-text-2xs);
+    color: var(--vc-text-faint);
+}
+
+.vc-conflict__prices {
+    display: inline-flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 0.4rem;
+    margin-left: auto;
+    font-size: var(--vc-text-sm);
+    color: var(--vc-text-muted);
+}
+
+.vc-conflict__now {
+    font-weight: 600;
+    color: var(--vc-text);
+}
+
+.vc-conflict__delta {
+    font-size: var(--vc-text-2xs);
+    color: var(--vc-accent-strong);
+}
+
+.vc-gateway {
+    display: flex;
+    flex-direction: column;
+    gap: var(--vc-space-1);
+    margin: 0;
+}
+
+.vc-gateway__row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: var(--vc-space-3);
+}
+
+.vc-gateway__key {
+    min-width: 8rem;
+    font-family: var(--vc-font-mono);
+    font-size: var(--vc-text-2xs);
+    letter-spacing: var(--vc-tracking-wide);
+    text-transform: uppercase;
+    color: var(--vc-text-faint);
+}
+
+.vc-gateway__value {
+    margin: 0;
+    font-size: var(--vc-text-sm);
+    overflow-wrap: anywhere;
+}
+
+
+/* --- 6.19e Order summary panel ------------------------------------------- */
+
+.vc-summary {
+    display: flex;
+    flex-direction: column;
+    gap: var(--vc-space-4);
+    padding: var(--vc-space-5);
+    background: var(--vc-surface);
+    border: 1px solid var(--vc-rule);
+    border-top: 2px solid var(--vc-accent-line);
+    border-radius: var(--vc-radius-md);
+}
+
+.vc-summary__title {
+    font-family: var(--vc-font-display);
+    font-size: var(--vc-text-lg);
+    font-weight: 600;
+}
+
+.vc-summary__lines {
+    display: flex;
+    flex-direction: column;
+    gap: var(--vc-space-3);
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+
+.vc-summary__line {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: var(--vc-space-3);
+}
+
+.vc-summary__line-main {
+    display: flex;
+    flex-direction: column;
+    gap: 0.1rem;
+    min-width: 0;
+}
+
+.vc-summary__name {
+    font-size: var(--vc-text-sm);
+    font-weight: 500;
+}
+
+.vc-summary__meta {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 0.35rem;
+    font-size: var(--vc-text-2xs);
+    color: var(--vc-text-faint);
+}
+
+.vc-summary__note {
+    max-width: 46ch;
+    font-size: var(--vc-text-xs);
+    color: var(--vc-text-muted);
+}
+
+.vc-summary__key .vc-readout__value {
+    font-size: var(--vc-text-xs);
+    overflow-wrap: anywhere;
+}
+
+
+/* --- 6.20 Payment scenario picker ---------------------------------------
+   Native radios, because the point of the control is that six paths are
+   visible at once with a sentence each, and because arrow-key navigation
+   through a radio group is behaviour worth keeping rather than rebuilding.
+   ------------------------------------------------------------------------- */
+
+.vc-scenarios {
+    display: flex;
+    flex-direction: column;
+    gap: var(--vc-space-3);
+    margin: 0;
+    padding: 0;
+    border: 0;
+}
+
+.vc-scenarios__legend {
+    padding: 0;
+    font-family: var(--vc-font-display);
+    font-size: var(--vc-text-lg);
+    font-weight: 600;
+}
+
+.vc-scenarios__intro {
+    max-width: 64ch;
+    font-size: var(--vc-text-sm);
+    color: var(--vc-text-muted);
+}
+
+.vc-scenarios__list {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--vc-space-2);
+}
+
+@media (min-width: 48rem) {
+    .vc-scenarios__list {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+}
+
+.vc-scenario {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    gap: 0.15rem var(--vc-space-3);
+    padding: var(--vc-space-3);
+    background: var(--vc-surface);
+    border: 1px solid var(--vc-rule);
+    border-radius: var(--vc-radius-md);
+    transition: border-color var(--vc-duration) var(--vc-ease),
+                background var(--vc-duration) var(--vc-ease);
+}
+
+.vc-scenario:hover {
+    border-color: var(--vc-rule-strong);
+}
+
+.vc-scenario--selected {
+    background: var(--vc-accent-soft);
+    border-color: var(--vc-accent);
+    box-shadow: inset 0 0 0 1px var(--vc-accent);
+}
+
+.vc-scenario__input {
+    grid-column: 1;
+    grid-row: 1;
+    margin: 0.28rem 0 0;
+    accent-color: var(--vc-accent);
+    cursor: pointer;
+}
+
+.vc-scenario__label {
+    grid-column: 2;
+    grid-row: 1;
+    font-size: var(--vc-text-sm);
+    font-weight: 600;
+    cursor: pointer;
+}
+
+.vc-scenario__summary {
+    grid-column: 2;
+    grid-row: 2;
+    font-size: var(--vc-text-xs);
+    color: var(--vc-text-muted);
+}
+
+.vc-scenario--selected .vc-scenario__summary {
+    color: var(--vc-text);
+}
+
+.vc-scenarios__detail {
+    font-size: var(--vc-text-xs);
+    color: var(--vc-text-muted);
+}
+
+.vc-scenarios__detail summary {
+    cursor: pointer;
+    color: var(--vc-text-muted);
+}
+
+.vc-scenarios__detail-body {
+    max-width: 64ch;
+    margin-top: var(--vc-space-2);
+}
+
+.vc-scenarios__triggers {
+    display: flex;
+    flex-direction: column;
+    gap: var(--vc-space-1);
+    margin: var(--vc-space-3) 0 0;
+}
+
+.vc-scenarios__trigger {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: var(--vc-space-3);
+}
+
+.vc-scenarios__trigger dt {
+    min-width: 7rem;
+}
+
+.vc-scenarios__trigger dd {
+    margin: 0;
+    color: var(--vc-text-faint);
+}
+
+
+/* --- 6.21 Order page ----------------------------------------------------- */
+
+.vc-notice {
+    display: flex;
+    flex-direction: column;
+    gap: var(--vc-space-2);
+    padding: var(--vc-space-4) var(--vc-space-5);
+    margin-bottom: var(--vc-space-6);
+    background: var(--vc-surface);
+    border: 1px solid var(--vc-rule);
+    border-left: 3px solid var(--vc-accent-line);
+    border-radius: var(--vc-radius-md);
+}
+
+.vc-notice__title {
+    font-family: var(--vc-font-display);
+    font-size: var(--vc-text-md);
+    font-weight: 600;
+}
+
+.vc-notice__body {
+    max-width: 64ch;
+    font-size: var(--vc-text-sm);
+    color: var(--vc-text-muted);
+}
+
+.vc-order__progress {
+    padding: var(--vc-space-5) 0 var(--vc-space-6);
+    border-block: 1px solid var(--vc-rule);
+}
+
+.vc-order__section-head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: var(--vc-space-2) var(--vc-space-4);
+    margin-bottom: var(--vc-space-5);
+}
+
+.vc-order__section-title {
+    font-family: var(--vc-font-display);
+    font-size: var(--vc-text-lg);
+    font-weight: 600;
+}
+
+.vc-order__subtitle {
+    font-family: var(--vc-font-display);
+    font-size: var(--vc-text-md);
+    font-weight: 600;
+}
+
+/* Reserved width so "Checking…" and "Complete — no longer checking" do not
+   drag the heading beside them around as the order settles. */
+.vc-order__watch {
+    min-width: 16ch;
+    font-family: var(--vc-font-mono);
+    font-size: var(--vc-text-2xs);
+    letter-spacing: var(--vc-tracking-wide);
+    text-transform: uppercase;
+    color: var(--vc-text-faint);
+}
+
+.vc-order__aside {
+    max-width: 64ch;
+    margin-top: var(--vc-space-4);
+    font-size: var(--vc-text-xs);
+    color: var(--vc-text-muted);
+}
+
+.vc-order__watch-actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--vc-space-3);
+    margin-top: var(--vc-space-4);
+}
+
+.vc-order__watch-note {
+    font-size: var(--vc-text-xs);
+    color: var(--vc-signal);
+}
+
+.vc-order__grid {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--vc-space-6);
+    margin-top: var(--vc-space-6);
+    align-items: start;
+}
+
+@media (min-width: 60rem) {
+    .vc-order__grid {
+        grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr);
+        gap: var(--vc-space-7);
+    }
+}
+
+.vc-order__panel {
+    display: flex;
+    flex-direction: column;
+    gap: var(--vc-space-4);
+    min-width: 0;
+}
+
+/* The retrieval link: long, unbreakable ciphertext, so it is set in the mono
+   face at a size that fits and left selectable rather than truncated. */
+.vc-order__link {
+    width: 100%;
+    font-family: var(--vc-font-mono);
+    font-size: var(--vc-text-2xs);
+    background: var(--vc-bg-sunken);
+}
+
+.vc-totals {
+    display: flex;
+    flex-direction: column;
+    gap: var(--vc-space-2);
+    margin: 0;
+}
+
+.vc-totals__row {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: var(--vc-space-3);
+    font-size: var(--vc-text-sm);
+    color: var(--vc-text-muted);
+}
+
+.vc-totals__row dd {
+    margin: 0;
+}
+
+.vc-totals__row--total {
+    padding-top: var(--vc-space-2);
+    border-top: 1px solid var(--vc-rule);
+    font-size: var(--vc-text-md);
+    font-weight: 600;
+    color: var(--vc-text);
+}
+
+.vc-address {
+    display: flex;
+    flex-direction: column;
+    font-style: normal;
+    font-size: var(--vc-text-sm);
+    color: var(--vc-text-muted);
+}
+
+.vc-address__line--name {
+    font-weight: 600;
+    color: var(--vc-text);
+}
+
+
+/* --- 6.22 Order timeline -------------------------------------------------
+   A vertical rail, at every width. A horizontal one reads well on a desktop
+   and then has to be rebuilt for a phone, and this is the screen a reviewer
+   is most likely to open on a phone. The rail is drawn per step rather than
+   as one element behind them, so the brass stops exactly where the order did.
+   ------------------------------------------------------------------------- */
+
+.vc-timeline {
+    display: flex;
+    flex-direction: column;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+
+.vc-timeline__step {
+    position: relative;
+    display: grid;
+    grid-template-columns: 1.4rem minmax(0, 1fr);
+    gap: 0 var(--vc-space-4);
+    padding-bottom: var(--vc-space-5);
+}
+
+.vc-timeline__step:last-child {
+    padding-bottom: 0;
+}
+
+/* The connector, from under this node to the next one. */
+.vc-timeline__step::before {
+    content: "";
+    position: absolute;
+    left: calc(0.7rem - 1px);
+    top: 1.6rem;
+    bottom: 0.2rem;
+    width: 2px;
+    background: var(--vc-rule);
+}
+
+.vc-timeline__step:last-child::before {
+    display: none;
+}
+
+.vc-timeline__step--done::before {
+    background: var(--vc-accent-line);
+}
+
+.vc-timeline__marker {
+    position: relative;
+    z-index: 1;
+    display: grid;
+    place-items: center;
+    width: 1.4rem;
+    height: 1.4rem;
+    border: 2px solid var(--vc-rule-strong);
+    border-radius: var(--vc-radius-pill);
+    background: var(--vc-surface);
+    color: var(--vc-text-faint);
+}
+
+.vc-timeline__step--done .vc-timeline__marker {
+    color: var(--vc-on-accent);
+    background: var(--vc-accent);
+    border-color: var(--vc-accent);
+}
+
+.vc-timeline__step--current .vc-timeline__marker {
+    border-color: var(--vc-secondary);
+    box-shadow: 0 0 0 4px var(--vc-secondary-soft);
+}
+
+/* The one moving thing on the page, and only on the step the order is
+   actually sitting on. Suppressed under prefers-reduced-motion below. */
+.vc-timeline__step--current .vc-timeline__marker::after {
+    content: "";
+    width: 0.55rem;
+    height: 0.55rem;
+    border-radius: var(--vc-radius-pill);
+    background: var(--vc-secondary);
+    animation: vc-timeline-pulse 1.8s var(--vc-ease) infinite;
+}
+
+.vc-timeline__step--abandoned .vc-timeline__marker {
+    background: var(--vc-bg-sunken);
+    border-color: var(--vc-rule);
+}
+
+.vc-timeline__step--cancelled .vc-timeline__marker {
+    color: var(--vc-signal);
+    background: var(--vc-signal-soft);
+    border-color: var(--vc-signal);
+}
+
+.vc-timeline__body {
+    display: flex;
+    flex-direction: column;
+    gap: 0.15rem;
+    padding-top: 0.05rem;
+}
+
+.vc-timeline__head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: var(--vc-space-2) var(--vc-space-3);
+}
+
+.vc-timeline__label {
+    font-family: var(--vc-font-display);
+    font-size: var(--vc-text-md);
+    font-weight: 600;
+}
+
+.vc-timeline__step--ahead .vc-timeline__label,
+.vc-timeline__step--abandoned .vc-timeline__label {
+    color: var(--vc-text-faint);
+}
+
+.vc-timeline__step--abandoned .vc-timeline__label {
+    text-decoration: line-through;
+}
+
+.vc-timeline__time {
+    font-size: var(--vc-text-xs);
+    color: var(--vc-text-muted);
+}
+
+/* "seen" marks a time this page watched rather than one the shop recorded.
+   Quieter than the number, and never omitted: the distinction is the honest
+   part. */
+.vc-timeline__seen {
+    margin-right: 0.3rem;
+    font-size: var(--vc-text-2xs);
+    letter-spacing: var(--vc-tracking-wide);
+    text-transform: uppercase;
+    color: var(--vc-text-faint);
+}
+
+.vc-timeline__note {
+    max-width: 56ch;
+    font-size: var(--vc-text-xs);
+    color: var(--vc-text-muted);
+}
+
+.vc-timeline__step--ahead .vc-timeline__note,
+.vc-timeline__step--abandoned .vc-timeline__note {
+    color: var(--vc-text-faint);
+}
+
+.vc-timeline__aside {
+    max-width: 64ch;
+    margin-top: var(--vc-space-4);
+    font-size: var(--vc-text-xs);
+    color: var(--vc-signal);
+}
+
+@keyframes vc-timeline-pulse {
+    0%, 100% { transform: scale(1); opacity: 1; }
+    50% { transform: scale(0.62); opacity: 0.55; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .vc-waking__pip,
+    .vc-timeline__step--current .vc-timeline__marker::after {
+        animation: none;
+    }
+
+    .vc-scenario {
+        transition: none;
+    }
+}

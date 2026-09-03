@@ -1,0 +1,823 @@
+@*
+    One order, at "/order/{orderNumber}?token=…".
+
+    THE TIMELINE IS THE POINT. Everything else on this page is a receipt; the rail is the demo.
+    An order placed here is advanced from Paid to Packed to Shipped by background workers that
+    know nothing about the request that created it, and watching that happen — on a page nobody
+    reloaded — is the thing this whole project exists to show.
+
+    THE TOKEN IS WHY THE LINK WORKS ANYWHERE. `token` is a signed capability for this one order,
+    so the page opens in a browser with no session, on another device, after cleared cookies. It
+    is not tenancy: it names one order and expires. Without it the endpoint falls back to "does
+    this order belong to the calling session", which is the ordinary path immediately after a
+    checkout in the same tab — so a token-less /order/VELA-XXXXXXX still works for the shopper
+    who just placed it, and 404s for everybody else.
+
+    POLLING IS BOUNDED IN THREE DIRECTIONS, because a page left open is a page that keeps a
+    serverless database awake and billing:
+      * it stops when the order reaches a terminal state, since nothing will change again;
+      * it stops when the tab is hidden, and refreshes the moment it comes back;
+      * it slows down and then stops on a schedule (OrderProgress.NextPollDelay), leaving a
+        Refresh button, because an order still Pending after half an hour is the Abandon
+        scenario and no amount of asking will move it.
+    And it stops when this component is disposed, which is what the cancellation token is for.
+*@
+@page "/order/{OrderNumber}"
+@using Microsoft.Extensions.DependencyInjection
+@using VelaCommerce.Storefront.Cart
+@using VelaCommerce.Storefront.Checkout
+@implements IAsyncDisposable
+@inject HttpClient Http
+@inject NavigationManager Nav
+@inject IJSRuntime JS
+@inject IServiceProvider Services
+
+<PageTitle>@DocumentTitle</PageTitle>
+
+<nav class="vc-crumbs" aria-label="Breadcrumb">
+    <a class="vc-crumbs__link" href="">Catalog</a>
+    <span class="vc-crumbs__sep" aria-hidden="true">/</span>
+    <span>Order</span>
+</nav>
+
+@if (_order is null && _notFound)
+{
+    <div class="vc-empty">
+        <span class="vc-eyebrow">Not found</span>
+        <h1 class="vc-empty__title">This link does not open an order</h1>
+        <p class="vc-empty__body">
+            The shop answers a wrong order number, an expired link and somebody else's order in
+            exactly the same way, on purpose &mdash; so that the difference between two error
+            messages cannot be used to find out which order numbers exist. Any of the three could
+            be what happened here.
+        </p>
+        <p class="vc-empty__body">
+            A confirmation link stays valid for thirty days. If you placed this order in this
+            browser, opening it without the <code class="vc-code">token</code> in the address will
+            work too.
+        </p>
+        <div class="vc-alert__actions">
+            <a class="vc-btn vc-btn--primary" href="">Back to the catalog</a>
+        </div>
+    </div>
+}
+else if (_order is null && _error is { Length: > 0 } fatal)
+{
+    <div class="vc-alert vc-alert--error" role="alert">
+        <h1 class="vc-alert__title">@fatal</h1>
+        <p class="vc-alert__body">
+            The order is safe &mdash; this is the shop being unreachable, not the order being gone.
+            Nothing about it changes while this page cannot read it.
+        </p>
+        @if (_errorDetail is { Length: > 0 } fatalDetail)
+        {
+            <details class="vc-alert__detail">
+                <summary>Technical detail</summary>
+                @fatalDetail
+            </details>
+        }
+        <div class="vc-alert__actions">
+            <button type="button" class="vc-btn vc-btn--primary" disabled="@_loading" @onclick="RefreshAsync">Try again</button>
+            <a class="vc-btn" href="">Back to the catalog</a>
+        </div>
+    </div>
+}
+else if (_order is null)
+{
+    <div class="vc-waking" role="status" aria-live="polite">
+        <span class="vc-waking__pip" aria-hidden="true"></span>
+        <div class="vc-waking__body">
+            <p class="vc-waking__title">@(_waking ? "Waking the shop up" : "Opening your order")</p>
+            <p class="vc-waking__note">
+                The API sleeps when nothing is happening, so the first request after a quiet period
+                waits for it to start. Your order is unaffected either way.
+            </p>
+        </div>
+    </div>
+}
+else
+{
+    var order = _order;
+
+    <div class="vc-hero">
+        <span class="vc-eyebrow">Order</span>
+        <h1 class="vc-section-title vc-tabular">@order.OrderNumber</h1>
+        <div class="vc-hero__meta">
+            <span class="vc-tag @StatusTag()">@OrderProgress.Label(_stage)</span>
+            <span>Placed @LongClock(order.PlacedAt)</span>
+            <span>@order.TotalQuantity @(order.TotalQuantity == 1 ? "item" : "items")</span>
+        </div>
+    </div>
+
+    @* One live region for the whole page, so a screen reader is told the order moved without
+       having to go and look for the rail. *@
+    <p class="vc-visually-hidden" role="status" aria-live="polite">@_announcement</p>
+
+    @if (_stage == OrderStage.Cancelled)
+    {
+        @* Deliberately not styled as an error. An order can be cancelled for entirely ordinary
+           reasons — a refused card is the commonest — and a page that shouts about it is the
+           page being wrong, not the order. *@
+        <div class="vc-notice" role="status">
+            <h2 class="vc-notice__title">This order was cancelled</h2>
+            <p class="vc-notice__body">
+                Nothing was charged and the reserved stock has gone back on the shelf. The order stays
+                readable at this address; it simply will not move any further.
+            </p>
+        </div>
+    }
+    else if (_stage == OrderStage.Pending)
+    {
+        <div class="vc-notice" role="status">
+            <h2 class="vc-notice__title">
+                @(_payment?.AwaitsSettlement == true ? "Confirming payment" : "Waiting for payment")
+            </h2>
+            <p class="vc-notice__body">
+                @if (_payment?.AwaitsSettlement == true)
+                {
+                    <text>
+                        The gateway accepted the order and will settle it with a signed notification in a
+                        moment. Until that lands the money has genuinely not moved, so this page says
+                        pending rather than showing you a receipt. It updates itself.
+                    </text>
+                }
+                else
+                {
+                    <text>
+                        The order exists and its stock is reserved, but no payment has settled against it.
+                        If the payment was never finished, the reservation lapses on its own and the units
+                        go back on the shelf.
+                    </text>
+                }
+            </p>
+        </div>
+    }
+
+    <section class="vc-order__progress" aria-labelledby="vc-order-progress-title">
+        <div class="vc-order__section-head">
+            <h2 class="vc-order__section-title" id="vc-order-progress-title">Progress</h2>
+            <p class="vc-order__watch" role="status" aria-live="polite">@WatchStatus()</p>
+        </div>
+
+        <OrderTimeline Stage="_stage"
+                       PlacedAt="order.PlacedAt"
+                       PaidAt="order.PaidAt"
+                       Observed="_observed" />
+
+        <p class="vc-order__aside">
+            Packing and shipping are driven by a background worker on a timer, not by anything this
+            page does. Nothing is being simulated in your browser &mdash; close the tab, come back
+            tomorrow, and the order will have moved on without you.
+        </p>
+
+        @if (_watchStopped || _pollNote is { Length: > 0 })
+        {
+            <div class="vc-order__watch-actions">
+                @if (_pollNote is { Length: > 0 } pollNote)
+                {
+                    <p class="vc-order__watch-note">@pollNote</p>
+                }
+                <button type="button" class="vc-btn vc-btn--sm" disabled="@_loading" @onclick="RefreshAsync">
+                    Check again
+                </button>
+            </div>
+        }
+    </section>
+
+    <div class="vc-order__grid">
+        <section class="vc-order__panel" aria-labelledby="vc-order-lines-title">
+            <h2 class="vc-order__section-title" id="vc-order-lines-title">What you bought</h2>
+
+            <ul class="vc-summary__lines">
+                @foreach (var line in order.Lines ?? [])
+                {
+                    <li class="vc-summary__line" @key="line.Sku">
+                        <div class="vc-summary__line-main">
+                            <span class="vc-summary__name">@line.DisplayName</span>
+                            <span class="vc-summary__meta">
+                                <span class="vc-tabular">@line.Sku</span>
+                                <span aria-hidden="true">&middot;</span>
+                                <span class="vc-tabular">&times;@line.Quantity</span>
+                                <span aria-hidden="true">&middot;</span>
+                                <span class="vc-tabular">@Money(line.UnitPrice) each</span>
+                            </span>
+                        </div>
+                        <PriceTag Money="line.LineTotal" />
+                    </li>
+                }
+            </ul>
+
+            <hr class="vc-rule" />
+
+            <dl class="vc-totals">
+                <div class="vc-totals__row">
+                    <dt>Subtotal</dt>
+                    <dd class="vc-tabular">@Money(order.Subtotal)</dd>
+                </div>
+                <div class="vc-totals__row">
+                    <dt>Shipping</dt>
+                    <dd class="vc-tabular">@Money(order.Shipping)</dd>
+                </div>
+                <div class="vc-totals__row">
+                    <dt>Tax</dt>
+                    <dd class="vc-tabular">@Money(order.Tax)</dd>
+                </div>
+                <div class="vc-totals__row vc-totals__row--total">
+                    <dt>Total</dt>
+                    <dd class="vc-tabular">@Money(order.Total)</dd>
+                </div>
+                <div class="vc-totals__row">
+                    <dt>Captured</dt>
+                    <dd class="vc-tabular">@Money(order.Captured)</dd>
+                </div>
+                @if (order.Refunded is { Amount: > 0 })
+                {
+                    <div class="vc-totals__row">
+                        <dt>Refunded</dt>
+                        <dd class="vc-tabular">@Money(order.Refunded)</dd>
+                    </div>
+                }
+            </dl>
+
+            <p class="vc-order__aside">
+                @if (order.Captured is { Amount: 0 } && _stage is not OrderStage.Cancelled)
+                {
+                    <text>
+                        Captured is what the gateway has actually taken, and it is zero until settlement
+                        completes. It is shown beside the total rather than instead of it, because
+                        "owed" and "paid" are two different facts and a receipt that conflates them is a
+                        receipt for money that may not exist.
+                    </text>
+                }
+                else
+                {
+                    <text>
+                        Every price here was captured at checkout, after the shop revalidated it against
+                        the live catalog. This order reads the same a year from now whatever happens to
+                        those products.
+                    </text>
+                }
+            </p>
+        </section>
+
+        <section class="vc-order__panel" aria-labelledby="vc-order-address-title">
+            <h2 class="vc-order__section-title" id="vc-order-address-title">Shipping to</h2>
+
+            @if (order.ShippingAddress is { } address)
+            {
+                <address class="vc-address">
+                    <span class="vc-address__line vc-address__line--name">@address.Recipient</span>
+                    <span class="vc-address__line">@address.Line1</span>
+                    @if (address.Line2 is { Length: > 0 } line2)
+                    {
+                        <span class="vc-address__line">@line2</span>
+                    }
+                    <span class="vc-address__line">
+                        @address.City@(address.Region is { Length: > 0 } region ? $", {region}" : "")
+                    </span>
+                    <span class="vc-address__line vc-tabular">@address.PostalCode @address.CountryCode</span>
+                </address>
+            }
+
+            @if (_payment is { } payment)
+            {
+                <hr class="vc-rule" />
+                <h3 class="vc-order__subtitle">What the gateway said</h3>
+                <dl class="vc-gateway">
+                    <div class="vc-gateway__row">
+                        <dt class="vc-gateway__key">Outcome</dt>
+                        <dd class="vc-gateway__value">
+                            @payment.Outcome@(payment.DeclineReason is { Length: > 0 } reason ? $" — {reason}" : "")
+                        </dd>
+                    </div>
+                    <div class="vc-gateway__row">
+                        <dt class="vc-gateway__key">Reference</dt>
+                        <dd class="vc-gateway__value vc-tabular">@payment.GatewayReference</dd>
+                    </div>
+                </dl>
+                <p class="vc-order__aside">
+                    Reported once, on the response to the checkout that asked for it, and stored nowhere
+                    &mdash; so it is on this page only because you have just placed the order. Reloading
+                    will not bring it back; the durable facts are the status, the captured amount and the
+                    paid-at time above.
+                </p>
+            }
+
+            <hr class="vc-rule" />
+
+            <h3 class="vc-order__subtitle">Keep this link</h3>
+            <p class="vc-order__aside">
+                It carries a signed token for this one order, so it opens on any device, in any browser,
+                with no account and no cookie &mdash; for thirty days. Which also means anyone you send
+                it to can read the order, so treat it like a receipt you would not leave on a train.
+            </p>
+            <input class="vc-input vc-order__link"
+                   type="text"
+                   readonly
+                   aria-label="Link to this order"
+                   value="@BookmarkUrl()"
+                   @onfocus="SelectAllAsync"
+                   @ref="_linkField" />
+        </section>
+    </div>
+}
+
+@code {
+    /// <summary>
+    /// How long the first read is given. The same generous allowance the checkout submit gets and
+    /// for the same reason: this may be the request that pays for the API to start.
+    /// </summary>
+    private static readonly TimeSpan FirstLoadDeadline = TimeSpan.FromSeconds(30);
+
+    /// <summary>
+    /// How long a poll is given. Much shorter, because there is already an order on screen: a poll
+    /// that is taking longer than the interval between polls has nothing useful left to say, and
+    /// letting them stack up would turn one slow API into a queue of them.
+    /// </summary>
+    private static readonly TimeSpan PollDeadline = TimeSpan.FromSeconds(10);
+
+    /// <summary>How long the first read may run before the page admits the shop is asleep.</summary>
+    private static readonly TimeSpan WakeNotice = TimeSpan.FromSeconds(2);
+
+    private readonly Dictionary<OrderStage, DateTimeOffset> _observed = [];
+
+    private CheckoutApiClient _api = default!;
+    private CheckoutState _checkout = default!;
+
+    private IJSObjectReference? _visibilityModule;
+    private DotNetObjectReference<Order>? _self;
+    private int? _visibilityHandle;
+
+    private CancellationTokenSource? _polling;
+    private DateTimeOffset _watchingSince;
+
+    private OrderDocument? _order;
+    private OrderPaymentDocument? _payment;
+    private OrderStage _stage = OrderStage.Unknown;
+    private ElementReference _linkField;
+
+    private string? _bookmarkToken;
+    private string? _announcement;
+    private string? _error;
+    private string? _errorDetail;
+    private string? _pollNote;
+    private string? _loadedFor;
+
+    private bool _notFound;
+    private bool _loading;
+    private bool _waking;
+    private bool _watchStopped;
+    private bool _visible = true;
+    private bool _startRequested;
+
+    /// <summary>The order number from the route.</summary>
+    [Parameter]
+    public string OrderNumber { get; set; } = "";
+
+    /// <summary>
+    /// The signed retrieval token from the query string. Optional: without it the shop falls back to
+    /// session ownership, which is what makes a bare <c>/order/VELA-XXXXXXX</c> work for the shopper
+    /// who just placed it and 404 for everyone else.
+    /// </summary>
+    [Parameter, SupplyParameterFromQuery(Name = "token")]
+    public string? Token { get; set; }
+
+    private string DocumentTitle =>
+        _order is null
+            ? "Order · Vela Commerce"
+            : $"{_order.OrderNumber} · {OrderProgress.Label(_stage)} · Vela Commerce";
+
+    protected override void OnInitialized()
+    {
+        _api = new CheckoutApiClient(Http);
+
+        // Resolved rather than injected, so a missing AddStorefrontCheckout() registration costs the
+        // handoff from the checkout page — the gateway's answer, which exists on no other response —
+        // and not the order page itself.
+        _checkout = Services.GetService<CheckoutState>() ?? new CheckoutState();
+    }
+
+    protected override void OnParametersSet()
+    {
+        if (string.Equals(_loadedFor, OrderNumber, StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        _loadedFor = OrderNumber;
+
+        StopPolling();
+        _observed.Clear();
+        _order = null;
+        _payment = null;
+        _stage = OrderStage.Unknown;
+        _bookmarkToken = Token;
+        _announcement = null;
+        _error = null;
+        _errorDetail = null;
+        _pollNote = null;
+        _notFound = false;
+        _watchStopped = false;
+        _watchingSince = DateTimeOffset.Now;
+
+        // The checkout page hands the freshly placed order over rather than making this page ask for
+        // it again — and the gateway's answer comes with it, which no later read can supply. It is
+        // taken once: a snapshot re-shown on a second visit could contradict the order it describes.
+        if (_checkout.TakeReceipt(OrderNumber) is { } receipt)
+        {
+            Apply(receipt, watched: false);
+            _payment = receipt.Payment;
+            _bookmarkToken ??= receipt.RetrievalToken;
+        }
+
+        _startRequested = true;
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!_startRequested)
+        {
+            return;
+        }
+
+        _startRequested = false;
+
+        // AFTER the first render. The shell — crumbs, heading, waking notice — is on screen before
+        // anything is asked of an API that may be starting from cold.
+        await SetUpVisibilityAsync();
+
+        if (_order is null)
+        {
+            await LoadAsync(initial: true);
+        }
+
+        StartPolling();
+    }
+
+    /// <summary>
+    /// Imports the visibility module and subscribes to it.
+    /// <para>
+    /// Wrapped, and deliberately non-fatal. A failed import leaves <c>_visible</c> true, which means
+    /// the page polls in a hidden tab exactly as it would have without this file at all. That is a
+    /// worse page, not a broken one, and it is not worth an error screen.
+    /// </para>
+    /// </summary>
+    private async Task SetUpVisibilityAsync()
+    {
+        if (_visibilityModule is not null)
+        {
+            return;
+        }
+
+        try
+        {
+            _visibilityModule = await JS.InvokeAsync<IJSObjectReference>("import", "./js/order-page.js");
+            _self = DotNetObjectReference.Create(this);
+
+            // Asked as well as subscribed: a tab opened in the background is already hidden and no
+            // visibilitychange event will ever fire to say so.
+            _visible = await _visibilityModule.InvokeAsync<bool>("isVisible");
+            _visibilityHandle = await _visibilityModule.InvokeAsync<int>("watch", _self);
+        }
+        catch (Exception)
+        {
+            _visibilityModule = null;
+        }
+    }
+
+    /// <summary>
+    /// Called from JavaScript when the tab is hidden or shown.
+    /// <para>
+    /// Hidden stops the polling outright rather than slowing it: a background tab has no reader, and
+    /// every request it makes wakes a database that bills by the compute-hour. Shown refreshes
+    /// immediately, so coming back to the tab shows where the order actually is rather than where it
+    /// was when you left.
+    /// </para>
+    /// </summary>
+    [JSInvokable]
+    public async Task OnVisibilityChanged(bool visible)
+    {
+        await InvokeAsync(async () =>
+        {
+            _visible = visible;
+
+            if (!visible)
+            {
+                StopPolling();
+                StateHasChanged();
+                return;
+            }
+
+            StateHasChanged();
+
+            if (_order is not null && !OrderProgress.IsTerminal(_stage) && !_watchStopped)
+            {
+                await LoadAsync(initial: false);
+            }
+
+            StartPolling();
+        });
+    }
+
+    /// <summary>What the shopper asked for: one read now, and the watch window restarted around it.</summary>
+    private async Task RefreshAsync()
+    {
+        _watchStopped = false;
+        _watchingSince = DateTimeOffset.Now;
+
+        await LoadAsync(initial: _order is null);
+
+        StartPolling();
+    }
+
+    private async Task LoadAsync(bool initial)
+    {
+        if (_loading)
+        {
+            return;
+        }
+
+        _loading = true;
+        StateHasChanged();
+
+        try
+        {
+            using var deadline = new CancellationTokenSource(initial ? FirstLoadDeadline : PollDeadline);
+            var work = _api.GetOrderAsync(OrderNumber, _bookmarkToken ?? Token, deadline.Token);
+
+            if (initial && await Task.WhenAny(work, Task.Delay(WakeNotice)) != work)
+            {
+                _waking = true;
+                StateHasChanged();
+            }
+
+            Apply(await work, watched: !initial);
+
+            _error = null;
+            _errorDetail = null;
+            _notFound = false;
+            _pollNote = null;
+        }
+        catch (OrderApiException exception)
+        {
+            Fail(exception.Message, exception.Detail, exception.NotFound);
+        }
+        catch (Exception exception)
+        {
+            // A poll is a fire-and-forget task. An exception escaping it would be unobserved, and
+            // the page would simply stop updating with nothing on screen to say why.
+            Fail("Something went wrong while reading this order.", $"{exception.GetType().Name}: {exception.Message}", notFound: false);
+        }
+        finally
+        {
+            _loading = false;
+            _waking = false;
+            StateHasChanged();
+        }
+    }
+
+    /// <summary>
+    /// Records a failure without throwing away a good order.
+    /// <para>
+    /// A failed poll over an order that is already on screen becomes a quiet line beside a Check
+    /// again button. Blanking a correct receipt because one request out of twenty timed out would be
+    /// the page doing more damage than the failure did.
+    /// </para>
+    /// </summary>
+    private void Fail(string message, string? detail, bool notFound)
+    {
+        if (_order is not null)
+        {
+            _pollNote = notFound
+                ? "This link has stopped opening the order — the token may have expired."
+                : message;
+
+            // A 404 will stay a 404, so there is nothing left to poll for. The order already on
+            // screen stays on screen and the Check again button stays available, because the
+            // shopper may be about to paste a fresher link.
+            if (notFound)
+            {
+                _watchStopped = true;
+                StopPolling();
+            }
+
+            return;
+        }
+
+        _error = message;
+        _errorDetail = detail;
+        _notFound = notFound;
+    }
+
+    /// <summary>
+    /// Takes a fresh order document and works out what changed.
+    /// </summary>
+    /// <param name="order">What the server just said.</param>
+    /// <param name="watched">
+    /// True when this page was watching when the change arrived, which is the only thing that makes
+    /// a Packed or Shipped timestamp honest — the API records no column for either, so the moment
+    /// this page saw it is all there is, and it is labelled "seen" rather than presented as the
+    /// shop's own record.
+    /// </param>
+    private void Apply(OrderDocument order, bool watched)
+    {
+        var stage = OrderProgress.Parse(order.Status);
+
+        if (_order is not null && stage != _stage)
+        {
+            if (watched && stage is OrderStage.Packed or OrderStage.Shipped)
+            {
+                _observed[stage] = DateTimeOffset.Now;
+            }
+
+            _announcement = $"Order {order.OrderNumber} is now {OrderProgress.Label(stage)}.";
+        }
+
+        _order = order;
+        _stage = stage;
+
+        // Every response mints a new token — Data Protection ciphertext is randomised, and a stable
+        // token would be a stable secret — so the first one seen is pinned. Otherwise the bookmark
+        // link in the field below would change under the shopper's cursor every three seconds.
+        _bookmarkToken ??= order.RetrievalToken;
+    }
+
+    private void StartPolling()
+    {
+        if (_polling is not null
+            || _order is null
+            || !_visible
+            || _watchStopped
+            || OrderProgress.IsTerminal(_stage))
+        {
+            return;
+        }
+
+        var source = new CancellationTokenSource();
+        _polling = source;
+
+        _ = PollAsync(source.Token);
+    }
+
+    private void StopPolling()
+    {
+        var source = _polling;
+        _polling = null;
+
+        source?.Cancel();
+        source?.Dispose();
+    }
+
+    private async Task PollAsync(CancellationToken cancellationToken)
+    {
+        while (!cancellationToken.IsCancellationRequested)
+        {
+            var delay = OrderProgress.NextPollDelay(_stage, DateTimeOffset.Now - _watchingSince);
+
+            if (delay is null)
+            {
+                _watchStopped = true;
+                StopPolling();
+                StateHasChanged();
+
+                return;
+            }
+
+            try
+            {
+                await Task.Delay(delay.Value, cancellationToken);
+            }
+            catch (OperationCanceledException)
+            {
+                // The tab was hidden, the component was disposed, or the shopper pressed Check
+                // again. All three are ordinary and none of them is an error.
+                return;
+            }
+
+            if (cancellationToken.IsCancellationRequested)
+            {
+                return;
+            }
+
+            await LoadAsync(initial: false);
+
+            if (OrderProgress.IsTerminal(_stage))
+            {
+                StopPolling();
+                StateHasChanged();
+
+                return;
+            }
+        }
+    }
+
+    private string WatchStatus()
+    {
+        if (OrderProgress.IsTerminal(_stage))
+        {
+            return _stage == OrderStage.Cancelled
+                ? "Final — no longer checking"
+                : "Complete — no longer checking";
+        }
+
+        if (!_visible)
+        {
+            return "Paused while this tab is in the background";
+        }
+
+        if (_watchStopped)
+        {
+            return "Stopped checking after a long wait";
+        }
+
+        return _loading ? "Checking…" : "Checking for changes";
+    }
+
+    private string StatusTag() => _stage switch
+    {
+        OrderStage.Shipped => "vc-tag--sea",
+        OrderStage.Paid or OrderStage.Packed => "vc-tag--brass",
+        OrderStage.Cancelled => "vc-tag--signal",
+        _ => "",
+    };
+
+    /// <summary>
+    /// The link a shopper bookmarks: this page, not the API's own <c>retrievalPath</c>, carrying the
+    /// same signed token. Absolute, because the point of it is to be pasted somewhere else.
+    /// </summary>
+    private string BookmarkUrl()
+    {
+        var origin = Nav.BaseUri.TrimEnd('/');
+        var path = $"{origin}/order/{Uri.EscapeDataString(OrderNumber)}";
+
+        return _bookmarkToken is { Length: > 0 } token
+            ? $"{path}?token={Uri.EscapeDataString(token)}"
+            : path;
+    }
+
+    /// <summary>
+    /// Selects the whole link when the field is focused, so copying it is one gesture rather than a
+    /// drag across sixty characters of ciphertext. Wrapped, and a no-op when the module failed to
+    /// import: the field is still selectable by hand, which is not worth an error for.
+    /// </summary>
+    private async Task SelectAllAsync()
+    {
+        if (_visibilityModule is null)
+        {
+            return;
+        }
+
+        try
+        {
+            await _visibilityModule.InvokeVoidAsync("selectAll", _linkField);
+        }
+        catch (Exception)
+        {
+            // Nothing to recover. The text is right there and selectable.
+        }
+    }
+
+    private static string Money(MoneyDocument? money) =>
+        money is null ? "—" : MoneyFormatter.Format(money.Amount, money.Currency);
+
+    /// <summary>A date and time in the reader's own zone, for the one stamp that is not on the rail.</summary>
+    private static string LongClock(DateTimeOffset instant) =>
+        instant.ToLocalTime().ToString("d MMM yyyy, HH:mm", System.Globalization.CultureInfo.InvariantCulture);
+
+    /// <summary>
+    /// Stops the polling and unhooks JavaScript.
+    /// <para>
+    /// Every step is wrapped, because disposal usually runs while the shopper is navigating away and
+    /// a JavaScript call at that moment may find the runtime already gone. A component that throws on
+    /// the way out is a component that leaves the error bar over the page it was leaving for.
+    /// </para>
+    /// </summary>
+    public async ValueTask DisposeAsync()
+    {
+        StopPolling();
+
+        try
+        {
+            if (_visibilityModule is not null && _visibilityHandle is { } handle)
+            {
+                await _visibilityModule.InvokeVoidAsync("unwatch", handle);
+            }
+
+            if (_visibilityModule is not null)
+            {
+                await _visibilityModule.DisposeAsync();
+            }
+        }
+        catch (Exception)
+        {
+            // The page is going away and so is the listener with it.
+        }
+        finally
+        {
+            _visibilityModule = null;
+            _visibilityHandle = null;
+            _self?.Dispose();
+            _self = null;
+        }
+    }
+}

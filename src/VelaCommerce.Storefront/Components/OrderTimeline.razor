@@ -1,0 +1,180 @@
+@*
+    The order lifecycle, drawn as a rail: Placed, Paid, Packed, Shipped.
+
+    This is the centrepiece of the whole demo — the screen that shows an order being driven
+    by background workers rather than by the request that created it — so it is built to be
+    watched rather than merely read.
+
+    Three decisions worth knowing about:
+
+      * IT IS AN <ol>. The steps are an ordered sequence and nothing else conveys that to a
+        screen reader; the visual rail is decoration on top of a list. The state of each step
+        is spelled out in words for assistive technology rather than left to the colour of a
+        dot, and the step the order is on carries aria-current="step".
+
+      * TIMESTAMPS ARE LABELLED BY PROVENANCE. The API stores placed_at and paid_at and
+        nothing else, so Packed and Shipped have no recorded time. Rather than invent one
+        from the configured dwell — which would be wrong for anyone who changed
+        Fulfilment:Timeline, and would be a number the shop never said — the page shows the
+        moment it watched the change happen, marked "seen". A shopper opening the link
+        tomorrow watched nothing and correctly sees no time at all.
+
+      * CANCELLED IS A DEPARTURE, NOT A FAILURE. It is drawn as its own node inserted after
+        the last step the order actually reached, with the remaining steps struck through as
+        never-reached. Nothing here is coloured as an error: an order can be cancelled for
+        entirely ordinary reasons and a page that shouts about it is the page being wrong.
+
+    The pulse on the current node is suppressed under prefers-reduced-motion in app.css.
+*@
+@using VelaCommerce.Storefront.Checkout
+
+<ol class="vc-timeline">
+    @{
+        var nodes = OrderProgress.Nodes(Stage, PlacedAt, PaidAt, Observed);
+        var lastReached = LastReachedIndex(nodes);
+    }
+
+    @for (var index = 0; index < nodes.Count; index++)
+    {
+        var node = nodes[index];
+
+        <li class="vc-timeline__step @StepModifier(node.State)"
+            aria-current="@(node.State == OrderStepState.Current ? "step" : null)">
+            <span class="vc-timeline__marker" aria-hidden="true">
+                @if (node.State == OrderStepState.Done)
+                {
+                    <svg viewBox="0 0 16 16" width="10" height="10" fill="none" focusable="false">
+                        <path d="M2.5 8.5 6.2 12 13.5 4" stroke="currentColor" stroke-width="2.1" stroke-linecap="square" />
+                    </svg>
+                }
+                else if (node.State == OrderStepState.Abandoned)
+                {
+                    <svg viewBox="0 0 16 16" width="9" height="9" fill="none" focusable="false">
+                        <path d="M3.5 3.5 12.5 12.5M12.5 3.5 3.5 12.5" stroke="currentColor" stroke-width="2" stroke-linecap="square" />
+                    </svg>
+                }
+            </span>
+
+            <div class="vc-timeline__body">
+                <p class="vc-timeline__head">
+                    <span class="vc-timeline__label">@node.Label</span>
+                    <span class="vc-visually-hidden">@StateInWords(node.State)</span>
+                    @if (node.At is { } at)
+                    {
+                        <time class="vc-timeline__time vc-tabular" datetime="@at.ToString("o")">
+                            @if (node.AtIsObserved)
+                            {
+                                <span class="vc-timeline__seen">seen</span>
+                            }
+                            @Clock(at)
+                        </time>
+                    }
+                </p>
+                <p class="vc-timeline__note">@node.Description</p>
+            </div>
+        </li>
+
+        @* Inserted where the order actually stopped, so the rail reads
+           "Placed, Cancelled, (Packed), (Shipped)" rather than burying the cancellation
+           under two steps that never happened. *@
+        @if (Stage == OrderStage.Cancelled && index == lastReached)
+        {
+            <li class="vc-timeline__step vc-timeline__step--cancelled" aria-current="step">
+                <span class="vc-timeline__marker" aria-hidden="true">
+                    <svg viewBox="0 0 16 16" width="9" height="9" fill="none" focusable="false">
+                        <path d="M3.5 3.5 12.5 12.5M12.5 3.5 3.5 12.5" stroke="currentColor" stroke-width="2" stroke-linecap="square" />
+                    </svg>
+                </span>
+                <div class="vc-timeline__body">
+                    <p class="vc-timeline__head">
+                        <span class="vc-timeline__label">Cancelled</span>
+                        <span class="vc-visually-hidden">where the order stopped</span>
+                    </p>
+                    <p class="vc-timeline__note">
+                        The order was cancelled and its stock put back. Nothing further will happen to it.
+                    </p>
+                </div>
+            </li>
+        }
+    }
+</ol>
+
+@if (Stage == OrderStage.Unknown)
+{
+    <p class="vc-timeline__aside">
+        The shop reports a status this version of the storefront does not recognise, so the
+        rail above is not showing where the order is. The status itself is on the summary.
+    </p>
+}
+
+@code {
+    /// <summary>Where the order is now.</summary>
+    [Parameter, EditorRequired]
+    public OrderStage Stage { get; set; }
+
+    /// <summary>The server's <c>placedAt</c>, which is the first node's timestamp.</summary>
+    [Parameter, EditorRequired]
+    public DateTimeOffset PlacedAt { get; set; }
+
+    /// <summary>The server's <c>paidAt</c>, or null while the order is unpaid.</summary>
+    [Parameter]
+    public DateTimeOffset? PaidAt { get; set; }
+
+    /// <summary>
+    /// Stages this page watched arrive, and when. The only timestamp available for Packed and
+    /// Shipped, and rendered as "seen" rather than presented as a recorded time.
+    /// </summary>
+    [Parameter]
+    public IReadOnlyDictionary<OrderStage, DateTimeOffset>? Observed { get; set; }
+
+    private static string StepModifier(OrderStepState state) => state switch
+    {
+        OrderStepState.Done => "vc-timeline__step--done",
+        OrderStepState.Current => "vc-timeline__step--current",
+        OrderStepState.Abandoned => "vc-timeline__step--abandoned",
+        _ => "vc-timeline__step--ahead",
+    };
+
+    /// <summary>
+    /// What a marker's colour means, for anyone who cannot see it. Read out immediately after
+    /// the step's name, so the list announces "Paid, reached" rather than "Paid".
+    /// </summary>
+    private static string StateInWords(OrderStepState state) => state switch
+    {
+        OrderStepState.Done => "reached",
+        OrderStepState.Current => "current step",
+        OrderStepState.Abandoned => "not reached",
+        _ => "still to come",
+    };
+
+    /// <summary>The last node the order actually got to, which is where a cancellation is drawn.</summary>
+    private static int LastReachedIndex(IReadOnlyList<OrderTimelineNode> nodes)
+    {
+        var last = 0;
+
+        for (var index = 0; index < nodes.Count; index++)
+        {
+            if (nodes[index].State is OrderStepState.Done or OrderStepState.Current)
+            {
+                last = index;
+            }
+        }
+
+        return last;
+    }
+
+    /// <summary>
+    /// A wall-clock time in the reader's own zone, seconds included — the transitions this
+    /// timeline shows are twenty seconds apart, so a minute-resolution clock would show two
+    /// steps happening at the same time. The date is added only when the order is not from
+    /// today, which is the case for anyone opening a bookmarked receipt.
+    /// </summary>
+    private static string Clock(DateTimeOffset instant)
+    {
+        var local = instant.ToLocalTime();
+
+        return local.Date == DateTimeOffset.Now.Date
+            ? local.ToString("HH:mm:ss", System.Globalization.CultureInfo.InvariantCulture)
+            : local.ToString("d MMM, HH:mm:ss", System.Globalization.CultureInfo.InvariantCulture);
+    }
+}

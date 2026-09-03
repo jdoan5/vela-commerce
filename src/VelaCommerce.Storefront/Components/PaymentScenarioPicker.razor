@@ -1,0 +1,89 @@
+@*
+    The payment simulator's control panel, on the checkout page where a reviewer will look for
+    it.
+
+    THIS IS THE CONTROL THAT MAKES THE DEMO A DEMO. Anyone can build a checkout that works. The
+    interesting paths are a refused card, a settlement that arrives seconds later, a webhook
+    delivered twice, a webhook delivered in the wrong order — and none of them can be shown to a
+    reviewer who has no way to ask for them. Hiding this behind a magic basket total (which the
+    simulator also supports, and which is documented in the disclosure below) would mean the
+    demo's best material only reaches people who read the source first.
+
+    It is a plain radio group rather than a select, because the point is that the six paths are
+    visible at once with a sentence each. The summaries are written for a shopper: what happens
+    to the money, what happens to the cart, what happens to the reserved stock.
+
+    Nothing here is a secret from the server: the value is sent as `paymentScenario` and the API
+    passes it to the gateway port as an opaque hint, which a real gateway adapter would ignore.
+*@
+@using VelaCommerce.Storefront.Checkout
+
+<fieldset class="vc-scenarios">
+    <legend class="vc-scenarios__legend">Payment simulator</legend>
+
+    <p class="vc-scenarios__intro">
+        This shop runs its own payment gateway, so there is no card to enter and
+        <strong>nothing is ever charged</strong>. Choose what you would like the gateway to do
+        and the rest of the order behaves exactly as it would in production &mdash; the same
+        signed settlement notifications, the same state machine, the same background workers.
+    </p>
+
+    <div class="vc-scenarios__list">
+        @foreach (var option in PaymentScenarios.All)
+        {
+            var id = $"vc-scenario-{option.Hint}";
+
+            <div class="vc-scenario @(IsSelected(option) ? "vc-scenario--selected" : null)">
+                <input class="vc-scenario__input"
+                       type="radio"
+                       id="@id"
+                       name="vc-payment-scenario"
+                       value="@option.Hint"
+                       checked="@IsSelected(option)"
+                       disabled="@Disabled"
+                       aria-describedby="@($"{id}-summary")"
+                       @onchange="() => SelectAsync(option)" />
+                <label class="vc-scenario__label" for="@id">@option.Label</label>
+                <p class="vc-scenario__summary" id="@($"{id}-summary")">@option.Summary</p>
+            </div>
+        }
+    </div>
+
+    <details class="vc-scenarios__detail">
+        <summary>Triggering these without this page</summary>
+        <p class="vc-scenarios__detail-body">
+            The simulator checks the <code class="vc-code">paymentScenario</code> hint first and
+            the order total second, so every path is reachable from a plain HTTP client with no
+            extra field to discover. Only the last two minor units of the total are read, which
+            is why $1.01, $47.01 and $1,203.01 all decline.
+        </p>
+        <dl class="vc-scenarios__triggers">
+            @foreach (var option in PaymentScenarios.All)
+            {
+                <div class="vc-scenarios__trigger">
+                    <dt><code class="vc-code">@option.Hint</code></dt>
+                    <dd class="vc-tabular">@option.AmountTrigger</dd>
+                </div>
+            }
+        </dl>
+    </details>
+</fieldset>
+
+@code {
+    /// <summary>The selected scenario's hint. Matched case-insensitively, so a value from configuration still selects a radio.</summary>
+    [Parameter, EditorRequired]
+    public string Value { get; set; } = PaymentScenarios.DefaultHint;
+
+    /// <summary>Raised with the newly chosen hint.</summary>
+    [Parameter]
+    public EventCallback<string> ValueChanged { get; set; }
+
+    /// <summary>Locks the group while a checkout is in flight, so the scenario cannot change under an attempt that has already been sent.</summary>
+    [Parameter]
+    public bool Disabled { get; set; }
+
+    private bool IsSelected(PaymentScenarioOption option) =>
+        string.Equals(option.Hint, Value, StringComparison.OrdinalIgnoreCase);
+
+    private Task SelectAsync(PaymentScenarioOption option) => ValueChanged.InvokeAsync(option.Hint);
+}
