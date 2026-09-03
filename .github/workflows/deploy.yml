@@ -1,0 +1,763 @@
+# =========================================================================================
+#  THIS WORKFLOW IS NOT WIRED TO PUSH, ON PURPOSE. READ THIS BEFORE YOU "FIX" IT.
+# =========================================================================================
+#
+#  As of the commit that added this file, NOTHING IS DEPLOYED. The Azure subscription holds
+#  exactly one auto-provisioned NetworkWatcher and nothing else: `terraform apply` has never
+#  been run, the resource group `rg-vela-prod` does not exist, the Container App
+#  `ca-vela-prod` does not exist, and the federated identity credential that this workflow
+#  authenticates with does not exist either.
+#
+#  That is a deliberate decision, not an oversight. The subscription is a Free Trial with
+#  `spendingLimit: On` - the only genuine hard stop it will ever have. Upgrading to
+#  Pay-As-You-Go removes that limit permanently and it cannot be re-enabled. The plan is to
+#  finish the application, then upgrade and deploy once, on purpose, with someone watching.
+#
+#  THE GUARD, AND WHY THIS ONE:
+#
+#  The `push:` trigger below is written out in full and commented out, with the exact
+#  condition for uncommenting it stated next to it. Three guards were available and this is
+#  the one that lives in the file:
+#
+#    * A protection rule on the `production` GitHub Environment is stronger, and it SHOULD
+#      also exist (a required reviewer - see the checklist at the bottom). But it is
+#      invisible here. Somebody reading this file in six months sees YAML, not repository
+#      settings, and a guard you cannot see is a guard you will delete by accident.
+#    * An `if: false` guard step still queues a job, allocates a runner and reports a
+#      confusing green tick on a workflow that did nothing.
+#    * A commented-out trigger cannot be tripped by a merge, is impossible to misread, and
+#      the diff that enables it is one line that a reviewer will notice.
+#
+#  Belt and braces on top of that: the `preflight` job fails in seconds, with an actionable
+#  message and no cloud call, if the repository variables are missing; and the deploy job
+#  refuses to touch anything if the Container App is not already there.
+#
+# =========================================================================================
+name: Deploy
+
+on:
+  # Manual only, for now. Actions tab -> Deploy -> Run workflow.
+  workflow_dispatch:
+
+  # UNCOMMENT THIS - and only this - AFTER ALL FOUR OF THESE ARE TRUE:
+  #   1. `terraform apply` has been run from infra/ and `rg-vela-prod` exists.
+  #   2. The `production` GitHub Environment exists WITH a required reviewer.
+  #   3. The environment-scoped OIDC subject in infra/identity.tf has been VERIFIED by
+  #      re-running .github/workflows/oidc-claims.yml from a job that declares
+  #      `environment: production` (see the note on the azure/login step below).
+  #   4. This workflow has completed successfully at least once from workflow_dispatch.
+  # push:
+  #   branches: [main]
+
+# Least privilege at the top; each job widens only as far as it needs. Note what is NOT
+# here: no `packages: write` (only the build job pushes an image) and no `id-token: write`
+# (only the deploy job talks to Azure). A job that cannot mint an OIDC token cannot
+# accidentally authenticate to the cloud.
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-production
+  # NOT cancel-in-progress. Cancelling a deploy mid-flight is how you strand production
+  # halfway between two images, or kill the rollback step that was about to save you.
+  # Deploys queue behind each other instead.
+  cancel-in-progress: false
+
+env:
+  # These two names are Terraform's, composed in infra/main.tf as
+  # "rg-${name_prefix}-${environment_name}" and "ca-${...}" from infra/variables.tf, whose
+  # defaults are name_prefix = "vela" and environment_name = "prod". If you change either
+  # variable, change these strings in the same commit - nothing checks that they agree, and
+  # a mismatch shows up as "resource not found" against a subscription that is perfectly
+  # healthy.
+  AZURE_RESOURCE_GROUP: rg-vela-prod
+  CONTAINER_APP_NAME: ca-vela-prod
+
+  # Pinned to the same Bruno version as the api-collection job in ci.yml. The smoke test and
+  # the CI run assert against the same collection, so they must not disagree about what an
+  # assertion means.
+  BRUNO_CLI_VERSION: 4.1.0
+
+jobs:
+  # =======================================================================================
+  # 1. PREFLIGHT - no credentials, no cloud, no runner minutes wasted.
+  # =======================================================================================
+  preflight:
+    name: Preflight
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      # The three Azure identifiers are repository VARIABLES, not secrets, and that is a
+      # design statement rather than laziness. A client ID, a tenant ID and a subscription ID
+      # grant nobody anything on their own: access requires a federated identity credential
+      # whose subject matches a token GitHub will only mint for this repository. Storing them
+      # as secrets would imply the security of this pipeline rests on keeping them quiet. It
+      # does not. It rests on the OIDC trust policy in infra/identity.tf.
+      #
+      # Values are passed through `env:` rather than interpolated directly into the script.
+      # `${{ ... }}` inside a `run:` block is textually substituted before bash ever sees it,
+      # which is the classic Actions script-injection shape; CodeQL's `actions` pack (enabled
+      # in codeql.yml) flags it, and the habit is worth keeping even for values only an admin
+      # can set.
+      - name: The Azure identifiers must be configured
+        env:
+          AZURE_CLIENT_ID: ${{ vars.AZURE_CLIENT_ID }}
+          AZURE_TENANT_ID: ${{ vars.AZURE_TENANT_ID }}
+          AZURE_SUBSCRIPTION_ID: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+        run: |
+          missing=""
+          [ -n "$AZURE_CLIENT_ID" ]       || missing="$missing AZURE_CLIENT_ID"
+          [ -n "$AZURE_TENANT_ID" ]       || missing="$missing AZURE_TENANT_ID"
+          [ -n "$AZURE_SUBSCRIPTION_ID" ] || missing="$missing AZURE_SUBSCRIPTION_ID"
+
+          if [ -n "$missing" ]; then
+            echo "::error::Missing repository variable(s):$missing"
+            echo ""
+            echo "These are GitHub repository VARIABLES (Settings -> Secrets and variables -> Actions -> Variables),"
+            echo "not secrets. Terraform emits all three. From infra/, after a successful apply:"
+            echo ""
+            echo "  gh variable set AZURE_CLIENT_ID       --body \"\$(terraform output -raw deploy_client_id)\""
+            echo "  gh variable set AZURE_TENANT_ID       --body \"\$(terraform output -raw tenant_id)\""
+            echo "  gh variable set AZURE_SUBSCRIPTION_ID --body \"\$(terraform output -raw subscription_id)\""
+            echo ""
+            echo "If Terraform has not been applied yet, that is the actual blocker. See infra/README.md."
+            exit 1
+          fi
+          echo "All three Azure identifiers are set."
+
+  # =======================================================================================
+  # 2. BUILD - produce an image and push it to GHCR. Touches no cloud account.
+  # =======================================================================================
+  build:
+    name: Build and push by digest
+    needs: preflight
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    permissions:
+      contents: read
+      # GHCR push, and nothing else. Deliberately no id-token: this job never authenticates
+      # to Azure, so it cannot deploy even if something in it went wrong. It also has no
+      # `environment:`, so the image is built BEFORE a reviewer is asked to approve anything
+      # - there is no point waking someone up to approve a deploy of an image that does not
+      # compile.
+      packages: write
+
+    outputs:
+      # The only thing the deploy job is allowed to consume: a fully qualified, immutable
+      # reference. Never a tag.
+      image: ${{ steps.push.outputs.image }}
+      digest: ${{ steps.push.outputs.digest }}
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v6
+        with:
+          # Same as every other job: global.json is the single pin.
+          global-json-file: global.json
+
+      # -----------------------------------------------------------------------------------
+      # The storefront has to be staged into the API before the image is built, and this is
+      # not optional plumbing - without it the deploy silently ships a shop with no shop.
+      #
+      # src/VelaCommerce.Api/VelaCommerce.Api.csproj has NO ProjectReference to
+      # VelaCommerce.Storefront. Nothing copies the Blazor output into the API. What makes
+      # the one-origin design work at runtime is StorefrontAssets.Locate: on a published
+      # build it looks for {ContentRoot}/wwwroot, and when it finds nothing it logs a line
+      # and serves the API alone. That is a legitimate way to run (the OpenAPI generator
+      # relies on it) - which means a container built without this step starts healthy,
+      # answers /alive and /health, passes every request in the Bruno collection, and serves
+      # a 404 to every human who opens the URL. The pipeline would be green and the demo
+      # would be gone.
+      #
+      # Measured, on this repository: the storefront publishes 164 files; all 164 arrive in
+      # the API's publish output unmodified, index.html byte-identical, and the Blazor
+      # fingerprinted names under _framework/ are carried through rather than re-fingerprinted.
+      # The resulting image was run locally and served the shop at / and application/wasm at
+      # /_framework/*.wasm.
+      #
+      # THE DURABLE FIX IS NOT HERE. It belongs in VelaCommerce.Api.csproj, as a target that
+      # publishes the storefront into wwwroot. Until that exists, this workflow is the only
+      # thing standing between a deploy and an empty storefront - so if you are removing
+      # these two steps, make sure the csproj has taken the job over first.
+      # -----------------------------------------------------------------------------------
+      - name: Publish the storefront
+        run: >-
+          dotnet publish src/VelaCommerce.Storefront/VelaCommerce.Storefront.csproj
+          --configuration Release
+          --output artifacts/storefront
+
+      - name: Stage the storefront as the API's wwwroot
+        run: |
+          rm -rf src/VelaCommerce.Api/wwwroot
+          cp -R artifacts/storefront/wwwroot src/VelaCommerce.Api/wwwroot
+          echo "Staged $(find src/VelaCommerce.Api/wwwroot -type f | wc -l) storefront files."
+          # index.html is the file StorefrontAssets treats as proof that a directory really
+          # is a storefront. If it is absent the API will fall back to serving itself, so
+          # fail here where the message is unambiguous.
+          test -f src/VelaCommerce.Api/wwwroot/index.html \
+            || { echo "::error::The staged storefront has no index.html; the API would boot without a shop."; exit 1; }
+
+      # -----------------------------------------------------------------------------------
+      # Build the image into a local OCI archive rather than pushing straight from the SDK.
+      #
+      # WHY THE ARCHIVE ROUTE. The thing that gets deployed must be a digest, and the digest
+      # is exactly what `docker push` reports about the bytes it has just written. Pushing
+      # from the SDK would leave us re-reading the tag we just pushed in order to discover
+      # what its digest is - an extra network round trip to answer a question we already had
+      # the answer to. `docker` is also the reference client for GHCR's auth flow, which is
+      # one fewer thing to debug on the first deploy of a project that has never deployed.
+      #
+      # -p:OpenApiGenerateDocumentsOnBuild=false IS REQUIRED, and it is not a matter of
+      # taste. The OpenAPI generator runs the built assembly to describe the API. Under
+      # `--os linux --arch x64` the assembly it is handed is a linux-x64 build, and on an
+      # arm64 macOS host loading it fails outright:
+      #
+      #   error : System.IO.FileNotFoundException: Could not load file or assembly
+      #           'VelaCommerce.Api, Culture=neutral, PublicKeyToken=null'.
+      #
+      # That is a verbatim capture from running this exact publish on the developer's Mac.
+      # On an x64 ubuntu runner the cross-RID build happens to be native so it would not
+      # fire, and the failure would be a "works in CI, dies on my machine" mystery. The
+      # document is a committed build output that ci.yml already proves is current on every
+      # push; regenerating it here buys nothing and costs portability.
+      #
+      # ContainerFamily=noble-chiseled-extra: chiseled Ubuntu, but the `-extra` variant.
+      # Plain chiseled, alpine and distroless all require InvariantGlobalization=true, which
+      # silently breaks currency formatting in a shop. `-extra` keeps ICU and tzdata.
+      #
+      # PublishReadyToRun=true: precompiled native code, which is the cheapest available
+      # win on the cold start that min_replicas = 0 guarantees every idle visitor will pay.
+      # Measured cost on this repository: the image goes from 85.9 MB to 92.2 MB, +6.3 MB,
+      # comfortably inside the ~140 MB budget in docs/PLAN.md. Cross-compiled linux-x64 from
+      # an arm64 Mac and run under Docker to confirm it starts.
+      #
+      # PublishRepositoryUrl=true: emits the OCI source label, which is what makes GHCR link
+      # the package back to this repository instead of orphaning it in the account's package
+      # list with no way home.
+      # -----------------------------------------------------------------------------------
+      - name: Build the container image
+        run: >-
+          dotnet publish src/VelaCommerce.Api/VelaCommerce.Api.csproj
+          --configuration Release
+          --os linux --arch x64
+          -p:OpenApiGenerateDocumentsOnBuild=false
+          -p:ContainerFamily=noble-chiseled-extra
+          -p:PublishReadyToRun=true
+          -p:PublishRepositoryUrl=true
+          -p:ContainerRepository=vela-commerce
+          -p:ContainerImageTag=build
+          /t:PublishContainer
+          -p:ContainerArchiveOutputPath=artifacts/image/vela-commerce.tar.gz
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          # The workflow's own short-lived token. There is no stored registry credential in
+          # this repository, and there should never be one: GITHUB_TOKEN is scoped to this
+          # run and expires with it.
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # -----------------------------------------------------------------------------------
+      # Load, tag, push, and read back the digest of what was pushed.
+      #
+      # MEASURED, and the reason the tag is applied here by hand instead of being set on the
+      # publish above: when ContainerArchiveOutputPath is used, the SDK IGNORES
+      # ContainerRegistry. The archive's only tag is "<repository>:<tag>" with no registry
+      # host - the build log says "Pushed image 'vela-commerce:build' to local archive". So
+      # the name inside the tarball is not the name we want to push, and we do not guess at
+      # it either: `docker load` prints the name it actually loaded and that is what gets
+      # retagged.
+      #
+      # The registry path is lowercased because OCI repository names must be lowercase and
+      # github.repository preserves the owner's registered capitalisation - fine for
+      # jdoan5/vela-commerce today, a confusing 400 from the registry for a fork under a
+      # mixed-case account.
+      #
+      # A `sha-<commit>` tag is pushed alongside, and it is immutable by construction: one
+      # commit, one tag, never moved. It exists so a human can navigate GHCR's UI and so the
+      # first `terraform apply` has a real image reference to seed `container_image` with.
+      # `latest` and `main` are deliberately NOT pushed. A mutable tag is precisely the thing
+      # a digest deploy exists to avoid, and a rollback that means "re-point a tag" is not a
+      # rollback.
+      # -----------------------------------------------------------------------------------
+      - name: Push and capture the digest
+        id: push
+        env:
+          GITHUB_REPOSITORY_NAME: ${{ github.repository }}
+          COMMIT_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+
+          repository="ghcr.io/$(echo "$GITHUB_REPOSITORY_NAME" | tr '[:upper:]' '[:lower:]')"
+          tag="sha-${COMMIT_SHA}"
+
+          loaded="$(docker load --input artifacts/image/vela-commerce.tar.gz \
+                    | sed -n 's/^Loaded image: //p' | head -n1)"
+          if [ -z "$loaded" ]; then
+            echo "::error::docker load did not report an image name. The archive at artifacts/image/vela-commerce.tar.gz is missing or malformed."
+            exit 1
+          fi
+          echo "Loaded '$loaded' from the archive."
+
+          docker tag "$loaded" "${repository}:${tag}"
+          docker push "${repository}:${tag}"
+
+          # RepoDigests is populated by the push itself, so this is a local read of what the
+          # registry acknowledged - not a second lookup that a concurrent push could race.
+          digest="$(docker image inspect --format '{{range .RepoDigests}}{{println .}}{{end}}' "${repository}:${tag}" \
+                    | awk -F@ -v repo="$repository" '$1 == repo { print $2; exit }')"
+          if [ -z "$digest" ]; then
+            echo "::error::The image pushed but no digest came back for ${repository}. Refusing to deploy a tag."
+            exit 1
+          fi
+
+          echo "digest=${digest}" >> "$GITHUB_OUTPUT"
+          echo "image=${repository}@${digest}" >> "$GITHUB_OUTPUT"
+
+          {
+            echo "### Image"
+            echo ""
+            echo "| | |"
+            echo "|---|---|"
+            echo "| Deployed by digest | \`${repository}@${digest}\` |"
+            echo "| Also tagged | \`${repository}:${tag}\` |"
+            echo ""
+            echo "Roll back to this build later with:"
+            echo ""
+            echo '```'
+            echo "az containerapp update --name ${CONTAINER_APP_NAME} --resource-group ${AZURE_RESOURCE_GROUP} \\"
+            echo "  --image ${repository}@${digest} --revision-suffix rb\$(date +%s)"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      # FIRST DEPLOY ONLY, AND IT WILL BITE YOU: a package published to GHCR by GITHUB_TOKEN
+      # is created PRIVATE, even from a public repository. infra/container_app.tf pulls
+      # anonymously on purpose - `ghcr_username`/`ghcr_token` default to null and the
+      # `registry` block emits nothing - because a public package needs no credential and an
+      # Azure Container Registry would cost ~$5/month to hold a copy of an image GHCR already
+      # hosts for free. So after the very first push, go to the package's settings and set
+      # its visibility to Public. Symptom if you forget: the revision provisions and then
+      # fails to start with an image-pull error that says "unauthorized" and never mentions
+      # visibility.
+      - name: Remind about package visibility
+        run: |
+          echo "::notice::If this is the first push, set the GHCR package visibility to Public. Container Apps pulls anonymously (no ACR, by design) and a private package fails with an opaque 'unauthorized' image-pull error."
+
+  # =======================================================================================
+  # 3. DEPLOY - the only job that talks to Azure, and the only one behind the environment.
+  # =======================================================================================
+  deploy:
+    name: Deploy to Container Apps
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    # THIS IS WHAT MAKES THE OIDC SUBJECT ENVIRONMENT-SCOPED, and it is the security control
+    # that matters most in this file. With it, GitHub mints a token whose `sub` ends in
+    # `:environment:production`, and infra/identity.tf trusts only that string. Without it
+    # the subject ends in `:ref:refs/heads/main`, and anything that runs on main - including
+    # a workflow added by a pull request that gets merged carelessly - can mint a deploy
+    # token. The environment is also where the required reviewer lives.
+    environment:
+      name: production
+      url: ${{ steps.endpoint.outputs.url }}
+
+    permissions:
+      # Mint the OIDC token. This is the entire credential story: there is no client secret,
+      # no service principal password and no publish profile stored in this repository.
+      id-token: write
+      contents: read
+
+    steps:
+      # Only api-tests/ is needed here, but a full checkout is one line and the collection
+      # must match the commit being deployed.
+      - uses: actions/checkout@v7
+
+      # -----------------------------------------------------------------------------------
+      # IF THIS STEP FAILS, READ THIS BEFORE ANYTHING ELSE.
+      #
+      # The likely error is AADSTS700213 / "No matching federated identity record found for
+      # presented assertion issuer and subject". It names the application and the issuer and
+      # NEVER tells you that the subject was the problem, which is why people lose days here.
+      #
+      # The subject this job presents is the post-July-2026 IMMUTABLE form, built from
+      # numeric IDs rather than names, with the environment scope:
+      #
+      #   repo:jdoan5@30330279/vela-commerce@1355259325:environment:production
+      #
+      # THE `:environment:production` VARIANT HAS NEVER BEEN OBSERVED ON A REAL TOKEN. The
+      # only subject anyone on this project has actually read off a token is the
+      # `:ref:refs/heads/main` one, printed by .github/workflows/oidc-claims.yml running
+      # OUTSIDE any environment. The environment form above is the documented shape, and
+      # documented is not verified.
+      #
+      # To verify it: copy the `claims` job out of oidc-claims.yml, add
+      # `environment: production` to it, dispatch it, and read `sub` off the job summary.
+      # Then make `local.github_subject_environment` in infra/main.tf equal that string
+      # character for character. Do not copy a subject out of any tutorial; every one of them
+      # still shows the old `repo:OWNER/NAME:ref:refs/heads/main` form, which now matches
+      # nothing.
+      # -----------------------------------------------------------------------------------
+      - name: Authenticate to Azure with OIDC
+        uses: azure/login@v3
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+          # The only audience Entra workload identity federation accepts. It is a fixed
+          # identifier, not a URL that resolves, and it matches what oidc-claims.yml requests
+          # and what infra/identity.tf trusts.
+          audience: api://AzureADTokenExchange
+
+      # The guard that makes an accidental run harmless. If Terraform has not been applied,
+      # this stops here with a sentence that says what to do, rather than letting
+      # `az containerapp update` invent a half-configured app or emit a ResourceNotFound that
+      # reads like an outage.
+      - name: Guard - the Container App must already exist
+        run: |
+          if ! az containerapp show \
+                --name "$CONTAINER_APP_NAME" \
+                --resource-group "$AZURE_RESOURCE_GROUP" \
+                --output none 2>/dev/null; then
+            echo "::error::Container App '$CONTAINER_APP_NAME' was not found in resource group '$AZURE_RESOURCE_GROUP'."
+            echo ""
+            echo "This pipeline updates an existing app; it does not create infrastructure."
+            echo "Terraform owns the app, the environment, the identity and the role assignments."
+            echo "Run 'terraform apply' from infra/ first - and read infra/README.md before you do,"
+            echo "because the bootstrap (state storage account, 'az provider register -n Microsoft.App')"
+            echo "is a set of one-time manual steps that apply does not perform."
+            exit 1
+          fi
+          echo "Found $CONTAINER_APP_NAME in $AZURE_RESOURCE_GROUP."
+
+      # -----------------------------------------------------------------------------------
+      # Record the rollback target BEFORE changing anything.
+      #
+      # The app runs in Single revision mode (infra/container_app.tf), so exactly one
+      # revision is active at a time and "roll back" means "set the image back". Everything
+      # else about the template - secrets, env vars, probes, scale - is Terraform's and is
+      # unchanged by this workflow, so the image is the whole of the difference.
+      #
+      # A rollback target is only accepted if it is a DIGEST. If the app is still on the
+      # placeholder tag Terraform seeded it with (infra/variables.tf defaults
+      # container_image to ghcr.io/jdoan5/vela-commerce:main), there is no known-good build
+      # to return to - that tag may point at nothing at all - and "rolling back" to it would
+      # replace a broken revision with an unknown one. In that case the failure is left
+      # standing, deliberately, so its logs can be read.
+      # -----------------------------------------------------------------------------------
+      - name: Record the current image as the rollback target
+        id: rollback_target
+        run: |
+          set -euo pipefail
+          current="$(az containerapp show \
+                      --name "$CONTAINER_APP_NAME" \
+                      --resource-group "$AZURE_RESOURCE_GROUP" \
+                      --query 'properties.template.containers[0].image' -o tsv)"
+          echo "Currently deployed: ${current:-<none>}"
+
+          case "$current" in
+            *@sha256:*)
+              echo "image=$current" >> "$GITHUB_OUTPUT"
+              echo "Rollback target recorded."
+              ;;
+            *)
+              echo "::warning::The running image '${current:-<none>}' is not a digest reference, so there is no verified known-good build to roll back to. If this deploy fails it will be left in place for diagnosis rather than replaced with an unknown image."
+              ;;
+          esac
+
+      # -----------------------------------------------------------------------------------
+      # Roll the revision. --image takes the DIGEST, never the tag: this is what makes the
+      # deploy reproducible and the rollback exact. A digest names one specific set of bytes
+      # forever; a tag names whatever was pushed last.
+      #
+      # --revision-suffix makes the revision greppable against a commit instead of an opaque
+      # hash. It includes the run id because revision names must be unique - deploying the
+      # same commit twice with only the sha in the suffix would collide and fail - and it is
+      # prefixed with letters so the name starts with one.
+      #
+      # NOT DONE HERE, ON PURPOSE: `az containerapp secret set`. This workflow holds zero
+      # stored cloud secrets, and the database connection string and the payment signing
+      # secret are set by hand, once, by a human (see infra/README.md). If you are about to
+      # add `secrets.VELA_DB_CONNECTION` to this repository so that a step here can set them,
+      # stop: that trades the one property this pipeline was built for - no long-lived
+      # credential anywhere in GitHub - for saving a person one command they run once.
+      # -----------------------------------------------------------------------------------
+      - name: Update the Container App to the new digest
+        id: update
+        env:
+          IMAGE: ${{ needs.build.outputs.image }}
+          COMMIT_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          case "$IMAGE" in
+            *@sha256:*) : ;;
+            *) echo "::error::Refusing to deploy '$IMAGE': it is not a digest reference."; exit 1 ;;
+          esac
+
+          suffix="g${COMMIT_SHA:0:7}-r${GITHUB_RUN_ID}"
+          echo "Deploying $IMAGE as revision suffix $suffix"
+
+          revision="$(az containerapp update \
+                        --name "$CONTAINER_APP_NAME" \
+                        --resource-group "$AZURE_RESOURCE_GROUP" \
+                        --image "$IMAGE" \
+                        --revision-suffix "$suffix" \
+                        --query 'properties.latestRevisionName' -o tsv)"
+          echo "revision=$revision" >> "$GITHUB_OUTPUT"
+          echo "New revision: $revision"
+
+      - name: Wait for the revision to provision
+        env:
+          REVISION: ${{ steps.update.outputs.revision }}
+        run: |
+          set -euo pipefail
+          for attempt in $(seq 1 60); do
+            state="$(az containerapp revision show \
+                      --name "$CONTAINER_APP_NAME" \
+                      --resource-group "$AZURE_RESOURCE_GROUP" \
+                      --revision "$REVISION" \
+                      --query 'properties.provisioningState' -o tsv 2>/dev/null || echo Unknown)"
+            case "$state" in
+              Provisioned)
+                echo "$REVISION provisioned after $((attempt * 5))s."
+                exit 0
+                ;;
+              Failed)
+                echo "::error::Revision $REVISION failed to provision. The usual cause on a first deploy is an image pull failure - check that the GHCR package visibility is Public."
+                exit 1
+                ;;
+              *)
+                echo "  ${state}... (${attempt}/60)"
+                sleep 5
+                ;;
+            esac
+          done
+          echo "::error::Revision $REVISION did not reach Provisioned within 5 minutes."
+          exit 1
+
+      - name: Resolve the public URL
+        id: endpoint
+        run: |
+          set -euo pipefail
+          fqdn="$(az containerapp show \
+                   --name "$CONTAINER_APP_NAME" \
+                   --resource-group "$AZURE_RESOURCE_GROUP" \
+                   --query 'properties.configuration.ingress.fqdn' -o tsv)"
+          if [ -z "$fqdn" ]; then
+            echo "::error::The Container App reports no ingress FQDN. External ingress is expected to be enabled by infra/container_app.tf."
+            exit 1
+          fi
+          echo "url=https://${fqdn}" >> "$GITHUB_OUTPUT"
+          echo "Deployed to https://${fqdn}"
+
+      # -----------------------------------------------------------------------------------
+      # WARM THE APP BEFORE ASSERTING ANYTHING ABOUT IT. This is not politeness; without it
+      # the smoke test fails on physics rather than on a defect.
+      #
+      # Two cold starts stack up on the first request after a deploy. min_replicas = 0 (the
+      # setting that keeps this deployment inside the free grant) means there is no replica
+      # at all until something knocks; and Neon's free tier autosuspends the database, so the
+      # first query pays a resume. Meanwhile api-tests/Health/liveness.bru asserts
+      # `res.responseTime` below 1000ms. Run the collection cold and that assertion fails,
+      # correctly, on a number that says nothing about whether the deploy is good.
+      #
+      # /alive first - it takes no DbContext, so it proves the process is up without waiting
+      # on the database. Then /health, which is the readiness probe and whose CanConnectAsync
+      # is itself the connection that wakes Neon.
+      # -----------------------------------------------------------------------------------
+      - name: Warm the app and wait for readiness
+        env:
+          URL: ${{ steps.endpoint.outputs.url }}
+        run: |
+          set -uo pipefail
+
+          # Time-based, not attempt-based. Counting iterations and printing the count as
+          # "${attempt}s" was wrong in every case but the trivial one: each iteration costs up
+          # to --max-time plus the sleep, so 60 iterations was anywhere from 60s to half an
+          # hour. The budget below is deliberately LONGER than the startup probe's own budget
+          # in infra/container_app.tf (interval_seconds 5 x failure_count_threshold 30 = 150s);
+          # a shorter one declares "the container is not serving" while the revision is still
+          # inside its legitimate startup window.
+          alive_deadline=$(( SECONDS + 240 ))
+          echo "Waiting for /alive (cold start: no replica is running at min_replicas = 0)..."
+          while :; do
+            code="$(curl -sS -o /dev/null -w '%{http_code}' --max-time 15 "${URL}/alive" || echo 000)"
+            if [ "$code" = "200" ]; then echo "  /alive 200 after ${SECONDS}s"; break; fi
+            if [ "$SECONDS" -ge "$alive_deadline" ]; then
+              echo "::error::${URL}/alive never returned 200 within 240s. The container is not serving."
+              echo "::error::If the image is in a PRIVATE GHCR package the pull fails silently: at min_replicas = 0 no replica is created, so the revision still reports Provisioned. Check the package is public, or that ghcr_username/ghcr_token are set."
+              exit 1
+            fi
+            sleep 2
+          done
+
+          health_deadline=$(( SECONDS + 180 ))
+          echo "Waiting for /health (this is the request that resumes a suspended Neon database)..."
+          while :; do
+            code="$(curl -sS -o /dev/null -w '%{http_code}' --max-time 15 "${URL}/health" || echo 000)"
+            if [ "$code" = "200" ]; then echo "  /health 200 after ${SECONDS}s"; break; fi
+            if [ "$SECONDS" -ge "$health_deadline" ]; then
+              echo "::error::${URL}/health never returned 200. The process is up but the database is unreachable - check the vela-db-connection secret (set by hand with 'az containerapp secret set', not by this workflow)."
+              curl -sS --max-time 15 "${URL}/health" || true
+              exit 1
+            fi
+            sleep 2
+          done
+
+      - name: Install the Bruno CLI
+        run: npm install --global "@usebruno/cli@${BRUNO_CLI_VERSION}"
+
+      # -----------------------------------------------------------------------------------
+      # The post-deploy smoke test: the same collection CI runs against a local API, pointed
+      # at the deployment.
+      #
+      # --env-var overrides baseUrl from api-tests/environments/local.bru rather than adding
+      # a production.bru. A checked-in production environment file would be a second place
+      # that has to be kept in step with Terraform's ingress FQDN, and it would be wrong the
+      # first time anyone renamed the app. The URL is already an output of the step above;
+      # this passes it through.
+      #
+      # WHAT THIS WRITES TO PRODUCTION: the Cart folder creates one cart under a session
+      # cookie that this run mints and discards, adds and removes lines, and clears it. There
+      # is no Checkout folder in the collection, so no order is placed and no payment is
+      # simulated. Catalog and Health are pure reads. If a checkout folder is ever added,
+      # revisit this step before it runs against a live shop.
+      #
+      # No --bail: when the cart lifecycle breaks, the cascade of failures after it says more
+      # about the cause than its first frame does. Same reasoning as the CI job.
+      # -----------------------------------------------------------------------------------
+      - name: Smoke test the deployment
+        id: smoke
+        working-directory: api-tests
+        env:
+          URL: ${{ steps.endpoint.outputs.url }}
+        run: |
+          # bru does not create the reporter's output directory and does not fail when it is
+          # missing - it prints one line and exits 0 with nothing written. Same trap as in
+          # ci.yml; without this the artifact upload below would publish an empty directory
+          # on a run that looked fine.
+          mkdir -p ../artifacts/smoke
+          bru run -r \
+            --env local \
+            --env-var "baseUrl=${URL}" \
+            --reporter-html ../artifacts/smoke/report.html \
+            --reporter-junit ../artifacts/smoke/report.xml
+
+      # -----------------------------------------------------------------------------------
+      # ROLL BACK. Reached only when something above failed: a revision that would not
+      # provision, an endpoint that never became ready, or a smoke test that found the
+      # deployment broken.
+      #
+      # Rolling back is another `update` to the previous digest, which in Single revision
+      # mode is a complete restoration - the image was the only thing this workflow changed.
+      # It gets its own unique suffix: without one, Azure derives the revision name from the
+      # template, and rolling back to the exact previous template would try to recreate a
+      # revision name that already exists.
+      # -----------------------------------------------------------------------------------
+      - name: Roll back to the previous digest
+        if: failure() && steps.rollback_target.outputs.image != ''
+        env:
+          PREVIOUS_IMAGE: ${{ steps.rollback_target.outputs.image }}
+          URL: ${{ steps.endpoint.outputs.url }}
+        run: |
+          echo "::warning::Deploy failed. Rolling back to ${PREVIOUS_IMAGE}"
+          az containerapp update \
+            --name "$CONTAINER_APP_NAME" \
+            --resource-group "$AZURE_RESOURCE_GROUP" \
+            --image "$PREVIOUS_IMAGE" \
+            --revision-suffix "rb${GITHUB_RUN_ID}" \
+            --output none
+
+          # Confirm the rollback actually serves, so the job does not report a rollback that
+          # left the site down. Best effort: the URL may not have resolved if the failure was
+          # early, and a failed rollback must not mask the original failure.
+          if [ -n "${URL:-}" ]; then
+            for attempt in $(seq 1 60); do
+              code="$(curl -sS -o /dev/null -w '%{http_code}' --max-time 30 "${URL}/alive" || echo 000)"
+              if [ "$code" = "200" ]; then
+                echo "::notice::Rolled back. ${URL}/alive is serving again on ${PREVIOUS_IMAGE}"
+                exit 0
+              fi
+              sleep 2
+            done
+            echo "::error::Rolled back to ${PREVIOUS_IMAGE} but ${URL}/alive is still not answering. The site is down; this needs a person."
+          fi
+
+      - name: Explain why no rollback happened
+        if: failure() && steps.rollback_target.outputs.image == ''
+        run: |
+          echo "::warning::No rollback was attempted. The app was not running a digest-pinned image before this deploy - most likely this was the first real deploy and the app still carried the placeholder tag from 'terraform apply'. There is no verified known-good build to return to, so the failed revision has been left in place deliberately, for its logs to be read."
+
+      # Best effort, and worth knowing why it is only that. infra/observability.tf attaches
+      # NO Log Analytics workspace - the environment's log destination is "none", which is
+      # what makes Azure Monitor cost exactly $0.00 here. `az containerapp logs show` reads
+      # history from a workspace, so with none attached there is no history to read; and the
+      # live stream needs a running replica, which at min_replicas = 0 there may not be after
+      # a failed revision. Both calls are therefore allowed to fail without failing the job.
+      # When they come back empty, the log you want is the portal's live stream on the app,
+      # or the app's own OTLP export to Grafana Cloud. That is the price of the $0 logging
+      # choice, stated here rather than discovered at 2am.
+      - name: Container App logs
+        if: failure()
+        run: |
+          az containerapp logs show \
+            --name "$CONTAINER_APP_NAME" \
+            --resource-group "$AZURE_RESOURCE_GROUP" \
+            --type console --tail 200 2>&1 || true
+          az containerapp logs show \
+            --name "$CONTAINER_APP_NAME" \
+            --resource-group "$AZURE_RESOURCE_GROUP" \
+            --type system --tail 100 2>&1 || true
+
+      - name: Upload smoke test results
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: smoke-test-results
+          path: artifacts/smoke
+          retention-days: 7
+
+      - name: Summary
+        if: always()
+        env:
+          IMAGE: ${{ needs.build.outputs.image }}
+          REVISION: ${{ steps.update.outputs.revision }}
+          URL: ${{ steps.endpoint.outputs.url }}
+        run: |
+          {
+            echo "### Deploy"
+            echo ""
+            echo "| | |"
+            echo "|---|---|"
+            echo "| Result | ${{ job.status }} |"
+            echo "| Image | \`${IMAGE:-n/a}\` |"
+            echo "| Revision | \`${REVISION:-n/a}\` |"
+            echo "| URL | ${URL:-n/a} |"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+# =========================================================================================
+#  CHECKLIST BEFORE THE FIRST RUN. Every one of these is a manual step; none is automated,
+#  and the workflow will fail at a different place for each one you skip.
+#
+#   [ ] infra/ applied. `rg-vela-prod` and `ca-vela-prod` exist. (Guard step fails otherwise.)
+#   [ ] `az provider register -n Microsoft.App` - currently NotRegistered on this subscription.
+#   [ ] GitHub Environment `production` created, WITH a required reviewer.
+#   [ ] The environment-scoped OIDC subject verified against a real token and matched into
+#       infra/main.tf. THIS IS THE ONE THAT IS UNVERIFIED TODAY.
+#   [ ] Repository variables AZURE_CLIENT_ID, AZURE_TENANT_ID, AZURE_SUBSCRIPTION_ID set from
+#       `terraform output`. (Preflight fails otherwise.)
+#   [ ] `az containerapp secret set` run by hand for vela-db-connection (Neon POOLED
+#       connection string) and payment-signing-secret. Not the committed dev default.
+#   [ ] GHCR package visibility set to Public after the first push.
+#   [ ] Data Protection actually wired in Program.cs - PersistKeysToAzureBlobStorage plus
+#       SetApplicationName("vela-commerce"), reading VELA_DATAPROTECTION_BLOB_URI. The blob
+#       exists in Terraform; nothing reads it yet. Until it does, every deploy silently
+#       empties every visitor's cart and 404s every order-retrieval link, and NOTHING in this
+#       pipeline will tell you - the smoke test starts a fresh session every time.
+# =========================================================================================

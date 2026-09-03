@@ -269,3 +269,90 @@ jobs:
       - name: Stop the API
         if: always()
         run: kill "$(cat api.pid)" 2>/dev/null || true
+
+  terraform:
+    name: Terraform is formatted and valid
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    # This job proves the infrastructure code compiles. It holds no credentials, names no
+    # subscription, and makes no cloud call - which is the only reason it can run on every
+    # pull request, including one from a fork.
+    #
+    # WHAT IS DELIBERATELY ABSENT: `terraform plan`. A plan CONFIGURES the azurerm provider,
+    # and configuring it performs resource-provider registration - a subscription-level
+    # WRITE - before it has read a single resource. So a plan is not a read-only preview
+    # here, and this repository's Azure subscription is deliberately untouched until the one
+    # planned deploy. `validate` is the strongest check available without paying that price:
+    # it type-checks every expression, every variable and every provider schema reference
+    # offline, once the provider is installed. See infra/README.md.
+    #
+    # No tflint step: tflint is not installed anywhere in this project, and a linter added to
+    # CI that nobody can run locally produces failures nobody can reproduce.
+
+    defaults:
+      run:
+        working-directory: infra
+
+    env:
+      # Drops the "Terraform has been successfully initialized" banner art and the
+      # interactive suggestions, which are noise in a log nobody is sitting in front of.
+      TF_IN_AUTOMATION: "true"
+
+    steps:
+      - uses: actions/checkout@v7
+
+      # No setup-dotnet here: nothing in infra/ is .NET. The other jobs pin the SDK through
+      # global.json; this one pins the only tool it uses.
+      - name: Set up Terraform
+        uses: hashicorp/setup-terraform@v4
+        with:
+          # Pinned, not `latest`. infra/versions.tf declares `required_version = "~> 1.16"`,
+          # and 1.16.0 is the version the configuration was actually validated against. With
+          # `latest` this job would silently move to whatever HashiCorp shipped this morning,
+          # and the first time a new minor tightened a validation rule the failure would look
+          # like it came from the commit that happened to be pushed.
+          terraform_version: 1.16.0
+          # The wrapper re-exposes stdout, stderr and the exit code as step outputs. Nothing
+          # here reads those outputs, and the wrapper's own exit handling is one more layer
+          # between a real `terraform validate` failure and a red build. Turn it off and let
+          # the process exit code be the truth.
+          terraform_wrapper: false
+
+      # fmt needs no init - it is a parser and a printer. Running it first means a formatting
+      # slip fails in ten seconds instead of after a provider download.
+      - name: Check formatting
+        run: terraform fmt -check -recursive -diff
+
+      # -backend=false is what makes this credential-free: it skips backend initialisation
+      # entirely, so Terraform never looks for the azurerm state storage account and never
+      # needs `az login`. Providers still come from registry.terraform.io, which is a public,
+      # anonymous read.
+      #
+      # -input=false so a prompt can never hang the runner for six hours waiting on a stdin
+      # that will not arrive.
+      #
+      # NOT `-lockfile=readonly`, and this is measured rather than defensive: the committed
+      # infra/.terraform.lock.hcl was generated on darwin_arm64, so it carries one `h1:` hash
+      # for that platform plus the registry's `zh:` hashes, which cover every platform. Init
+      # on linux_amd64 verifies against the `zh:` set, succeeds, and then RECORDS the
+      # linux_amd64 `h1:` into the workspace copy of the lock file. `-lockfile=readonly`
+      # turns that ordinary bookkeeping into a hard failure. The durable fix is to pre-record
+      # both platforms locally and commit the result:
+      #
+      #     cd infra && terraform providers lock -platform=linux_amd64 -platform=darwin_arm64
+      #
+      # Until someone runs that, the step below reports the drift as a notice rather than
+      # failing a build over a hash that Terraform was always going to add.
+      - name: Initialize without a backend
+        run: terraform init -backend=false -input=false
+
+      - name: Note whether the lock file gained a platform
+        if: always()
+        run: |
+          if ! git diff --quiet -- .terraform.lock.hcl; then
+            echo "::notice::terraform init added a platform hash to infra/.terraform.lock.hcl. Not a failure. Run 'terraform providers lock -platform=linux_amd64 -platform=darwin_arm64' in infra/ and commit the result to make this stop."
+          fi
+
+      - name: Validate
+        run: terraform validate -no-color

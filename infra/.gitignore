@@ -1,0 +1,34 @@
+# The repository root .gitignore has no Terraform section, so this file is load-bearing
+# rather than decoration. Removing it means the first `terraform init` commits a ~700 MB
+# provider binary, and the first `terraform apply` commits a state file containing every
+# value the root module manages.
+
+# Provider binaries and module cache. Large, platform-specific, and reconstructible from
+# .terraform.lock.hcl.
+.terraform/
+.terraform.tfstate.lock.info
+
+# State. NEVER commit this. Until the azurerm backend is bootstrapped and uncommented (see
+# versions.tf), `terraform apply` writes state here in plaintext — and this root manages
+# Container App secret values, so a committed state file is a committed credential.
+*.tfstate
+*.tfstate.*
+crash.log
+crash.*.log
+
+# Real variable values. The committed example is terraform.tfvars.example.
+*.tfvars
+*.tfvars.json
+!terraform.tfvars.example
+
+# Saved plans are binary and contain the full resource graph including secret values.
+*.tfplan
+tfplan
+plan.out
+
+# Backend configuration passed with -backend-config, which names a storage account.
+*.backend.hcl
+backend.hcl
+
+# .terraform.lock.hcl is deliberately NOT ignored. It is the file that makes provider
+# versions reproducible and it belongs in the repository.

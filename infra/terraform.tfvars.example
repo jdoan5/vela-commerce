@@ -1,0 +1,79 @@
+# Copy to terraform.tfvars and fill in. terraform.tfvars is gitignored (see .gitignore).
+#
+# THERE ARE NO REAL SECRETS IN THIS FILE, AND THERE MUST NEVER BE ANY IN terraform.tfvars
+# EITHER. The two application secrets — the Neon connection string and the payment signing
+# key — are deliberately NOT set here. They are written straight to the Container App with
+# `az containerapp secret set` after the first apply, which is what keeps them out of
+# Terraform state. See the long note above the sensitive variables in variables.tf, and
+# README.md § "First deploy" step 7.
+
+# ---------------------------------------------------------------------------------------
+# REQUIRED — no defaults. Terraform will not plan without these.
+# ---------------------------------------------------------------------------------------
+
+# `az account show --query id -o tsv`
+subscription_id = "00000000-0000-0000-0000-000000000000"
+
+# Globally unique across all of Azure. 3-24 chars, lowercase letters and digits only.
+# Append random characters: `echo "stveladp$(openssl rand -hex 3)"`
+dataprotection_storage_account_name = "stveladpREPLACEME"
+
+# ---------------------------------------------------------------------------------------
+# Usually left at their defaults. Shown so you can see what is being assumed.
+# ---------------------------------------------------------------------------------------
+
+# Latency to Neon is what matters here, not latency to the visitor. "eastus" pairs with a
+# Neon Free project in AWS us-east-1.
+# location = "eastus"
+
+# name_prefix      = "vela"
+# environment_name = "prod"
+
+# ---------------------------------------------------------------------------------------
+# GitHub OIDC. THESE DEFAULTS ARE SPECIFIC TO jdoan5/vela-commerce.
+# If you forked this repo, every one of them is wrong for you. Get the real values with:
+#   curl -s https://api.github.com/users/<owner>        | jq .id
+#   curl -s https://api.github.com/repos/<owner>/<repo> | jq .id
+# and then confirm the composed subject by running .github/workflows/oidc-claims.yml.
+# ---------------------------------------------------------------------------------------
+
+# github_owner              = "jdoan5"
+# github_owner_id           = "30330279"
+# github_repository         = "vela-commerce"
+# github_repository_id      = "1355259325"
+# github_deploy_environment = "production"
+
+# Leave true until the environment-scoped subject has been verified by re-running the
+# oidc-claims.yml probe from inside the `production` environment; then set it to false.
+# create_branch_scoped_federated_credential = true
+
+# ---------------------------------------------------------------------------------------
+# Image. Only used for the first revision — Terraform ignores it afterwards, because the
+# deploy pipeline sets the image by digest.
+# ---------------------------------------------------------------------------------------
+
+# container_image = "ghcr.io/jdoan5/vela-commerce:sha-0000000"
+
+# Leave both null while the GHCR package is public: Container Apps pulls a public image
+# anonymously and a credential would only add a token to rotate.
+# ghcr_username = null
+# ghcr_token    = null
+
+# ---------------------------------------------------------------------------------------
+# Sizing. Changing these changes the free-grant arithmetic in README.md.
+# ---------------------------------------------------------------------------------------
+
+# 0.25 / "0.5Gi" is the smallest valid Container Apps pair. cpu and memory must move
+# together — Container Apps only accepts fixed combinations.
+# cpu          = 0.25
+# memory       = "0.5Gi"
+# max_replicas = 3
+
+# ---------------------------------------------------------------------------------------
+# Logging. false is the $0.00 setting. Read observability.tf before changing it.
+# ---------------------------------------------------------------------------------------
+
+# create_log_analytics_workspace = false
+# log_analytics_daily_quota_gb   = 0.15
+
+# extra_tags = { owner = "jdoan" }
