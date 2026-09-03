@@ -182,7 +182,7 @@ public sealed class LabApiClient
 
             // Retry-After is the endpoint's own answer to "when may I press this again", and it is
             // read rather than guessed so the countdown on screen matches the throttle exactly.
-            var retryAfter = response.Headers.RetryAfter?.Delta is { TotalSeconds: > 0 } delta
+            int? retryAfter = response.Headers.RetryAfter?.Delta is { TotalSeconds: > 0 } delta
                 ? (int)Math.Ceiling(delta.TotalSeconds)
                 : null;
 

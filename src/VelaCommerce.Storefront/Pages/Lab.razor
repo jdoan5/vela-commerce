@@ -226,9 +226,9 @@ else if (Catalog is { } catalog)
             <details class="vc-lab-appendix__detail">
                 <summary>What this endpoint refuses to do</summary>
                 <div class="vc-lab-appendix__body">
-                    @if (limits.Policy is { Length: > 0 } policy)
+                    @if (limits.Policy is { Length: > 0 } limitPolicy)
                     {
-                        <p class="vc-lab-appendix__note">@policy</p>
+                        <p class="vc-lab-appendix__note">@limitPolicy</p>
                     }
                     <dl class="vc-specs">
                         <dt class="vc-specs__key">Runs accepted</dt>

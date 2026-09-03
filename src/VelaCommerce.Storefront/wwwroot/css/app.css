@@ -3782,10 +3782,13 @@ svg {
     font-weight: 600;
 }
 
-/* The payment table's last two columns are prose, not readings. */
+/* The payment table's last two columns are prose, not readings. Bounded at both
+   ends: without a floor they collapse to one word per line inside the scroller,
+   without a ceiling they run to sixty characters on a wide screen. */
 .vc-lab-table td:nth-child(n + 4) {
     white-space: normal;
-    min-width: 14rem;
+    min-width: 12rem;
+    max-width: 22rem;
 }
 
 .vc-lab-record {
@@ -3862,6 +3865,52 @@ svg {
 .vc-lab-blast__rows {
     font-size: var(--vc-text-xs);
     color: var(--vc-text-faint);
+}
+
+
+/* --- 6.23h2 Key/value facts ----------------------------------------------
+   The scenario description and the settlement records. A grid rather than the
+   checkout's .vc-gateway flex rows: those wrap a value under its own key the
+   moment it is long, so a five-row block ends up half aligned and half not —
+   which is exactly what a paragraph about a guarded UPDATE does to them.
+   Single column below 40rem, where two would leave nine characters for the
+   value.
+   ------------------------------------------------------------------------- */
+
+.vc-lab-facts {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--vc-space-1) var(--vc-space-4);
+    margin: 0;
+}
+
+@media (min-width: 40rem) {
+    .vc-lab-facts {
+        grid-template-columns: minmax(7rem, auto) minmax(0, 1fr);
+        align-items: baseline;
+    }
+}
+
+.vc-lab-facts__key {
+    font-family: var(--vc-font-mono);
+    font-size: var(--vc-text-2xs);
+    letter-spacing: var(--vc-tracking-wide);
+    text-transform: uppercase;
+    color: var(--vc-text-faint);
+}
+
+.vc-lab-facts__value {
+    max-width: 72ch;
+    margin: 0 0 var(--vc-space-3);
+    font-size: var(--vc-text-sm);
+    color: var(--vc-text);
+    overflow-wrap: anywhere;
+}
+
+@media (min-width: 40rem) {
+    .vc-lab-facts__value {
+        margin-bottom: var(--vc-space-2);
+    }
 }
 
 

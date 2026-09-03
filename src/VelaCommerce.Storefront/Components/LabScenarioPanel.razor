@@ -72,33 +72,31 @@
     <details class="vc-lab-scenario__detail" open="@Detailed">
         <summary>What this proves, and how</summary>
         <div class="vc-lab-scenario__detail-body">
-            <dl class="vc-gateway">
-                <div class="vc-gateway__row">
-                    <dt class="vc-gateway__key">Invariant</dt>
-                    <dd class="vc-gateway__value">@Scenario.Invariant</dd>
-                </div>
-                <div class="vc-gateway__row">
-                    <dt class="vc-gateway__key">Mechanism</dt>
-                    <dd class="vc-gateway__value">@Scenario.Mechanism</dd>
-                </div>
-                <div class="vc-gateway__row">
-                    <dt class="vc-gateway__key">This run writes</dt>
-                    <dd class="vc-gateway__value">@Scenario.Creates</dd>
-                </div>
-                <div class="vc-gateway__row">
-                    <dt class="vc-gateway__key">Fidelity</dt>
-                    <dd class="vc-gateway__value">@Scenario.Fidelity</dd>
-                </div>
-                <div class="vc-gateway__row">
-                    <dt class="vc-gateway__key">Same claim in CI</dt>
-                    <dd class="vc-gateway__value vc-tabular">
-                        @Scenario.ProvenBy
-                        @if (Scenario.ProvenByTest is { Length: > 0 } test)
-                        {
-                            <text> &middot; @test</text>
-                        }
-                    </dd>
-                </div>
+            @* dt/dd directly under the dl, no div wrappers: they are the grid items, and the
+               grid is what keeps five rows of very different lengths aligned. The checkout's
+               .vc-gateway is a flex row, which wraps a long value under its own key — fine for
+               a gateway reference, wrong for a paragraph about a guarded UPDATE. *@
+            <dl class="vc-lab-facts">
+                <dt class="vc-lab-facts__key">Invariant</dt>
+                <dd class="vc-lab-facts__value">@Scenario.Invariant</dd>
+
+                <dt class="vc-lab-facts__key">Mechanism</dt>
+                <dd class="vc-lab-facts__value">@Scenario.Mechanism</dd>
+
+                <dt class="vc-lab-facts__key">This run writes</dt>
+                <dd class="vc-lab-facts__value">@Scenario.Creates</dd>
+
+                <dt class="vc-lab-facts__key">Fidelity</dt>
+                <dd class="vc-lab-facts__value">@Scenario.Fidelity</dd>
+
+                <dt class="vc-lab-facts__key">Same claim in CI</dt>
+                <dd class="vc-lab-facts__value vc-tabular">
+                    @Scenario.ProvenBy
+                    @if (Scenario.ProvenByTest is { Length: > 0 } test)
+                    {
+                        <text> &middot; @test</text>
+                    }
+                </dd>
             </dl>
         </div>
     </details>

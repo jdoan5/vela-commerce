@@ -188,26 +188,21 @@
                         </span>
                     </p>
 
-                    <dl class="vc-gateway">
-                        <div class="vc-gateway__row">
-                            <dt class="vc-gateway__key">Event id</dt>
-                            <dd class="vc-gateway__value vc-tabular">@settlement.EventId</dd>
-                        </div>
-                        <div class="vc-gateway__row">
-                            <dt class="vc-gateway__key">Outbox</dt>
-                            <dd class="vc-gateway__value">
-                                @settlement.Status, @settlement.Attempts
-                                @(settlement.Attempts == 1 ? "attempt" : "attempts") by the shop's own dispatcher
-                            </dd>
-                        </div>
-                        <div class="vc-gateway__row">
-                            <dt class="vc-gateway__key">Deliver after</dt>
-                            <dd class="vc-gateway__value vc-tabular">@settlement.DeliverAfter.ToString("u")</dd>
-                        </div>
-                        <div class="vc-gateway__row">
-                            <dt class="vc-gateway__key">Signature</dt>
-                            <dd class="vc-gateway__value vc-tabular vc-lab-record__signature">@settlement.SignatureHeader</dd>
-                        </div>
+                    <dl class="vc-lab-facts">
+                        <dt class="vc-lab-facts__key">Event id</dt>
+                        <dd class="vc-lab-facts__value vc-tabular">@settlement.EventId</dd>
+
+                        <dt class="vc-lab-facts__key">Outbox</dt>
+                        <dd class="vc-lab-facts__value">
+                            @settlement.Status, @settlement.Attempts
+                            @(settlement.Attempts == 1 ? "attempt" : "attempts") by the shop's own dispatcher
+                        </dd>
+
+                        <dt class="vc-lab-facts__key">Deliver after</dt>
+                        <dd class="vc-lab-facts__value vc-tabular">@settlement.DeliverAfter.ToString("u")</dd>
+
+                        <dt class="vc-lab-facts__key">Signature</dt>
+                        <dd class="vc-lab-facts__value vc-tabular vc-lab-record__signature">@settlement.SignatureHeader</dd>
                     </dl>
                 </div>
             }
@@ -232,7 +227,7 @@
                 @if (blast.Explanation is { Length: > 0 } explanation)
                 {
                     <p class="vc-lab-blast__body">
-                        <strong>@(blast.StockStrategy).</strong> @explanation
+                        <strong>@Sentence(blast.StockStrategy)</strong> @explanation
                     </p>
                 }
 
@@ -283,6 +278,14 @@
         Evidence.AllOrders.Any(order => order.RowVersion is { Length: > 0 });
 
     private static string Money(LabMoneyDocument? money) => money?.Text ?? "—";
+
+    /// <summary>
+    /// Exactly one full stop at the end, whether or not the server sent one. The strategy name is
+    /// set in bold ahead of its own explanation, and "Seed and destroy.." is the kind of small
+    /// wrongness that makes a page about rigour look unedited.
+    /// </summary>
+    private static string Sentence(string? text) =>
+        text is not { Length: > 0 } value ? "" : value.TrimEnd('.', ' ') + ".";
 
     /// <summary>
     /// The teardown's tally as one line — "5 × orders, 5 × stock_reservations". Assembled here

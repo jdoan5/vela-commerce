@@ -126,6 +126,9 @@
 
     private string FidelityTag => Step switch
     {
+        // A commentary step gets the neutral chip. Sea is this page's "verified live exchange"
+        // colour, and a sentence the run wrote about itself is not one.
+        { IsGenuine: true, IsCommentary: true } => "",
         { IsGenuine: true } => "vc-tag--sea",
         { IsSimulated: true } => "vc-tag--signal",
         _ => "vc-tag--brass",
@@ -141,6 +144,9 @@
     /// </summary>
     private string FidelityLabel => Step switch
     {
+        // "genuine exchange" on a step that made no request would be claiming something that did
+        // not happen — small, but this page's entire value is that it does not do that.
+        { IsGenuine: true, IsCommentary: true } => "the run's own note",
         { IsGenuine: true } => "genuine exchange",
         { IsElided: true } => "elided repeat",
         { IsNotFollowed: true } => "consequence not followed",
