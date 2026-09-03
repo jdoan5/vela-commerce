@@ -1,0 +1,21 @@
+@*
+    The Router's fallback. It offers a way back into the catalog rather than a dead end,
+    and it is also what a shopper reaches by following a link to a feature that has not
+    been built yet, so it says so plainly instead of implying the shop is broken.
+*@
+@page "/not-found"
+@layout MainLayout
+
+<PageTitle>Off the chart &middot; Vela Commerce</PageTitle>
+
+<div class="vc-empty">
+    <span class="vc-eyebrow">404</span>
+    <h1 class="vc-empty__title">Off the chart</h1>
+    <p class="vc-empty__body">
+        There is nothing at this address. It may be a page that has not been built yet, or a
+        product that is no longer in the catalog.
+    </p>
+    <div class="vc-alert__actions">
+        <a class="vc-btn vc-btn--primary" href="">Back to the catalog</a>
+    </div>
+</div>

@@ -1,0 +1,30 @@
+@*
+    A price, set as an instrument reading: mono, tabular figures, the "from" qualifier in
+    small caps beside it rather than glued to the number.
+
+    Every price in the storefront should come through here or through MoneyFormatter
+    directly. Formatting a Money anywhere else is how a rounding bug gets in.
+*@
+<span class="vc-price @(Large ? "vc-price--lg" : null)">
+    @if (ShowFromLabel)
+    {
+        <span class="vc-price__label">from</span>
+    }
+    <span class="vc-price__amount">@Display</span>
+</span>
+
+@code {
+    /// <summary>The amount to render. Null renders an em dash rather than "$0.00".</summary>
+    [Parameter, EditorRequired]
+    public CatalogMoney? Money { get; set; }
+
+    /// <summary>Prefixes the price with "from", for a product whose variants differ in price.</summary>
+    [Parameter]
+    public bool ShowFromLabel { get; set; }
+
+    /// <summary>Renders at the larger display size, for a product page rather than a card.</summary>
+    [Parameter]
+    public bool Large { get; set; }
+
+    private string Display => MoneyFormatter.Format(Money);
+}

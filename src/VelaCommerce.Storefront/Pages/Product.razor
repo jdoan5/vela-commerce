@@ -1,0 +1,371 @@
+@*
+    One product, at "/p/{slug}".
+
+    Like the grid, this page is answered entirely from the in-memory snapshot: choosing a
+    variant, changing a quantity and adding to the cart never touch the network. The only
+    fetch in the application is still the static catalog file.
+
+    The specification sheet below the fold is the point of the page. This catalog is full of
+    breaking loads, water columns, lumens and chart scales, and a chandlery that prints them
+    as a bulleted list is throwing away the most interesting thing it holds. They are set as
+    instrument readings: label left, leader, figure right in tabular numerals, unit kept
+    with its number but a shade quieter.
+*@
+@page "/p/{Slug}"
+@inject CatalogService Catalog
+@inject CartState Cart
+@inject CartDrawerState Drawer
+
+<PageTitle>@DocumentTitle</PageTitle>
+
+@if (Catalog.State == CatalogLoadState.Failed)
+{
+    <div class="vc-alert vc-alert--error" role="alert">
+        <h1 class="vc-alert__title">The catalog is not aboard</h1>
+        <p class="vc-alert__body">@Catalog.ErrorMessage</p>
+        @if (Catalog.ErrorDetail is { Length: > 0 } detail)
+        {
+            <details class="vc-alert__detail">
+                <summary>Technical detail</summary>
+                @detail
+            </details>
+        }
+        <div class="vc-alert__actions">
+            <button type="button" class="vc-btn vc-btn--primary" @onclick="RetryAsync">Try again</button>
+            <a class="vc-btn" href="">Back to the catalog</a>
+        </div>
+    </div>
+}
+else if (!Catalog.IsReady)
+{
+    @* Built from the same boxes as the real page below, so the snapshot landing changes
+       what is in them and never where they are. *@
+    <div class="vc-product" aria-busy="true">
+        <figure class="vc-product__media">
+            <div class="vc-skeleton vc-skeleton--media"></div>
+        </figure>
+
+        <div class="vc-product__panel">
+            <span class="vc-skeleton vc-skeleton--line" style="width: 7rem;"></span>
+            <h1 class="vc-product__title">
+                <span class="vc-skeleton vc-skeleton--title" style="display: block; width: 85%; height: 1.8rem;"></span>
+            </h1>
+            <span class="vc-skeleton vc-skeleton--title" style="width: 6rem;"></span>
+            <div class="vc-product__desc">
+                <span class="vc-skeleton vc-skeleton--line" style="display: block; width: 100%;"></span>
+                <span class="vc-skeleton vc-skeleton--line" style="display: block; width: 96%; margin-top: 0.5rem;"></span>
+                <span class="vc-skeleton vc-skeleton--line" style="display: block; width: 72%; margin-top: 0.5rem;"></span>
+            </div>
+            <div class="vc-variants__list">
+                @foreach (var width in VariantPlaceholderWidths)
+                {
+                    <span class="vc-skeleton" style="display: block; width: @width; height: 2.6rem;"></span>
+                }
+            </div>
+            <div class="vc-buy">
+                <span class="vc-skeleton" style="display: block; width: 7rem; height: 2.3rem;"></span>
+                <span class="vc-skeleton" style="display: block; flex: 1 1 12rem; height: 2.3rem;"></span>
+            </div>
+        </div>
+    </div>
+
+    <section class="vc-specsheet">
+        <div class="vc-specsheet__head">
+            <span class="vc-skeleton vc-skeleton--title" style="width: 9rem;"></span>
+        </div>
+        <div class="vc-specsheet__grid">
+            @for (var i = 0; i < SkeletonSpecRows; i++)
+            {
+                <div class="vc-specsheet__row">
+                    <span class="vc-specsheet__label">
+                        <span class="vc-skeleton vc-skeleton--line" style="display: block; width: 6rem;"></span>
+                        <span class="vc-specsheet__lead"></span>
+                    </span>
+                    <span class="vc-specsheet__value">
+                        <span class="vc-skeleton vc-skeleton--line" style="display: block; width: 4rem;"></span>
+                    </span>
+                </div>
+            }
+        </div>
+    </section>
+}
+else if (_product is null)
+{
+    <div class="vc-empty">
+        <span class="vc-eyebrow">Not in the catalog</span>
+        <h1 class="vc-empty__title">No such product</h1>
+        <p class="vc-empty__body">
+            Nothing in this catalog answers to <code class="vc-code">@Slug</code>. It may have been
+            withdrawn, or the address may have picked up a typo on its way here.
+        </p>
+        <div class="vc-alert__actions">
+            <a class="vc-btn vc-btn--primary" href="">Back to the catalog</a>
+        </div>
+    </div>
+}
+else
+{
+    var product = _product;
+    var selected = _selected;
+
+    <nav class="vc-crumbs" aria-label="Breadcrumb">
+        <a class="vc-crumbs__link" href="">Catalog</a>
+        <span class="vc-crumbs__sep" aria-hidden="true">/</span>
+        <a class="vc-crumbs__link" href="@($"c/{product.Category}")">@CategoryName</a>
+    </nav>
+
+    <div class="vc-product">
+        <figure class="vc-product__media">
+            <ProductThumb Product="product" />
+            <figcaption class="vc-motif__label">@CategoryName</figcaption>
+        </figure>
+
+        <div class="vc-product__panel">
+            <span class="vc-eyebrow">@CategoryName</span>
+            <h1 class="vc-product__title">@product.Name</h1>
+
+            <div class="vc-product__price">
+                <PriceTag Money="@(selected?.Price ?? product.FromPrice)" Large="true" />
+                @if (selected is not null)
+                {
+                    <span class="vc-product__sku" title="Stock keeping unit">@selected.Sku</span>
+                }
+            </div>
+
+            <p class="vc-product__desc">@product.Description</p>
+
+            @if (product.Variants.Count == 0)
+            {
+                <p class="vc-product__note">No variant of this product is currently priced.</p>
+            }
+            else if (product.Variants.Count == 1)
+            {
+                @* One SKU. A control that offers a single choice is furniture, so this is a
+                   readout instead: the axis, what it is, and what it costs. *@
+                <div class="vc-variant-static">
+                    <span class="vc-label">@product.VariantAxis</span>
+                    <span class="vc-variant-static__value">@product.Variants[0].Name</span>
+                    <span class="vc-variant-static__price vc-tabular">@MoneyFormatter.Format(product.Variants[0].Price)</span>
+                </div>
+            }
+            else
+            {
+                <fieldset class="vc-variants">
+                    <legend class="vc-variants__legend vc-label">@product.VariantAxis</legend>
+                    <div class="vc-variants__list">
+                        @foreach (var variant in product.Variants)
+                        {
+                            var inputId = $"vc-variant-{variant.Sku}";
+                            <div class="vc-variant">
+                                <input class="vc-variant__input"
+                                       type="radio"
+                                       name="vc-variant-axis"
+                                       id="@inputId"
+                                       checked="@(selected is not null && variant.Sku == selected.Sku)"
+                                       @onchange="() => SelectVariant(variant)" />
+                                <label class="vc-variant__label" for="@inputId">
+                                    <span class="vc-variant__name">@variant.Name</span>
+                                    @if (VariantPricesDiffer)
+                                    {
+                                        <span class="vc-variant__price vc-tabular">@MoneyFormatter.Format(variant.Price)</span>
+                                    }
+                                </label>
+                            </div>
+                        }
+                    </div>
+                </fieldset>
+            }
+
+            <div class="vc-buy">
+                <QuantityStepper Value="_quantity"
+                                 ValueChanged="q => _quantity = q"
+                                 Min="1"
+                                 Max="CartState.MaxLineQuantity"
+                                 Label="Quantity" />
+                <button type="button"
+                        class="vc-btn vc-btn--primary vc-buy__add"
+                        disabled="@(selected is null)"
+                        @onclick="AddToCart">
+                    Add to cart
+                </button>
+            </div>
+
+            @* Reserved height, so a confirmation appearing cannot shove the page. *@
+            <div class="vc-buy__status" role="status">
+                @if (_status is { Length: > 0 } status)
+                {
+                    <span class="vc-buy__status-text">@status</span>
+                    <button type="button" class="vc-btn vc-btn--sm" @onclick="OpenCart">View cart</button>
+                }
+            </div>
+
+            @if (Origin is { Length: > 0 } origin)
+            {
+                <p class="vc-product__origin">Made in @origin</p>
+            }
+        </div>
+    </div>
+
+    <section class="vc-specsheet" aria-labelledby="vc-specsheet-title">
+        <div class="vc-specsheet__head">
+            <h2 class="vc-specsheet__title" id="vc-specsheet-title">Specification</h2>
+            @if (selected is not null)
+            {
+                <span class="vc-specsheet__sku">
+                    @selected.Sku<span class="vc-specsheet__sku-sep" aria-hidden="true"> &middot; </span>@selected.Name
+                </span>
+            }
+        </div>
+
+        @if (Readings.Count == 0)
+        {
+            <p class="vc-product__note">This product carries no published specification.</p>
+        }
+        else
+        {
+            @* A description list, not a table: these are name/value pairs, not a grid of
+               data with meaningful columns. The leader rule lives inside the <dt> so the
+               markup stays a valid <dl> — a stray element between dt and dd is not. *@
+            <dl class="vc-specsheet__grid">
+                @foreach (var reading in Readings)
+                {
+                    <div class="vc-specsheet__row" @key="reading.Key">
+                        <dt class="vc-specsheet__label">
+                            <span class="vc-specsheet__name">@reading.Label</span>
+                            <span class="vc-specsheet__lead" aria-hidden="true"></span>
+                        </dt>
+                        <dd class="vc-specsheet__value @(reading.IsNumeric ? "vc-specsheet__value--numeric" : null)">
+                            <span class="vc-specsheet__figure">@reading.Value</span>
+                            @if (reading.Unit is { Length: > 0 } unit)
+                            {
+                                <span class="vc-specsheet__unit">@unit</span>
+                            }
+                        </dd>
+                    </div>
+                }
+            </dl>
+            <p class="vc-specsheet__foot">
+                Figures as supplied by the maker. Where a load is stated it is a breaking load, not a
+                working load, unless the row says otherwise.
+            </p>
+        }
+    </section>
+}
+
+@code {
+    private const int SkeletonSpecRows = 6;
+
+    // Literal strings, never a formatted double: WebAssembly picks up the browser's culture
+    // and a decimal comma inside a CSS length silently voids the rule.
+    private static readonly string[] VariantPlaceholderWidths = ["5rem", "6.5rem", "5.5rem"];
+
+    private CatalogProduct? _product;
+    private CatalogVariant? _selected;
+    private int _quantity = 1;
+    private string? _status;
+
+    /// <summary>The product slug from the route.</summary>
+    [Parameter]
+    public string? Slug { get; set; }
+
+    private string DocumentTitle => _product is { Name.Length: > 0 } product
+        ? $"{product.Name} · Vela Commerce"
+        : Catalog.IsReady ? "Not in the catalog · Vela Commerce" : "Vela Commerce";
+
+    private string CategoryName =>
+        _product is null ? string.Empty : SpecFormatter.TitleCaseFromSlug(_product.Category);
+
+    private IReadOnlyList<SpecReading> Readings =>
+        _product is null
+            ? []
+            // Origin already has its own line in the panel above; a spec row repeating it
+            // 200px later undercuts the sheet, which is the page's signature element.
+            : [.. SpecFormatter.ReadAll(_product)
+                  .Where(static reading =>
+                      !string.Equals(reading.Key, "origin", StringComparison.OrdinalIgnoreCase))];
+
+    private string? Origin =>
+        _product is not null && _product.Attributes.TryGetValue("origin", out var origin) ? origin : null;
+
+    /// <summary>
+    /// True when the variants are not all the same money, which is the only reason to print
+    /// a price against every option rather than once above them.
+    /// </summary>
+    private bool VariantPricesDiffer
+    {
+        get
+        {
+            if (_product is null || _product.Variants.Count < 2)
+                return false;
+
+            var first = _product.Variants[0].PriceMinorUnits;
+            foreach (var variant in _product.Variants)
+            {
+                if (variant.PriceMinorUnits != first)
+                    return true;
+            }
+
+            return false;
+        }
+    }
+
+    protected override async Task OnParametersSetAsync()
+    {
+        // Shared with the header and the grid: one fetch for the tab, and a completed load
+        // returns synchronously, so arriving from the grid paints the product immediately.
+        await Catalog.EnsureLoadedAsync();
+        Resolve();
+    }
+
+    private void Resolve()
+    {
+        _product = Catalog.IsReady ? Catalog.FindBySlug(Slug) : null;
+
+        // Cheapest first. A shopper who lands on a product should be looking at its entry
+        // price, which is also the price the grid quoted them on the way in. MinBy returns
+        // the first of a tie, so equal-priced variants keep the snapshot's own order.
+        _selected = _product?.Variants.MinBy(static variant => variant.PriceMinorUnits);
+
+        _quantity = 1;
+        _status = null;
+    }
+
+    private void SelectVariant(CatalogVariant variant)
+    {
+        _selected = variant;
+        _status = null;
+    }
+
+    private void AddToCart()
+    {
+        if (_product is null || _selected is null)
+            return;
+
+        Cart.Add(_product, _selected, _quantity);
+
+        var added = _quantity;
+        _quantity = 1;
+
+        var line = Cart.Find(_selected.Sku);
+        if (line is { Quantity: CartState.MaxLineQuantity })
+        {
+            // Say the rule out loud rather than silently swallowing the difference. The cap
+            // is the same one the server enforces per line.
+            _status = $"That line is at the cap of {CartState.MaxLineQuantity}.";
+            return;
+        }
+
+        _status = added == 1
+            ? $"Added {_selected.Name} to the cart."
+            : $"Added {added} × {_selected.Name} to the cart.";
+    }
+
+    private void OpenCart() => Drawer.Open();
+
+    private async Task RetryAsync()
+    {
+        Catalog.Reset();
+        await Catalog.EnsureLoadedAsync();
+        Resolve();
+    }
+}

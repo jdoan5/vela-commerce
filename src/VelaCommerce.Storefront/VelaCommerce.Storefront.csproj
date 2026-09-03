@@ -1,0 +1,29 @@
+<Project Sdk="Microsoft.NET.Sdk.BlazorWebAssembly">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <OverrideHtmlAssetPlaceholders>true</OverrideHtmlAssetPlaceholders>
+    <!--
+      The storefront must render with the API and the database switched off, so every byte
+      it needs is a static file. Publishing this project produces exactly that: a wwwroot
+      tree a CDN can serve with no origin behind it.
+    -->
+    <StaticWebAssetProjectMode>Default</StaticWebAssetProjectMode>
+  </PropertyGroup>
+
+  <!--
+    The catalog snapshot is NOT a copy of the seed. SeedGen projects it: no stock (that is
+    live state and would be stale the moment someone buys something), minified, with a
+    precomputed search blob and a category index. It is committed, and CI fails if a
+    regenerated one differs. An earlier build target copied the seed over it on every
+    build, which silently reverted every regeneration.
+  -->
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.AspNetCore.Components.WebAssembly" Version="10.0.11" />
+    <PackageReference Include="Microsoft.AspNetCore.Components.WebAssembly.DevServer" Version="10.0.11" PrivateAssets="all" />
+  </ItemGroup>
+
+</Project>

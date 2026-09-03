@@ -1,0 +1,69 @@
+@*
+    The footer closes the page with the same enamel navy as the header, so the paper
+    catalog sits between two painted boards. It also states, in plain words, the one
+    architectural fact this whole storefront is built around.
+*@
+@inject CatalogService Catalog
+
+<footer class="vc-footer">
+    <div class="vc-container">
+        <div class="vc-footer__grid">
+            <div class="vc-footer__col">
+                <a class="vc-wordmark" href="">
+                    <VelaMark Class="vc-wordmark__mark" />
+                    <span class="vc-wordmark__text">
+                        <span class="vc-wordmark__name">Vela Commerce</span>
+                        <span class="vc-wordmark__tag">Ship Chandlery &middot; Est. 1946</span>
+                    </span>
+                </a>
+                <p class="vc-footer__blurb">
+                    Rope, deck hardware, foul-weather gear, charts and lamps, held in stock and
+                    sold by people who have used them. This entire catalog is served as a static
+                    file, so the shop opens whether or not anything behind it is awake.
+                </p>
+            </div>
+
+            <div class="vc-footer__col">
+                <h2>The shelves</h2>
+                <ul class="vc-footer__list">
+                    @foreach (var category in Catalog.Categories.Take(4))
+                    {
+                        <li><a href="@($"c/{category.Slug}")">@category.Name</a></li>
+                    }
+                </ul>
+            </div>
+
+            <div class="vc-footer__col">
+                <h2>More</h2>
+                <ul class="vc-footer__list">
+                    @foreach (var category in Catalog.Categories.Skip(4))
+                    {
+                        <li><a href="@($"c/{category.Slug}")">@category.Name</a></li>
+                    }
+                </ul>
+            </div>
+        </div>
+
+        <div class="vc-footer__base">
+            <span>&copy; @Year Vela Commerce</span>
+            <span>A portfolio build &middot; nothing here ships</span>
+            @if (Catalog.Snapshot is { } snapshot)
+            {
+                <span class="vc-tabular">
+                    Catalog @snapshot.ProductCount products &middot; @snapshot.VariantCount SKUs &middot;
+                    snapshot seed @snapshot.RandomSeed
+                </span>
+            }
+        </div>
+    </div>
+</footer>
+
+@code {
+    // DateTime.UtcNow rather than a literal so the notice cannot go stale, and UTC rather
+    // than local time so it does not depend on the visitor's clock.
+    private static int Year => DateTime.UtcNow.Year;
+
+    // Awaiting the same shared load task the header and the page await: one fetch, and this
+    // component re-renders with the shelf list once it completes.
+    protected override Task OnInitializedAsync() => Catalog.EnsureLoadedAsync();
+}

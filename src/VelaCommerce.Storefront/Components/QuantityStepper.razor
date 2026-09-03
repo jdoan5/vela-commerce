@@ -1,0 +1,125 @@
+@*
+    A quantity control: two buttons and a real number field between them.
+
+    The field is a real input rather than a readout, because typing "12" is faster than
+    pressing a button twelve times and a shopper buying shackles will want to. That means
+    the component has to cope with "1e9", "-4" and "abc", which it does by clamping on
+    change and then forcing the element to redraw — see the note on _token below.
+*@
+@using System.Globalization
+
+<div class="vc-stepper @(Small ? "vc-stepper--sm" : null)">
+    <button type="button"
+            class="vc-stepper__btn"
+            @onclick="DecrementAsync"
+            aria-disabled="@(Value <= Min)"
+            aria-label="@($"Decrease {SpokenLabel}")">
+        <span aria-hidden="true">&minus;</span>
+    </button>
+
+    @* @key on a plain element is unusual and load-bearing here. Blazor diffs the value it
+       last RENDERED, not the value the DOM actually holds, so after a shopper types "abc"
+       and the clamp resolves back to the same number, nothing in the diff changes and the
+       field keeps showing "abc". Bumping the token rebuilds the element with the right
+       value. It only bumps when the typed text and the accepted text disagree. *@
+    <input @key="_token"
+           class="vc-stepper__input vc-tabular"
+           type="number"
+           inputmode="numeric"
+           min="@Min"
+           max="@Max"
+           step="1"
+           value="@_text"
+           aria-label="@Label"
+           @onchange="OnChangeAsync" />
+
+    <button type="button"
+            class="vc-stepper__btn"
+            @onclick="IncrementAsync"
+            aria-disabled="@(Value >= Max)"
+            aria-label="@($"Increase {SpokenLabel}")">
+        <span aria-hidden="true">+</span>
+    </button>
+</div>
+
+@code {
+    private int _token;
+    private string _text = "1";
+
+    /// <summary>The current quantity. Clamped into <see cref="Min"/>..<see cref="Max"/> on display.</summary>
+    [Parameter, EditorRequired]
+    public int Value { get; set; }
+
+    /// <summary>Raised with the new quantity whenever the shopper changes it.</summary>
+    [Parameter]
+    public EventCallback<int> ValueChanged { get; set; }
+
+    /// <summary>The lowest value the stepper will produce. One on a product page, one in the cart.</summary>
+    [Parameter]
+    public int Min { get; set; } = 1;
+
+    /// <summary>The highest value the stepper will produce. The cart's per-line cap.</summary>
+    [Parameter]
+    public int Max { get; set; } = CartState.MaxLineQuantity;
+
+    /// <summary>
+    /// The control's accessible name, and the noun in the buttons' labels. In a cart with
+    /// eight lines "Increase quantity" eight times is useless, so callers pass something
+    /// that names the line.
+    /// </summary>
+    [Parameter]
+    public string Label { get; set; } = "Quantity";
+
+    /// <summary>Renders the compact size, for a cart line rather than a buy panel.</summary>
+    [Parameter]
+    public bool Small { get; set; }
+
+    /// <summary>
+    /// The label as it reads mid-sentence in "Decrease …". Only the first letter is lowered:
+    /// lowercasing the whole thing turns a label carrying a product name into
+    /// "decrease quantity of shoal tear-resistant pilot guide".
+    /// </summary>
+    private string SpokenLabel =>
+        Label.Length == 0 ? "quantity" : $"{char.ToLowerInvariant(Label[0])}{Label[1..]}";
+
+    protected override void OnParametersSet()
+    {
+        var accepted = Math.Clamp(Value, Min, Max).ToString(CultureInfo.InvariantCulture);
+        if (!string.Equals(_text, accepted, StringComparison.Ordinal))
+        {
+            _text = accepted;
+            _token++;
+        }
+    }
+
+    private Task IncrementAsync() => EmitAsync(Value + 1);
+
+    private Task DecrementAsync() => EmitAsync(Value - 1);
+
+    private Task OnChangeAsync(ChangeEventArgs args)
+    {
+        var typed = args.Value as string ?? string.Empty;
+
+        // Invariant parsing: WebAssembly picks up the browser's culture, and a shopper on a
+        // comma-decimal locale must not have "10" read as something else.
+        var next = int.TryParse(typed, NumberStyles.Integer, CultureInfo.InvariantCulture, out var parsed)
+            ? Math.Clamp(parsed, Min, Max)
+            : Value;
+
+        var accepted = next.ToString(CultureInfo.InvariantCulture);
+        if (!string.Equals(typed, accepted, StringComparison.Ordinal))
+        {
+            // The element is showing something we did not accept. Rebuild it.
+            _text = accepted;
+            _token++;
+        }
+
+        return next == Value ? Task.CompletedTask : ValueChanged.InvokeAsync(next);
+    }
+
+    private Task EmitAsync(int candidate)
+    {
+        var next = Math.Clamp(candidate, Min, Max);
+        return next == Value ? Task.CompletedTask : ValueChanged.InvokeAsync(next);
+    }
+}

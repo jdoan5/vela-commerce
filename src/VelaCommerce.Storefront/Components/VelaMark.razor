@@ -1,0 +1,17 @@
+@*
+    The house mark: a gaff sail cut by the horizon, drawn rather than fetched so the
+    wordmark is present on the very first paint with no request behind it. It inherits
+    currentColor, so one component serves the navy header and the paper footer.
+*@
+<svg class="@Class" viewBox="0 0 32 32" fill="none" aria-hidden="true" focusable="false">
+    <path d="M16 2.5 26 26H16z" fill="currentColor" opacity="0.9" />
+    <path d="M16 2.5 6 26h10z" fill="currentColor" opacity="0.42" />
+    <path d="M16 2.5V29" stroke="currentColor" stroke-width="1.4" stroke-linecap="square" />
+    <path d="M2 29h28" stroke="currentColor" stroke-width="1.4" stroke-linecap="square" />
+</svg>
+
+@code {
+    /// <summary>CSS classes for the svg element, so the caller controls its size.</summary>
+    [Parameter]
+    public string? Class { get; set; }
+}

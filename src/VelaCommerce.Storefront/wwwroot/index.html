@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Vela Commerce — Ship Chandlery</title>
+    <meta name="description" content="A working chandlery: rope and rigging, deck hardware, foul-weather gear, charts, lamps and navigation instruments." />
+    <base href="/" />
+
+    <!--
+        The theme colour follows the header, which is ink navy in both themes,
+        so a mobile browser's chrome matches the enamel sign at the top of the page.
+    -->
+    <meta name="theme-color" content="#0A1E2E" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#04101B" media="(prefers-color-scheme: dark)" />
+
+    <link rel="preload" id="webassembly" />
+
+    <!--
+        Fraunces (display), Public Sans (body), IBM Plex Mono (specs, SKUs and prices).
+        Preconnecting to both Google hosts saves a round trip on the font files, which are
+        fetched from a different origin than the stylesheet.
+    -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link rel="stylesheet"
+          href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400..700&family=IBM+Plex+Mono:wght@400;500;600&family=Public+Sans:wght@400;500;600;700&display=swap" />
+
+    <!--
+        One stylesheet, on purpose: css/app.css is the design system every component styles
+        against. The template's scoped-CSS bundle link is deliberately absent — with no
+        .razor.css file in the project the SDK emits no bundle, and linking it would 404 on
+        every page load. Add the link back the moment a component gains its own .razor.css.
+    -->
+    <link rel="stylesheet" href="css/app.css" />
+    <link rel="icon" type="image/png" href="favicon.png" />
+    <script type="importmap"></script>
+</head>
+
+<body>
+    <!--
+        Painted before the WebAssembly runtime exists. It carries the real header height and
+        the real palette so the handover to the Blazor shell is a swap of content inside an
+        already-correct frame, not a jump.
+    -->
+    <div id="app">
+        <div class="vc-boot">
+            <div class="vc-boot__bar">
+                <span class="vc-boot__name">Vela Commerce</span>
+            </div>
+            <div class="vc-boot__body">
+                <span class="vc-boot__status">Opening the chandlery</span>
+                <div class="vc-skeleton vc-skeleton--title" style="width: 18rem; max-width: 100%;"></div>
+                <div class="vc-skeleton vc-skeleton--line" style="width: 26rem; max-width: 100%;"></div>
+            </div>
+        </div>
+    </div>
+
+    <div id="blazor-error-ui">
+        Something went wrong in the storefront.
+        <a href="." class="reload">Reload</a>
+        <span class="dismiss">&times;</span>
+    </div>
+    <script src="_framework/blazor.webassembly#[.{fingerprint}].js"></script>
+</body>
+
+</html>

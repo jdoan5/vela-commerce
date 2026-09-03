@@ -1,0 +1,84 @@
+@*
+    One product in the grid.
+
+    Two things here are deliberate. The card's media box is a fixed 4:3 and its title is
+    clamped to exactly two lines, so every card in a row is the same height whatever the
+    data says — the grid cannot reflow as products change. And it carries one headline
+    spec, chosen by SpecFormatter, because a chandlery card that shows a breaking load
+    tells a shopper more than one that shows a second line of marketing.
+*@
+<article class="vc-card">
+    <a class="vc-card__media" href="@($"p/{Product.Slug}")" aria-label="@Product.Name">
+        <ProductThumb Product="Product" />
+        <span class="vc-motif__label">@CategoryName</span>
+    </a>
+
+    <div class="vc-card__body">
+        <div class="vc-card__eyebrow">
+            <span class="vc-eyebrow">@Product.VariantAxis</span>
+            @if (VariantCount > 1)
+            {
+                <span class="vc-tag vc-tag--sea">@VariantCount options</span>
+            }
+        </div>
+
+        <h3 class="vc-card__title">
+            <a href="@($"p/{Product.Slug}")">@Product.Name</a>
+        </h3>
+
+        @if (Headline is not null)
+        {
+            <span class="vc-readout vc-readout--stacked">
+                <span class="vc-readout__label">@Headline.Label</span>
+                <span>
+                    <span class="vc-readout__value">@Headline.Value</span>
+                    @if (Headline.Unit is not null)
+                    {
+                        <span class="vc-readout__unit">@Headline.Unit</span>
+                    }
+                </span>
+            </span>
+        }
+
+        <div class="vc-card__foot">
+            <PriceTag Money="Product.FromPrice" ShowFromLabel="@(VariantCount > 1)" />
+            @if (OriginCity is not null)
+            {
+                <span class="vc-card__note" title="@Origin">@OriginCity</span>
+            }
+        </div>
+    </div>
+</article>
+
+@code {
+    /// <summary>The product to render.</summary>
+    [Parameter, EditorRequired]
+    public CatalogProduct Product { get; set; } = default!;
+
+    private int VariantCount => Product.Variants.Count;
+
+    private string CategoryName => SpecFormatter.TitleCaseFromSlug(Product.Category);
+
+    private SpecReading? Headline => SpecFormatter.Headline(Product);
+
+    /// <summary>
+    /// Just the town from the origin attribute — "Lorient" out of "Lorient, France". A
+    /// chandlery card that says where the thing was made says something a SKU count does
+    /// not, and the town alone fits the line at every card width. Every product in the
+    /// snapshot carries an origin, so the footer is never lopsided.
+    /// </summary>
+    private string? Origin =>
+        Product.Attributes.TryGetValue("origin", out var origin) ? origin : null;
+
+    private string? OriginCity
+    {
+        get
+        {
+            if (Origin is not { } origin)
+                return null;
+
+            var comma = origin.IndexOf(',', StringComparison.Ordinal);
+            return comma > 0 ? origin[..comma] : origin;
+        }
+    }
+}

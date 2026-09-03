@@ -1,0 +1,496 @@
+@*
+    The product placeholder.
+
+    No catalog photography exists: the seed generator writes image FILENAMES and nothing is
+    downloaded or committed, so pointing an <img> at one would guarantee a broken image on
+    every card. Instead each product draws itself — a motif chosen by its shelf of the
+    chandlery, detailed by a hash of its slug, so the same product looks the same on every
+    visit and the grid costs no network requests at all.
+
+    Every number below comes from that hash through MotifRandom, and every one is formatted
+    with Svg.N so a browser running a comma-decimal locale still gets valid geometry.
+*@
+
+<div class="vc-motif vc-motif--@Design.CssName" style="--vc-motif-angle: @Svg.Deg(96 + (Design.ToneIndex * 34))">
+    <svg class="vc-motif__svg" viewBox="0 0 320 240" preserveAspectRatio="xMidYMid slice"
+         role="img" aria-label="@AltText">
+        @Motif
+    </svg>
+</div>
+
+@code {
+    /// <summary>The product to draw. Only its slug and category are used.</summary>
+    [Parameter, EditorRequired]
+    public CatalogProduct Product { get; set; } = default!;
+
+    private MotifDesign Design { get; set; } = default!;
+
+    private string AltText => $"{SpecFormatter.TitleCaseFromSlug(Product.Category)} illustration";
+
+    protected override void OnParametersSet() => Design = ProductMotif.For(Product);
+
+    /// <summary>Dispatches to the drawing for this product's shelf.</summary>
+    private RenderFragment Motif => Design.Kind switch
+    {
+        MotifKind.CompassRose => RenderCompass(),
+        MotifKind.RopeLay => RenderRope(),
+        MotifKind.DepthContours => RenderContours(),
+        MotifKind.BoltCircle => RenderBolt(),
+        MotifKind.StormChevrons => RenderStorm(),
+        MotifKind.BladeProfile => RenderBlade(),
+        MotifKind.LensRings => RenderLens(),
+        _ => RenderWeave(),
+    };
+
+    // ---- Compass rose: navigation -----------------------------------------------------
+
+    private RenderFragment RenderCompass() => builder =>
+    {
+        var rng = Design.CreateRandom();
+        var cx = 160 + rng.Next(-24, 24);
+        var cy = 120 + rng.Next(-12, 12);
+        var outer = rng.Next(84, 100);
+        var ticks = 32;
+
+        var seq = 0;
+        for (var ring = 0; ring < 3; ring++)
+        {
+            var r = outer - (ring * rng.Next(16, 22));
+            builder.OpenElement(seq++, "circle");
+            builder.AddAttribute(seq++, "class", ring == 0 ? "vc-motif__line" : "vc-motif__line vc-motif__line--soft");
+            builder.AddAttribute(seq++, "cx", Svg.N(cx));
+            builder.AddAttribute(seq++, "cy", Svg.N(cy));
+            builder.AddAttribute(seq++, "r", Svg.N(r));
+            builder.AddAttribute(seq++, "stroke-width", "1.2");
+            builder.CloseElement();
+        }
+
+        // The tick ring, the detail that makes it read as an instrument rather than a target.
+        for (var i = 0; i < ticks; i++)
+        {
+            var angle = ((i / (double)ticks) * Math.Tau) + (Design.Rotation * Math.PI / 180.0);
+            var inner = outer - (i % 8 == 0 ? 14 : 7);
+            builder.OpenElement(seq++, "line");
+            builder.AddAttribute(seq++, "class", "vc-motif__line vc-motif__line--soft");
+            builder.AddAttribute(seq++, "x1", Svg.N(cx + (Math.Cos(angle) * inner)));
+            builder.AddAttribute(seq++, "y1", Svg.N(cy + (Math.Sin(angle) * inner)));
+            builder.AddAttribute(seq++, "x2", Svg.N(cx + (Math.Cos(angle) * outer)));
+            builder.AddAttribute(seq++, "y2", Svg.N(cy + (Math.Sin(angle) * outer)));
+            builder.AddAttribute(seq++, "stroke-width", i % 8 == 0 ? "1.6" : "1");
+            builder.CloseElement();
+        }
+
+        // The rose: eight points, four long and four short, each drawn as its own kite from
+        // the hub. Two shaded halves per point, the way a chart shades a rose — a single fan
+        // of triangles between neighbouring arms reads as a pinwheel instead.
+        var longArm = outer - 24;
+        var shortArm = longArm * 0.55;
+        var hub = longArm * 0.17;
+        var step = Math.Tau / 8;
+        var spin = Design.Rotation * Math.PI / 180.0;
+
+        for (var i = 0; i < 8; i++)
+        {
+            var angle = (i * step) + spin;
+            var reach = i % 2 == 0 ? longArm : shortArm;
+            var tipX = cx + (Math.Cos(angle) * reach);
+            var tipY = cy + (Math.Sin(angle) * reach);
+
+            for (var half = 0; half < 2; half++)
+            {
+                var edgeAngle = angle + (half == 0 ? -step / 2 : step / 2);
+
+                builder.OpenElement(seq++, "path");
+                builder.AddAttribute(seq++, "class", i % 2 == 0 ? "vc-motif__accent-fill" : "vc-motif__fill");
+                builder.AddAttribute(seq++, "opacity", half == 0 ? "0.9" : "0.45");
+                builder.AddAttribute(seq++, "d", string.Concat(
+                    "M", Svg.N(cx), " ", Svg.N(cy),
+                    " L", Svg.N(cx + (Math.Cos(edgeAngle) * hub)), " ", Svg.N(cy + (Math.Sin(edgeAngle) * hub)),
+                    " L", Svg.N(tipX), " ", Svg.N(tipY),
+                    " Z"));
+                builder.CloseElement();
+            }
+        }
+    };
+
+    // ---- Rope lay: rope and rigging ---------------------------------------------------
+
+    private RenderFragment RenderRope() => builder =>
+    {
+        var rng = Design.CreateRandom();
+        var ropes = Math.Clamp(Design.Density - 1, 2, 5);
+
+        // Two constructions, alternating by tone: a laid rope (one family of strokes across
+        // the strands) and a plait (two crossing families). Thirty-six products share this
+        // shelf, so one drawing repeated thirty-six times would read as wallpaper.
+        var plaited = Design.ToneIndex % 2 == 1;
+        var lean = plaited ? rng.Next(14, 32) : rng.Next(-36, -16);
+        var seq = 0;
+
+        for (var r = 0; r < ropes; r++)
+        {
+            var y = 34 + (r * (180.0 / Math.Max(1, ropes - 1))) + rng.Next(-8, 8);
+            var thickness = rng.Next(18, 34);
+            var half = thickness / 2.0;
+
+            builder.OpenElement(seq++, "g");
+            builder.AddAttribute(seq++, "transform",
+                string.Concat("rotate(", Svg.N(lean), " 160 ", Svg.N(y), ")"));
+
+            // The two edges of the rope.
+            foreach (var edge in new[] { -half, half })
+            {
+                builder.OpenElement(seq++, "line");
+                builder.AddAttribute(seq++, "class", "vc-motif__line");
+                builder.AddAttribute(seq++, "x1", "-70");
+                builder.AddAttribute(seq++, "y1", Svg.N(y + edge));
+                builder.AddAttribute(seq++, "x2", "390");
+                builder.AddAttribute(seq++, "y2", Svg.N(y + edge));
+                builder.AddAttribute(seq++, "stroke-width", "1.3");
+                builder.CloseElement();
+            }
+
+            // The lay: strokes across the rope, leaning against its run. A plait gets the
+            // mirrored family too, so the strands appear to cross over one another.
+            var pitch = rng.Next(13, 21);
+            var families = plaited ? 2 : 1;
+            for (var family = 0; family < families; family++)
+            {
+                var rise = family == 0 ? pitch * 0.85 : -pitch * 0.85;
+                for (double x = -70; x < 390; x += pitch)
+                {
+                    builder.OpenElement(seq++, "line");
+                    builder.AddAttribute(seq++, "class",
+                        r % 2 == 0 ? "vc-motif__line vc-motif__line--soft" : "vc-motif__accent");
+                    builder.AddAttribute(seq++, "opacity", family == 0 ? "0.95" : "0.5");
+                    builder.AddAttribute(seq++, "x1", Svg.N(x));
+                    builder.AddAttribute(seq++, "y1", Svg.N(y + half));
+                    builder.AddAttribute(seq++, "x2", Svg.N(x + rise));
+                    builder.AddAttribute(seq++, "y2", Svg.N(y - half));
+                    builder.AddAttribute(seq++, "stroke-width", "1.4");
+                    builder.CloseElement();
+                }
+            }
+
+            builder.CloseElement();
+        }
+    };
+
+    // ---- Depth contours: charts and books ---------------------------------------------
+
+    private RenderFragment RenderContours() => builder =>
+    {
+        var rng = Design.CreateRandom();
+        var cx = 160 + rng.Next(-40, 40);
+        var cy = 120 + rng.Next(-24, 24);
+        var rings = Math.Clamp(Design.Density + 1, 4, 8);
+        var seq = 0;
+
+        // One wobble profile shared by every contour, so the isolines nest like real
+        // soundings instead of crossing each other.
+        var wobble = new double[20];
+        for (var i = 0; i < wobble.Length; i++)
+            wobble[i] = rng.Next(0.84, 1.18);
+
+        for (var ring = 0; ring < rings; ring++)
+        {
+            var baseRadius = 26 + (ring * 20.0);
+            var path = new System.Text.StringBuilder(256);
+            for (var i = 0; i < wobble.Length; i++)
+            {
+                var angle = (i / (double)wobble.Length) * Math.Tau;
+                var radius = baseRadius * wobble[i];
+                var x = cx + (Math.Cos(angle) * radius * 1.28);
+                var y = cy + (Math.Sin(angle) * radius);
+                path.Append(i == 0 ? 'M' : 'L').Append(Svg.N(x)).Append(' ').Append(Svg.N(y)).Append(' ');
+            }
+
+            path.Append('Z');
+
+            builder.OpenElement(seq++, "path");
+            builder.AddAttribute(seq++, "class",
+                ring == rings - 2 ? "vc-motif__accent" : "vc-motif__line vc-motif__line--soft");
+            builder.AddAttribute(seq++, "d", path.ToString());
+            builder.AddAttribute(seq++, "stroke-width", ring == rings - 2 ? "1.5" : "1.1");
+            builder.AddAttribute(seq++, "stroke-linejoin", "round");
+            builder.CloseElement();
+        }
+
+        // Soundings. Depths in metres, the way a chart prints them.
+        for (var i = 0; i < 3; i++)
+        {
+            var depth = rng.NextInt(4, 68);
+            builder.OpenElement(seq++, "text");
+            builder.AddAttribute(seq++, "class", "vc-motif__text");
+            builder.AddAttribute(seq++, "x", Svg.N(rng.Next(24, 272)));
+            builder.AddAttribute(seq++, "y", Svg.N(rng.Next(36, 210)));
+            builder.AddAttribute(seq++, "opacity", "0.75");
+            builder.AddContent(seq++, Svg.N(depth));
+            builder.CloseElement();
+        }
+    };
+
+    // ---- Bolt circle: deck hardware ---------------------------------------------------
+
+    private RenderFragment RenderBolt() => builder =>
+    {
+        var rng = Design.CreateRandom();
+        var cx = 160.0;
+        var cy = 120.0;
+        var outer = rng.Next(82, 96);
+        var bolts = new[] { 4, 6, 8 }[Design.ToneIndex % 3];
+        var boltRadius = outer - 20;
+        var seq = 0;
+
+        builder.OpenElement(seq++, "circle");
+        builder.AddAttribute(seq++, "class", "vc-motif__line");
+        builder.AddAttribute(seq++, "cx", Svg.N(cx));
+        builder.AddAttribute(seq++, "cy", Svg.N(cy));
+        builder.AddAttribute(seq++, "r", Svg.N(outer));
+        builder.AddAttribute(seq++, "stroke-width", "1.4");
+        builder.CloseElement();
+
+        builder.OpenElement(seq++, "circle");
+        builder.AddAttribute(seq++, "class", "vc-motif__line vc-motif__line--hair");
+        builder.AddAttribute(seq++, "cx", Svg.N(cx));
+        builder.AddAttribute(seq++, "cy", Svg.N(cy));
+        builder.AddAttribute(seq++, "r", Svg.N(boltRadius));
+        builder.AddAttribute(seq++, "stroke-width", "1");
+        builder.AddAttribute(seq++, "stroke-dasharray", "4 5");
+        builder.CloseElement();
+
+        for (var i = 0; i < bolts; i++)
+        {
+            var angle = ((i / (double)bolts) * Math.Tau) + (Design.Rotation * Math.PI / 180.0);
+            builder.OpenElement(seq++, "circle");
+            builder.AddAttribute(seq++, "class", "vc-motif__accent-fill");
+            builder.AddAttribute(seq++, "opacity", "0.8");
+            builder.AddAttribute(seq++, "cx", Svg.N(cx + (Math.Cos(angle) * boltRadius)));
+            builder.AddAttribute(seq++, "cy", Svg.N(cy + (Math.Sin(angle) * boltRadius)));
+            builder.AddAttribute(seq++, "r", "7");
+            builder.CloseElement();
+        }
+
+        // A hex centre, drawn as a regular six-sided path.
+        var hex = new System.Text.StringBuilder(120);
+        for (var i = 0; i < 6; i++)
+        {
+            var angle = ((i / 6.0) * Math.Tau) + (Design.Rotation * Math.PI / 180.0);
+            hex.Append(i == 0 ? 'M' : 'L')
+               .Append(Svg.N(cx + (Math.Cos(angle) * 30)))
+               .Append(' ')
+               .Append(Svg.N(cy + (Math.Sin(angle) * 30)))
+               .Append(' ');
+        }
+
+        hex.Append('Z');
+
+        builder.OpenElement(seq++, "path");
+        builder.AddAttribute(seq++, "class", "vc-motif__line");
+        builder.AddAttribute(seq++, "d", hex.ToString());
+        builder.AddAttribute(seq++, "stroke-width", "1.6");
+        builder.AddAttribute(seq++, "stroke-linejoin", "miter");
+        builder.CloseElement();
+
+        builder.OpenElement(seq++, "path");
+        builder.AddAttribute(seq++, "class", "vc-motif__line vc-motif__line--hair");
+        builder.AddAttribute(seq++, "d",
+            $"M{Svg.N(cx - outer - 18)} {Svg.N(cy)}H{Svg.N(cx + outer + 18)}M{Svg.N(cx)} {Svg.N(cy - outer - 18)}V{Svg.N(cy + outer + 18)}");
+        builder.AddAttribute(seq++, "stroke-width", "1");
+        builder.CloseElement();
+    };
+
+    // ---- Storm chevrons: foul-weather gear ---------------------------------------------
+
+    private RenderFragment RenderStorm() => builder =>
+    {
+        var rng = Design.CreateRandom();
+        var rows = Math.Clamp(Design.Density + 2, 5, 9);
+        var seq = 0;
+
+        for (var r = 0; r < rows; r++)
+        {
+            var y = 18 + (r * (208.0 / rows));
+            var depth = rng.Next(16, 30);
+            var accent = r == rows / 2;
+            var path = new System.Text.StringBuilder(200);
+            var span = rng.Next(52, 78);
+
+            for (double x = -20; x < 340; x += span)
+            {
+                path.Append(x <= -20 ? 'M' : 'L').Append(Svg.N(x)).Append(' ').Append(Svg.N(y)).Append(' ')
+                    .Append('L').Append(Svg.N(x + (span / 2))).Append(' ').Append(Svg.N(y - depth)).Append(' ');
+            }
+
+            builder.OpenElement(seq++, "path");
+            builder.AddAttribute(seq++, "class", accent ? "vc-motif__accent" : "vc-motif__line vc-motif__line--soft");
+            builder.AddAttribute(seq++, "d", path.ToString());
+            builder.AddAttribute(seq++, "stroke-width", accent ? "2" : "1.3");
+            builder.AddAttribute(seq++, "stroke-linejoin", "round");
+            builder.CloseElement();
+        }
+    };
+
+    // ---- Blade profile: knives and tools -----------------------------------------------
+
+    private RenderFragment RenderBlade() => builder =>
+    {
+        var rng = Design.CreateRandom();
+        var tilt = rng.Next(-12, 6);
+        var lift = rng.Next(-10, 10);
+        var seq = 0;
+
+        builder.OpenElement(seq++, "g");
+        builder.AddAttribute(seq++, "transform",
+            string.Concat("rotate(", Svg.N(tilt), " 160 120) translate(0 ", Svg.N(lift), ")"));
+
+        // Blade: spine over the top, belly under, meeting at a drop point.
+        builder.OpenElement(seq++, "path");
+        builder.AddAttribute(seq++, "class", "vc-motif__line");
+        builder.AddAttribute(seq++, "d", "M92 96 C150 74 216 76 272 110 C214 148 148 152 92 144 Z");
+        builder.AddAttribute(seq++, "stroke-width", "1.6");
+        builder.AddAttribute(seq++, "stroke-linejoin", "round");
+        builder.CloseElement();
+
+        // The grind line.
+        builder.OpenElement(seq++, "path");
+        builder.AddAttribute(seq++, "class", "vc-motif__accent");
+        builder.AddAttribute(seq++, "d", "M100 136 C158 142 216 138 264 112");
+        builder.AddAttribute(seq++, "stroke-width", "1.4");
+        builder.AddAttribute(seq++, "opacity", "0.9");
+        builder.CloseElement();
+
+        // Handle and rivets.
+        builder.OpenElement(seq++, "rect");
+        builder.AddAttribute(seq++, "class", "vc-motif__line");
+        builder.AddAttribute(seq++, "x", "36");
+        builder.AddAttribute(seq++, "y", "94");
+        builder.AddAttribute(seq++, "width", "58");
+        builder.AddAttribute(seq++, "height", "54");
+        builder.AddAttribute(seq++, "rx", "6");
+        builder.AddAttribute(seq++, "stroke-width", "1.6");
+        builder.CloseElement();
+
+        foreach (var rivetX in new[] { 52.0, 78.0 })
+        {
+            builder.OpenElement(seq++, "circle");
+            builder.AddAttribute(seq++, "class", "vc-motif__fill");
+            builder.AddAttribute(seq++, "cx", Svg.N(rivetX));
+            builder.AddAttribute(seq++, "cy", "121");
+            builder.AddAttribute(seq++, "r", "5");
+            builder.CloseElement();
+        }
+
+        builder.CloseElement();
+    };
+
+    // ---- Lens rings: lamps and lighting -------------------------------------------------
+
+    private RenderFragment RenderLens() => builder =>
+    {
+        var rng = Design.CreateRandom();
+        var cx = 160.0;
+        var cy = 120.0;
+        var radius = rng.Next(66, 82);
+        var clipId = $"vc-lens-{Svg.N((int)(Design.Seed % 100000u))}";
+        var seq = 0;
+
+        // Beams first, so the lens sits on top of them.
+        for (var i = 0; i < 12; i++)
+        {
+            var angle = ((i / 12.0) * Math.Tau) + (Design.Rotation * Math.PI / 180.0);
+            builder.OpenElement(seq++, "line");
+            builder.AddAttribute(seq++, "class", "vc-motif__accent");
+            builder.AddAttribute(seq++, "opacity", i % 3 == 0 ? "0.7" : "0.28");
+            builder.AddAttribute(seq++, "x1", Svg.N(cx + (Math.Cos(angle) * (radius + 12))));
+            builder.AddAttribute(seq++, "y1", Svg.N(cy + (Math.Sin(angle) * (radius + 12))));
+            builder.AddAttribute(seq++, "x2", Svg.N(cx + (Math.Cos(angle) * (radius + (i % 3 == 0 ? 78 : 40)))));
+            builder.AddAttribute(seq++, "y2", Svg.N(cy + (Math.Sin(angle) * (radius + (i % 3 == 0 ? 78 : 40)))));
+            builder.AddAttribute(seq++, "stroke-width", "1.6");
+            builder.CloseElement();
+        }
+
+        // Fresnel steps: horizontal cuts, clipped to the lens disc.
+        builder.OpenElement(seq++, "defs");
+        builder.OpenElement(seq++, "clipPath");
+        builder.AddAttribute(seq++, "id", clipId);
+        builder.OpenElement(seq++, "circle");
+        builder.AddAttribute(seq++, "cx", Svg.N(cx));
+        builder.AddAttribute(seq++, "cy", Svg.N(cy));
+        builder.AddAttribute(seq++, "r", Svg.N(radius));
+        builder.CloseElement();
+        builder.CloseElement();
+        builder.CloseElement();
+
+        builder.OpenElement(seq++, "g");
+        builder.AddAttribute(seq++, "clip-path", $"url(#{clipId})");
+        var step = radius * 2 / Math.Clamp(Design.Density + 4, 7, 11);
+        for (var y = cy - radius; y < cy + radius; y += step)
+        {
+            builder.OpenElement(seq++, "line");
+            builder.AddAttribute(seq++, "class", "vc-motif__line");
+            builder.AddAttribute(seq++, "x1", Svg.N(cx - radius));
+            builder.AddAttribute(seq++, "y1", Svg.N(y));
+            builder.AddAttribute(seq++, "x2", Svg.N(cx + radius));
+            builder.AddAttribute(seq++, "y2", Svg.N(y));
+            builder.AddAttribute(seq++, "stroke-width", "1.5");
+            builder.CloseElement();
+        }
+
+        builder.CloseElement();
+
+        builder.OpenElement(seq++, "circle");
+        builder.AddAttribute(seq++, "class", "vc-motif__ink");
+        builder.AddAttribute(seq++, "cx", Svg.N(cx));
+        builder.AddAttribute(seq++, "cy", Svg.N(cy));
+        builder.AddAttribute(seq++, "r", Svg.N(radius));
+        builder.AddAttribute(seq++, "stroke-width", "1.8");
+        builder.CloseElement();
+    };
+
+    // ---- Canvas weave: bags and storage, and the fallback --------------------------------
+
+    private RenderFragment RenderWeave() => builder =>
+    {
+        var rng = Design.CreateRandom();
+        var pitch = rng.Next(24, 34);
+        var band = pitch * 0.55;
+        var seq = 0;
+
+        for (double x = -pitch; x < 340; x += pitch)
+        {
+            builder.OpenElement(seq++, "rect");
+            builder.AddAttribute(seq++, "class", "vc-motif__fill");
+            builder.AddAttribute(seq++, "opacity", "0.32");
+            builder.AddAttribute(seq++, "x", Svg.N(x));
+            builder.AddAttribute(seq++, "y", "-10");
+            builder.AddAttribute(seq++, "width", Svg.N(band));
+            builder.AddAttribute(seq++, "height", "260");
+            builder.CloseElement();
+        }
+
+        for (double y = -pitch; y < 260; y += pitch)
+        {
+            builder.OpenElement(seq++, "rect");
+            builder.AddAttribute(seq++, "class", "vc-motif__fill");
+            builder.AddAttribute(seq++, "opacity", "0.22");
+            builder.AddAttribute(seq++, "x", "-10");
+            builder.AddAttribute(seq++, "y", Svg.N(y));
+            builder.AddAttribute(seq++, "width", "340");
+            builder.AddAttribute(seq++, "height", Svg.N(band));
+            builder.CloseElement();
+        }
+
+        // The stitched border, the thing that says "made of canvas and thread".
+        builder.OpenElement(seq++, "rect");
+        builder.AddAttribute(seq++, "class", "vc-motif__accent");
+        builder.AddAttribute(seq++, "x", "22");
+        builder.AddAttribute(seq++, "y", "22");
+        builder.AddAttribute(seq++, "width", "276");
+        builder.AddAttribute(seq++, "height", "196");
+        builder.AddAttribute(seq++, "stroke-width", "1.6");
+        builder.AddAttribute(seq++, "stroke-dasharray", "8 6");
+        builder.AddAttribute(seq++, "opacity", "0.85");
+        builder.CloseElement();
+    };
+}

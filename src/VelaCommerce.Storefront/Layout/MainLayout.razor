@@ -1,0 +1,25 @@
+@*
+    The app shell. Header, page, footer — a flex column so a short page still pins the
+    footer to the bottom of the viewport rather than leaving it floating mid-screen.
+
+    The header and footer render before the catalog exists and hold their final heights, so
+    the only thing that changes when the snapshot lands is the content of the grid.
+*@
+@inherits LayoutComponentBase
+
+<div class="vc-page">
+    <SiteHeader />
+
+    <main class="vc-main" id="main">
+        <div class="vc-container">
+            @Body
+        </div>
+    </main>
+
+    <SiteFooter />
+</div>
+
+@* Outside the page column: the drawer is fixed to the viewport, and mounting it once here
+   means the cart survives navigation between products instead of being torn down with the
+   page that opened it. *@
+<CartDrawer />

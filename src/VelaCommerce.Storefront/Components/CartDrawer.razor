@@ -1,0 +1,297 @@
+@*
+    The cart, as a slide-over panel.
+
+    It is always in the DOM so the slide can animate in both directions, and made
+    unreachable when closed with the `inert` attribute: inert takes the whole subtree out
+    of the tab order and out of the accessibility tree, and it does that the instant the
+    attribute lands rather than when a transition happens to finish. The obvious
+    alternative — transitioning `visibility` with a delay — leaves the panel focusable if
+    the transition never completes, which is a shopper tabbing into an invisible dialog.
+
+    Focus management, in full, because a dialog that does not do this is not a dialog:
+      - opening moves focus to the close button;
+      - two focus guards either side of the panel bounce Tab and Shift+Tab back inside, so
+        focus cannot reach the page behind;
+      - Escape closes;
+      - closing hands focus back to the header button that opened it, via
+        CartDrawerState.Closed.
+
+    Nothing here calls the API. The cart is client state; checkout, when it exists, is what
+    will hand it to a server.
+*@
+@implements IDisposable
+@inject CartState Cart
+@inject CartDrawerState Drawer
+@inject IJSRuntime JS
+
+<div class="vc-drawer-root @(Drawer.IsOpen ? "vc-drawer-root--open" : null)" inert="@(!Drawer.IsOpen)">
+    <div class="vc-drawer__scrim" @onclick="Close"></div>
+
+    @* tabindex="-1" is not decoration: clicking a paragraph inside the panel would
+       otherwise drop focus onto the body, and the Escape handler below only sees keys
+       pressed inside the panel. With it, a click on dead space lands here instead. *@
+    <div class="vc-drawer"
+         id="vc-cart-drawer"
+         role="dialog"
+         aria-modal="true"
+         aria-labelledby="vc-drawer-title"
+         tabindex="-1"
+         @onkeydown="OnKeyDown">
+
+        @* Focus guards. Tabbing off either end of the panel lands here for an instant and
+           is sent back to the other end, which is how the trap is built without reaching
+           into the document to ask what is focused. *@
+        <span class="vc-drawer__guard" tabindex="0" @onfocus="FocusLastAsync"></span>
+
+        <div class="vc-drawer__head">
+            <div>
+                <h2 class="vc-drawer__title" id="vc-drawer-title">Your cart</h2>
+                <p class="vc-drawer__count">@Summary</p>
+            </div>
+            <button type="button"
+                    class="vc-drawer__close"
+                    @ref="_closeButton"
+                    @onclick="Close"
+                    aria-label="Close the cart">
+                <svg viewBox="0 0 16 16" width="14" height="14" fill="none" aria-hidden="true" focusable="false">
+                    <path d="M3 3l10 10M13 3 3 13" stroke="currentColor" stroke-width="1.6" stroke-linecap="square" />
+                </svg>
+            </button>
+        </div>
+
+        <div class="vc-drawer__body">
+            @if (Cart.IsEmpty)
+            {
+                <div class="vc-drawer__empty">
+                    @* An open, empty crate on the water, in the same line weight as the
+                       card motifs. Drawn rather than fetched, like everything else here. *@
+                    <svg class="vc-drawer__empty-mark" viewBox="0 0 64 48" fill="none" aria-hidden="true" focusable="false">
+                        <path d="M10 18 18 12H52L44 18Z" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round" />
+                        <path d="M10 18v22h34V18" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round" />
+                        <path d="M44 40 52 34V12" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round" />
+                        <path d="M10 29h34" stroke="currentColor" stroke-width="1.2" opacity="0.5" />
+                        <path d="M4 45c5 0 5 3 10 3s5-3 10-3 5 3 10 3 5-3 10-3 5 3 10 3" stroke="currentColor" stroke-width="1.2" opacity="0.55" />
+                    </svg>
+                    <h3 class="vc-drawer__empty-title">Nothing aboard yet</h3>
+                    <p class="vc-drawer__empty-body">
+                        Your cart is empty. Everything in the chandlery is priced from its cheapest
+                        variant on the shelf pages &mdash; pick a shelf and add what the boat needs.
+                    </p>
+                </div>
+            }
+            else
+            {
+                <ul class="vc-cart-lines">
+                    @foreach (var line in Cart.Lines)
+                    {
+                        <li class="vc-cart-line" @key="line.Sku">
+                            <div class="vc-cart-line__main">
+                                <a class="vc-cart-line__name" href="@($"p/{line.Slug}")" @onclick="CloseWithoutRestoringFocus">@line.ProductName</a>
+                                <span class="vc-cart-line__meta">
+                                    @if (line.VariantName is { Length: > 0 } variantName)
+                                    {
+                                        <span>@variantName</span>
+                                        <span class="vc-cart-line__sep" aria-hidden="true">&middot;</span>
+                                    }
+                                    <span>@line.Sku</span>
+                                </span>
+                            </div>
+
+                            <div class="vc-cart-line__total">
+                                <PriceTag Money="line.LineTotal" />
+                                @if (line.Quantity > 1)
+                                {
+                                    <span class="vc-cart-line__unit">@MoneyFormatter.Format(line.UnitPrice) each</span>
+                                }
+                            </div>
+
+                            <div class="vc-cart-line__controls">
+                                <QuantityStepper Value="line.Quantity"
+                                                 ValueChanged="quantity => Cart.SetQuantity(line.Sku, quantity)"
+                                                 Min="1"
+                                                 Max="CartState.MaxLineQuantity"
+                                                 Small="true"
+                                                 Label="@($"Quantity of {line.ProductName}")" />
+                                <button type="button"
+                                        class="vc-btn vc-btn--quiet vc-btn--sm vc-cart-line__remove"
+                                        aria-label="@($"Remove {line.ProductName}, {line.VariantName}")"
+                                        @onclick="() => RemoveLineAsync(line.Sku)">
+                                    Remove
+                                </button>
+                            </div>
+                        </li>
+                    }
+                </ul>
+            }
+        </div>
+
+        <div class="vc-drawer__foot">
+            @if (!Cart.IsEmpty)
+            {
+                <div class="vc-subtotal">
+                    <span class="vc-subtotal__label">Subtotal</span>
+                    <PriceTag Money="Cart.Subtotal" Large="true" />
+                </div>
+                <p class="vc-drawer__note">
+                    Shipping and duty are worked out at checkout, which is where the live price and
+                    the stock on hand are checked against this cart.
+                </p>
+            }
+
+            @* Disabled, and described by the note that says why. Not a fake checkout: there
+               is no server to take an order, and a button that pretended otherwise would be
+               the one dishonest thing in the shop. *@
+            <button type="button"
+                    class="vc-btn vc-btn--primary vc-drawer__checkout"
+                    aria-describedby="vc-drawer-checkout-note"
+                    disabled>
+                Checkout
+            </button>
+            <p class="vc-drawer__note vc-drawer__note--flag" id="vc-drawer-checkout-note">
+                Checkout arrives in a later phase. Nothing here is charged, reserved or sent anywhere.
+            </p>
+
+            @if (!Cart.IsPersisted)
+            {
+                <p class="vc-drawer__note vc-drawer__note--flag">
+                    This browser is not letting the shop store anything, so the cart will be empty
+                    again after a reload.
+                </p>
+            }
+
+            <div class="vc-drawer__actions">
+                @if (!Cart.IsEmpty)
+                {
+                    <button type="button" class="vc-btn vc-btn--quiet vc-btn--sm" @onclick="ClearCartAsync">
+                        Empty the cart
+                    </button>
+                }
+                @* Last focusable element in the panel, in every state. The end guard sends
+                   focus here on Shift+Tab, so it has to be something that always renders. *@
+                <button type="button" class="vc-btn vc-btn--sm" @ref="_lastControl" @onclick="Close">
+                    Keep shopping
+                </button>
+            </div>
+        </div>
+
+        <span class="vc-drawer__guard" tabindex="0" @onfocus="FocusFirstAsync"></span>
+    </div>
+</div>
+
+@code {
+    private ElementReference _closeButton;
+    private ElementReference _lastControl;
+    private bool _wasOpen;
+
+    private string Summary => Cart.IsEmpty
+        ? "Empty"
+        : $"{Cart.TotalQuantity} {(Cart.TotalQuantity == 1 ? "item" : "items")} across {Cart.LineCount} {(Cart.LineCount == 1 ? "line" : "lines")}";
+
+    protected override void OnInitialized()
+    {
+        Cart.Changed += OnChanged;
+        Drawer.Changed += OnChanged;
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            // The one place the stored cart is read back. It happens after the first render
+            // so a browser that refuses storage costs a caught exception, not a blank shop.
+            await Cart.RestoreAsync();
+        }
+
+        if (_wasOpen == Drawer.IsOpen)
+            return;
+
+        _wasOpen = Drawer.IsOpen;
+        await SetScrollLockAsync(_wasOpen);
+
+        if (_wasOpen)
+            await FocusAsync(_closeButton);
+    }
+
+    private void OnChanged() => StateHasChanged();
+
+    private void Close() => Drawer.Close();
+
+    // These two handlers destroy the control that invoked them: the line's Remove button
+    // disappears with its row, and "Empty the cart" is inside an @if that stops rendering.
+    // The browser then resets focus to <body>, which is OUTSIDE role="dialog" — Escape stops
+    // reaching the drawer's keydown handler and the next Tab walks onto the page behind the
+    // scrim. Re-seating focus on the close button keeps the trap intact.
+    private async Task RemoveLineAsync(string sku)
+    {
+        Cart.Remove(sku);
+        await FocusAsync(_closeButton);
+    }
+
+    private async Task ClearCartAsync()
+    {
+        Cart.Clear();
+        await FocusAsync(_closeButton);
+    }
+
+    private Task OnKeyDown(KeyboardEventArgs args)
+    {
+        if (!string.Equals(args.Key, "Escape", StringComparison.Ordinal))
+            return Task.CompletedTask;
+
+        Drawer.Close();
+        return Task.CompletedTask;
+    }
+
+    /// <summary>
+    /// Closes without asking the header to take focus back. The link is navigating, and
+    /// App.razor's FocusOnNavigate is about to move focus to the destination heading; racing
+    /// it would strand a keyboard user on the cart button of the page they just left.
+    /// </summary>
+    private void CloseWithoutRestoringFocus() => Drawer.Close(restoreFocus: false);
+
+    private Task FocusFirstAsync() => FocusAsync(_closeButton);
+
+    private Task FocusLastAsync() => FocusAsync(_lastControl);
+
+    /// <summary>
+    /// Focus, defensively. An element reference can be stale for a frame after a re-render,
+    /// and a failed focus call must never be the thing that takes the shop down.
+    /// </summary>
+    private async Task FocusAsync(ElementReference element)
+    {
+        try
+        {
+            await element.FocusAsync();
+        }
+        catch (Exception)
+        {
+            // Nothing to recover: the panel is still usable with the pointer, and the next
+            // Tab lands on the first control in it anyway.
+        }
+    }
+
+    /// <summary>
+    /// Stops the page behind the drawer from scrolling under it. Interop, so it is wrapped:
+    /// the drawer is more important than the scroll lock.
+    /// </summary>
+    private async Task SetScrollLockAsync(bool locked)
+    {
+        try
+        {
+            await JS.InvokeVoidAsync(
+                locked ? "document.documentElement.classList.add" : "document.documentElement.classList.remove",
+                "vc-scroll-locked");
+        }
+        catch (Exception)
+        {
+            // A page that scrolls behind an open drawer is untidy. A page that throws is not
+            // a page.
+        }
+    }
+
+    public void Dispose()
+    {
+        Cart.Changed -= OnChanged;
+        Drawer.Changed -= OnChanged;
+    }
+}

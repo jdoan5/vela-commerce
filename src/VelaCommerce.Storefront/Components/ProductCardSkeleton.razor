@@ -1,0 +1,27 @@
+@*
+    A placeholder card, built from exactly the same boxes as ProductCard: the same 4:3
+    media, the same two-line title, the same footer rule. That is the whole point — the
+    grid occupies its final geometry before any data arrives, so loading the snapshot
+    changes what is inside the cards and never where they are.
+*@
+<article class="vc-card" aria-hidden="true">
+    <div class="vc-card__media">
+        <div class="vc-skeleton vc-skeleton--media"></div>
+    </div>
+    <div class="vc-card__body">
+        <div class="vc-card__eyebrow">
+            <span class="vc-skeleton vc-skeleton--line" style="width: 4rem;"></span>
+        </div>
+        <div class="vc-card__title">
+            <span class="vc-skeleton vc-skeleton--title" style="display: block; width: 90%;"></span>
+            <span class="vc-skeleton vc-skeleton--title" style="display: block; width: 60%; margin-top: 0.35rem;"></span>
+        </div>
+        <span class="vc-readout vc-readout--stacked">
+            <span class="vc-skeleton vc-skeleton--line" style="width: 5rem;"></span>
+        </span>
+        <div class="vc-card__foot">
+            <span class="vc-skeleton vc-skeleton--title" style="width: 5.5rem;"></span>
+            <span class="vc-skeleton vc-skeleton--line" style="width: 3rem;"></span>
+        </div>
+    </div>
+</article>

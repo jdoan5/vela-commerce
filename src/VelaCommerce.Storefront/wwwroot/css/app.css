@@ -1,0 +1,2255 @@
+/* ==========================================================================
+   VELA COMMERCE — DESIGN SYSTEM
+   A maritime outfitter: ink-navy ground, weathered brass used sparingly,
+   warm paper neutrals, muted sea-green as the secondary. Squared corners,
+   hairline rules, instrument-style numerals.
+
+   HOW THIS FILE IS ORGANISED — and how to extend it
+     1. PALETTE          raw --vela-* ramps. Never used directly by components.
+     2. SEMANTIC TOKENS  --vc-* roles. This is what components reference.
+     3. DARK THEME       redefines tokens only. No new colour is born here.
+     4. TYPE + SPACE     --vc-font-*, --vc-text-*, --vc-space-*, --vc-radius-*
+     5. RESET
+     6. COMPONENTS       .vc-* classes, grouped by what they build
+
+   RULES FOR ANYONE ADDING TO THIS FILE
+     - A component may only reference --vc-* tokens, never --vela-* ramps and
+       never a literal colour. If a role is missing, add a token in BOTH the
+       light block and the dark block, then use it.
+     - Every colour token is declared on bare :root first. The dark block only
+       overrides. That way a token can never be undefined in one theme.
+     - Corners stay square-ish (2-6px). Rounding everything is the fastest way
+       to make an eighty-year-old chandlery look like a dashboard.
+     - Numbers — prices, loads, lumens, SKUs — are set in the mono face with
+       tabular figures. Use .vc-tabular or .vc-readout, never ad-hoc styles.
+   ========================================================================== */
+
+
+/* ==========================================================================
+   1. PALETTE — raw ramps
+   ========================================================================== */
+
+:root {
+    /* Ink navy: the ground of the whole world. Header, dark mode, motif lines. */
+    --vela-ink-950: #061421;
+    --vela-ink-900: #0A1E2E;
+    --vela-ink-800: #10293C;
+    --vela-ink-700: #17384F;
+    --vela-ink-600: #21506C;
+    --vela-ink-500: #356B89;
+    --vela-ink-300: #7C9CB2;
+
+    /* Weathered brass: the accent. Used sparingly — prices, rules, one hairline. */
+    --vela-brass-700: #6E4C0E;
+    --vela-brass-600: #8C6416;
+    --vela-brass-500: #AD7F26;
+    --vela-brass-400: #C79A3C;
+    --vela-brass-300: #DDB86B;
+    --vela-brass-200: #EFD9A6;
+    --vela-brass-100: #F7ECD3;
+
+    /* Muted sea-green: the secondary. Categories, focus rings, in-stock signals. */
+    --vela-sea-800: #0E3F39;
+    --vela-sea-700: #14554C;
+    --vela-sea-600: #1C6C60;
+    --vela-sea-500: #2A8879;
+    --vela-sea-300: #79B6A9;
+    --vela-sea-100: #D3E6E0;
+
+    /* Paper: warm-biased neutrals. The page in light mode. */
+    --vela-paper-50: #FCFAF5;
+    --vela-paper-100: #F5F1E8;
+    --vela-paper-200: #EBE5D8;
+    --vela-paper-300: #DCD4C2;
+    --vela-paper-400: #C2B8A2;
+
+    /* Signal: a flag red, for low stock and errors. Never decorative. */
+    --vela-signal-600: #9E3324;
+    --vela-signal-400: #C4553F;
+    --vela-signal-100: #F6DED8;
+}
+
+
+/* ==========================================================================
+   2. SEMANTIC TOKENS — light theme (the base; dark only overrides these)
+   ========================================================================== */
+
+:root {
+    color-scheme: light;
+
+    /* --- Surfaces ------------------------------------------------------- */
+    --vc-bg: var(--vela-paper-100);
+    --vc-bg-sunken: var(--vela-paper-200);
+    --vc-surface: var(--vela-paper-50);
+    --vc-surface-alt: var(--vela-paper-100);
+    --vc-surface-inverse: var(--vela-ink-900);
+
+    /* --- Text ----------------------------------------------------------- */
+    --vc-text: var(--vela-ink-900);
+    --vc-text-muted: var(--vela-ink-600);
+    --vc-text-faint: var(--vela-ink-500);
+    --vc-text-inverse: var(--vela-paper-100);
+
+    /* --- Accent (brass) and secondary (sea) ----------------------------- */
+    --vc-accent: var(--vela-brass-600);
+    --vc-accent-strong: var(--vela-brass-700);
+    --vc-accent-soft: var(--vela-brass-100);
+    --vc-accent-line: var(--vela-brass-400);
+    --vc-on-accent: var(--vela-ink-950);
+
+    --vc-secondary: var(--vela-sea-700);
+    --vc-secondary-strong: var(--vela-sea-800);
+    --vc-secondary-soft: var(--vela-sea-100);
+    --vc-on-secondary: var(--vela-paper-50);
+
+    /* --- Lines, focus, signals ------------------------------------------ */
+    --vc-rule: var(--vela-paper-300);
+    --vc-rule-strong: var(--vela-paper-400);
+    --vc-focus: var(--vela-sea-600);
+    --vc-signal: var(--vela-signal-600);
+    --vc-signal-soft: var(--vela-signal-100);
+
+    /* --- Header: always the enamel sign, in both themes ------------------ */
+    --vc-header-bg: var(--vela-ink-900);
+    --vc-header-text: var(--vela-paper-100);
+    --vc-header-muted: var(--vela-ink-300);
+    --vc-header-rule: rgb(255 255 255 / 0.13);
+    --vc-header-field: rgb(255 255 255 / 0.07);
+    --vc-header-field-hover: rgb(255 255 255 / 0.12);
+    --vc-header-accent: var(--vela-brass-300);
+
+    /* --- Placeholder artwork -------------------------------------------- */
+    /* Category classes below override ground-a/ground-b/accent per shelf. */
+    --vc-motif-ground-a: var(--vela-paper-200);
+    --vc-motif-ground-b: var(--vela-paper-300);
+    --vc-motif-line: rgb(10 30 46 / 0.42);
+    --vc-motif-ink: rgb(10 30 46 / 0.72);
+    --vc-motif-accent: var(--vela-brass-600);
+    --vc-motif-angle: 152deg;
+
+    /* --- Elevation ------------------------------------------------------- */
+    --vc-shadow-rgb: 10 30 46;
+    --vc-shadow-sm: 0 1px 1px rgb(var(--vc-shadow-rgb) / 0.06);
+    --vc-shadow-md: 0 8px 24px -14px rgb(var(--vc-shadow-rgb) / 0.45);
+    --vc-shadow-lg: 0 18px 44px -22px rgb(var(--vc-shadow-rgb) / 0.5);
+
+    /* --- Skeleton -------------------------------------------------------- */
+    --vc-skeleton-base: var(--vela-paper-200);
+    --vc-skeleton-sheen: var(--vela-paper-50);
+
+    /* --- Overlay --------------------------------------------------------- */
+    /* The ground behind a modal panel. Ink rather than black, so the page
+       reads as dimmed rather than switched off. */
+    --vc-scrim: rgb(10 30 46 / 0.44);
+}
+
+
+/* ==========================================================================
+   3. DARK THEME — overrides only. Every name here already exists above.
+   ========================================================================== */
+
+@media (prefers-color-scheme: dark) {
+    :root {
+        color-scheme: dark;
+
+        --vc-bg: #061421;
+        --vc-bg-sunken: #030D17;
+        --vc-surface: #0C2131;
+        --vc-surface-alt: #12293B;
+        --vc-surface-inverse: var(--vela-paper-100);
+
+        --vc-text: #E8E2D4;
+        --vc-text-muted: #A2B4C2;
+        --vc-text-faint: #74899A;
+        --vc-text-inverse: #061421;
+
+        --vc-accent: var(--vela-brass-300);
+        --vc-accent-strong: var(--vela-brass-200);
+        --vc-accent-soft: #2B2210;
+        --vc-accent-line: var(--vela-brass-500);
+        --vc-on-accent: #061421;
+
+        --vc-secondary: var(--vela-sea-300);
+        --vc-secondary-strong: #9BCCC1;
+        --vc-secondary-soft: #0D2B28;
+        --vc-on-secondary: #061421;
+
+        --vc-rule: #1E3A4E;
+        --vc-rule-strong: #2A5068;
+        --vc-focus: var(--vela-sea-300);
+        --vc-signal: #E0806C;
+        --vc-signal-soft: #3A1710;
+
+        --vc-header-bg: #04101B;
+        --vc-header-text: #E8E2D4;
+        --vc-header-muted: #7C93A5;
+        --vc-header-rule: rgb(255 255 255 / 0.10);
+        --vc-header-field: rgb(255 255 255 / 0.06);
+        --vc-header-field-hover: rgb(255 255 255 / 0.11);
+        --vc-header-accent: var(--vela-brass-300);
+
+        --vc-motif-ground-a: #0E2537;
+        --vc-motif-ground-b: #081925;
+        --vc-motif-line: rgb(200 224 238 / 0.24);
+        --vc-motif-ink: rgb(214 232 244 / 0.5);
+        --vc-motif-accent: var(--vela-brass-400);
+
+        --vc-shadow-rgb: 0 0 0;
+        --vc-shadow-sm: 0 1px 1px rgb(var(--vc-shadow-rgb) / 0.4);
+        --vc-shadow-md: 0 8px 24px -14px rgb(var(--vc-shadow-rgb) / 0.75);
+        --vc-shadow-lg: 0 18px 44px -22px rgb(var(--vc-shadow-rgb) / 0.85);
+
+        --vc-skeleton-base: #12293B;
+        --vc-skeleton-sheen: #1B384D;
+
+        --vc-scrim: rgb(0 0 0 / 0.66);
+    }
+}
+
+
+/* ==========================================================================
+   4. TYPE, SPACE, SHAPE, MOTION
+   ========================================================================== */
+
+:root {
+    /* Display: Fraunces, an optical-size serif with real character — the
+       catalog cover. Body: Public Sans, quiet and institutional. Mono: IBM
+       Plex Mono for every number, SKU and spec. Each has a real fallback. */
+    --vc-font-display: "Fraunces", "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, "Times New Roman", serif;
+    --vc-font-body: "Public Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    --vc-font-mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+
+    /* Type scale, roughly 1.18 through the body sizes and clamped above. */
+    --vc-text-2xs: 0.6875rem;
+    --vc-text-xs: 0.75rem;
+    --vc-text-sm: 0.8125rem;
+    --vc-text-base: 0.9375rem;
+    --vc-text-md: 1.0625rem;
+    --vc-text-lg: 1.25rem;
+    --vc-text-xl: 1.5rem;
+    --vc-text-2xl: clamp(1.75rem, 1.42rem + 1.5vw, 2.35rem);
+    --vc-text-3xl: clamp(2.2rem, 1.6rem + 2.6vw, 3.3rem);
+
+    --vc-leading-tight: 1.1;
+    --vc-leading-snug: 1.3;
+    --vc-leading-normal: 1.55;
+    --vc-tracking-wide: 0.07em;
+    --vc-tracking-wider: 0.15em;
+
+    /* Spacing, 4px base. */
+    --vc-space-1: 0.25rem;
+    --vc-space-2: 0.5rem;
+    --vc-space-3: 0.75rem;
+    --vc-space-4: 1rem;
+    --vc-space-5: 1.5rem;
+    --vc-space-6: 2rem;
+    --vc-space-7: 2.5rem;
+    --vc-space-8: 3rem;
+    --vc-space-9: 4rem;
+    --vc-space-10: 5rem;
+
+    /* Shape: near-square. A chandlery, not a phone app. */
+    --vc-radius-sm: 2px;
+    --vc-radius-md: 3px;
+    --vc-radius-lg: 6px;
+    --vc-radius-pill: 999px;
+
+    /* Layout */
+    --vc-container: 78rem;
+    --vc-header-height: 4rem;
+    --vc-drawer-width: 27rem;
+
+    /* Motion */
+    --vc-duration: 140ms;
+    --vc-ease: cubic-bezier(0.2, 0.7, 0.3, 1);
+    /* A panel travelling the width of itself needs longer than a hover tint. */
+    --vc-duration-panel: 220ms;
+}
+
+
+/* ==========================================================================
+   5. RESET
+   ========================================================================== */
+
+*,
+*::before,
+*::after {
+    box-sizing: border-box;
+}
+
+html {
+    -webkit-text-size-adjust: 100%;
+}
+
+body {
+    margin: 0;
+    min-height: 100vh;
+    background-color: var(--vc-bg);
+    color: var(--vc-text);
+    font-family: var(--vc-font-body);
+    font-size: var(--vc-text-base);
+    line-height: var(--vc-leading-normal);
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+}
+
+h1, h2, h3, h4 {
+    margin: 0;
+    font-family: var(--vc-font-display);
+    font-weight: 600;
+    line-height: var(--vc-leading-tight);
+    letter-spacing: -0.005em;
+}
+
+p {
+    margin: 0;
+}
+
+a {
+    color: inherit;
+    text-decoration: none;
+}
+
+button,
+input,
+select {
+    font: inherit;
+    color: inherit;
+}
+
+img,
+svg {
+    display: block;
+    max-width: 100%;
+}
+
+:focus-visible {
+    outline: 2px solid var(--vc-focus);
+    outline-offset: 2px;
+    border-radius: var(--vc-radius-sm);
+}
+
+::selection {
+    background: var(--vc-accent-soft);
+    color: var(--vc-text);
+}
+
+
+/* ==========================================================================
+   6. COMPONENTS
+   -------------------------------------------------------------------------
+   6.1 Layout        .vc-page .vc-container .vc-main
+   6.2 Utilities     .vc-visually-hidden .vc-tabular .vc-eyebrow .vc-rule
+   6.3 Header        .vc-header .vc-wordmark .vc-nav .vc-search .vc-cart-button
+   6.4 Footer        .vc-footer
+   6.5 Controls      .vc-btn .vc-input .vc-select .vc-field .vc-chip
+   6.6 Toolbar       .vc-toolbar .vc-result-count
+   6.7 Grid + card   .vc-grid .vc-card
+   6.8 Motif         .vc-motif
+   6.9 Specs         .vc-readout .vc-specs .vc-price .vc-tag
+   6.10 Skeletons    .vc-skeleton .vc-skeleton-card
+   6.11 States       .vc-alert .vc-empty
+   6.12 Pager        .vc-pager
+   6.13 Boot splash  #app pre-Blazor markup in index.html
+   6.14 Product page .vc-crumbs .vc-product .vc-variants .vc-buy
+   6.15 Spec sheet   .vc-specsheet
+   6.16 Stepper      .vc-stepper
+   6.17 Cart drawer  .vc-drawer-root .vc-drawer .vc-cart-line .vc-subtotal
+   ========================================================================== */
+
+
+/* --- 6.1 Layout ---------------------------------------------------------- */
+
+.vc-page {
+    display: flex;
+    flex-direction: column;
+    min-height: 100vh;
+    min-height: 100dvh;
+}
+
+.vc-container {
+    width: 100%;
+    max-width: var(--vc-container);
+    margin-inline: auto;
+    padding-inline: var(--vc-space-4);
+}
+
+@media (min-width: 48rem) {
+    .vc-container {
+        padding-inline: var(--vc-space-6);
+    }
+}
+
+.vc-main {
+    flex: 1 0 auto;
+    padding-block: var(--vc-space-6) var(--vc-space-9);
+}
+
+
+/* --- 6.2 Utilities ------------------------------------------------------- */
+
+.vc-visually-hidden {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    margin: -1px;
+    padding: 0;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+    border: 0;
+}
+
+/* Every number in this catalog. Tabular figures so columns of prices and
+   loads line up and never jitter as a value changes. */
+.vc-tabular {
+    font-family: var(--vc-font-mono);
+    font-variant-numeric: tabular-nums;
+    font-feature-settings: "tnum" 1;
+}
+
+.vc-eyebrow {
+    font-family: var(--vc-font-mono);
+    font-size: var(--vc-text-2xs);
+    font-weight: 500;
+    letter-spacing: var(--vc-tracking-wider);
+    text-transform: uppercase;
+    color: var(--vc-text-faint);
+}
+
+.vc-rule {
+    height: 1px;
+    border: 0;
+    margin: 0;
+    background: var(--vc-rule);
+}
+
+/* A brass hairline over a navy rule — the one flourish this design repeats. */
+.vc-rule--accent {
+    height: 2px;
+    background: linear-gradient(90deg, var(--vc-accent-line) 0 4rem, var(--vc-rule) 4rem);
+}
+
+.vc-section-title {
+    font-size: var(--vc-text-2xl);
+    font-weight: 600;
+    font-variation-settings: "opsz" 96;
+}
+
+.vc-lede {
+    max-width: 46ch;
+    color: var(--vc-text-muted);
+    font-size: var(--vc-text-md);
+}
+
+
+/* --- 6.3 Header ---------------------------------------------------------- */
+
+.vc-header {
+    position: sticky;
+    top: 0;
+    z-index: 20;
+    background: var(--vc-header-bg);
+    color: var(--vc-header-text);
+    border-bottom: 1px solid var(--vc-header-rule);
+}
+
+/*
+   One search input, moved by grid areas rather than duplicated per breakpoint.
+   Narrow: brand and cart share the first row, search takes the second.
+   Wide: all three sit on one row with the search centred between them.
+*/
+.vc-header__bar {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    grid-template-areas:
+        "brand tools"
+        "search search";
+    align-items: center;
+    gap: var(--vc-space-2) var(--vc-space-3);
+    padding-bottom: var(--vc-space-3);
+}
+
+.vc-header__brand {
+    grid-area: brand;
+    min-width: 0;
+}
+
+.vc-header__search-slot {
+    grid-area: search;
+}
+
+.vc-header__tools {
+    grid-area: tools;
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: var(--vc-space-2);
+}
+
+@media (min-width: 48rem) {
+    .vc-header__bar {
+        grid-template-columns: auto minmax(0, 1fr) auto;
+        grid-template-areas: "brand search tools";
+        min-height: var(--vc-header-height);
+        padding-bottom: 0;
+    }
+}
+
+/* The nav rides a second row so the wordmark keeps its own line at every width. */
+.vc-header__nav-row {
+    border-top: 1px solid var(--vc-header-rule);
+}
+
+.vc-wordmark {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--vc-space-3);
+    padding-block: var(--vc-space-2);
+}
+
+.vc-wordmark__mark {
+    flex: none;
+    width: 2rem;
+    height: 2rem;
+    color: var(--vc-header-accent);
+}
+
+.vc-wordmark__text {
+    display: flex;
+    flex-direction: column;
+    line-height: 1;
+}
+
+.vc-wordmark__name {
+    font-family: var(--vc-font-display);
+    font-size: var(--vc-text-lg);
+    font-weight: 600;
+    font-variation-settings: "opsz" 60;
+    letter-spacing: 0.005em;
+}
+
+.vc-wordmark__tag {
+    margin-top: 0.28rem;
+    font-family: var(--vc-font-mono);
+    font-size: var(--vc-text-2xs);
+    letter-spacing: var(--vc-tracking-wider);
+    text-transform: uppercase;
+    color: var(--vc-header-muted);
+}
+
+.vc-nav {
+    display: flex;
+    gap: var(--vc-space-1);
+    overflow-x: auto;
+    scrollbar-width: none;
+    padding-block: var(--vc-space-1);
+}
+
+.vc-nav::-webkit-scrollbar {
+    display: none;
+}
+
+.vc-nav__link {
+    flex: none;
+    padding: var(--vc-space-2) var(--vc-space-3);
+    font-size: var(--vc-text-sm);
+    font-weight: 500;
+    color: var(--vc-header-muted);
+    white-space: nowrap;
+    border-bottom: 2px solid transparent;
+    transition: color var(--vc-duration) var(--vc-ease),
+                border-color var(--vc-duration) var(--vc-ease);
+}
+
+.vc-nav__link:hover {
+    color: var(--vc-header-text);
+}
+
+.vc-nav__link--active {
+    color: var(--vc-header-text);
+    border-bottom-color: var(--vc-header-accent);
+}
+
+.vc-search {
+    position: relative;
+    display: flex;
+    align-items: center;
+    width: 100%;
+    max-width: 26rem;
+    margin-inline: auto;
+}
+
+.vc-search__icon {
+    position: absolute;
+    left: var(--vc-space-3);
+    width: 1rem;
+    height: 1rem;
+    color: var(--vc-header-muted);
+    pointer-events: none;
+}
+
+.vc-search__input {
+    width: 100%;
+    padding: 0.5rem var(--vc-space-3) 0.5rem 2.25rem;
+    font-size: var(--vc-text-sm);
+    color: var(--vc-header-text);
+    background: var(--vc-header-field);
+    border: 1px solid var(--vc-header-rule);
+    border-radius: var(--vc-radius-md);
+    transition: background var(--vc-duration) var(--vc-ease);
+}
+
+.vc-search__input::placeholder {
+    color: var(--vc-header-muted);
+}
+
+.vc-search__input:hover {
+    background: var(--vc-header-field-hover);
+}
+
+.vc-search__input:focus {
+    background: var(--vc-header-field-hover);
+    border-color: var(--vc-header-accent);
+    outline: none;
+}
+
+.vc-search__clear {
+    position: absolute;
+    right: var(--vc-space-2);
+    display: grid;
+    place-items: center;
+    width: 1.5rem;
+    height: 1.5rem;
+    color: var(--vc-header-muted);
+    background: none;
+    border: 0;
+    border-radius: var(--vc-radius-sm);
+    cursor: pointer;
+}
+
+.vc-search__clear:hover {
+    color: var(--vc-header-text);
+}
+
+.vc-cart-button {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    gap: var(--vc-space-2);
+    padding: 0.44rem var(--vc-space-3);
+    font-size: var(--vc-text-sm);
+    font-weight: 500;
+    color: var(--vc-header-text);
+    background: var(--vc-header-field);
+    border: 1px solid var(--vc-header-rule);
+    border-radius: var(--vc-radius-md);
+    cursor: pointer;
+    transition: background var(--vc-duration) var(--vc-ease);
+}
+
+.vc-cart-button:hover {
+    background: var(--vc-header-field-hover);
+}
+
+.vc-cart-button__icon {
+    width: 1.05rem;
+    height: 1.05rem;
+}
+
+.vc-cart-button__label {
+    display: none;
+}
+
+.vc-cart-button__count {
+    min-width: 1.35rem;
+    padding-inline: 0.3rem;
+    font-family: var(--vc-font-mono);
+    font-variant-numeric: tabular-nums;
+    font-size: var(--vc-text-2xs);
+    font-weight: 600;
+    line-height: 1.35rem;
+    text-align: center;
+    color: var(--vc-on-accent);
+    background: var(--vc-header-accent);
+    border-radius: var(--vc-radius-pill);
+}
+
+.vc-cart-button__count--empty {
+    color: var(--vc-header-muted);
+    background: var(--vc-header-field-hover);
+}
+
+@media (min-width: 40rem) {
+    .vc-cart-button__label {
+        display: inline;
+    }
+}
+
+
+/* --- 6.4 Footer ---------------------------------------------------------- */
+
+.vc-footer {
+    flex: none;
+    margin-top: var(--vc-space-9);
+    padding-block: var(--vc-space-7) var(--vc-space-6);
+    color: var(--vc-header-text);
+    background: var(--vc-header-bg);
+}
+
+.vc-footer__grid {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: var(--vc-space-6);
+}
+
+@media (min-width: 48rem) {
+    .vc-footer__grid {
+        grid-template-columns: 1.6fr 1fr 1fr;
+    }
+}
+
+.vc-footer__col h2 {
+    margin-bottom: var(--vc-space-3);
+    font-family: var(--vc-font-mono);
+    font-size: var(--vc-text-2xs);
+    font-weight: 500;
+    letter-spacing: var(--vc-tracking-wider);
+    text-transform: uppercase;
+    color: var(--vc-header-muted);
+}
+
+.vc-footer__list {
+    display: flex;
+    flex-direction: column;
+    gap: var(--vc-space-2);
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    font-size: var(--vc-text-sm);
+    color: var(--vc-header-muted);
+}
+
+.vc-footer__list a:hover {
+    color: var(--vc-header-text);
+}
+
+.vc-footer__blurb {
+    max-width: 38ch;
+    margin-top: var(--vc-space-3);
+    font-size: var(--vc-text-sm);
+    color: var(--vc-header-muted);
+}
+
+.vc-footer__base {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--vc-space-2) var(--vc-space-5);
+    margin-top: var(--vc-space-7);
+    padding-top: var(--vc-space-4);
+    border-top: 1px solid var(--vc-header-rule);
+    font-family: var(--vc-font-mono);
+    font-size: var(--vc-text-2xs);
+    letter-spacing: 0.04em;
+    color: var(--vc-header-muted);
+}
+
+
+/* --- 6.5 Controls -------------------------------------------------------- */
+
+.vc-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: var(--vc-space-2);
+    padding: 0.5rem var(--vc-space-4);
+    font-size: var(--vc-text-sm);
+    font-weight: 600;
+    letter-spacing: 0.01em;
+    color: var(--vc-text);
+    background: var(--vc-surface);
+    border: 1px solid var(--vc-rule-strong);
+    border-radius: var(--vc-radius-md);
+    cursor: pointer;
+    transition: background var(--vc-duration) var(--vc-ease),
+                border-color var(--vc-duration) var(--vc-ease),
+                color var(--vc-duration) var(--vc-ease);
+}
+
+.vc-btn:hover:not(:disabled) {
+    border-color: var(--vc-accent-line);
+}
+
+.vc-btn:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+}
+
+.vc-btn--primary {
+    color: var(--vc-on-accent);
+    background: var(--vc-accent);
+    border-color: var(--vc-accent);
+}
+
+.vc-btn--primary:hover:not(:disabled) {
+    background: var(--vc-accent-strong);
+    border-color: var(--vc-accent-strong);
+}
+
+.vc-btn--quiet {
+    background: transparent;
+    border-color: transparent;
+    color: var(--vc-text-muted);
+}
+
+.vc-btn--quiet:hover:not(:disabled) {
+    color: var(--vc-text);
+    background: var(--vc-surface);
+}
+
+.vc-btn--sm {
+    padding: 0.3rem var(--vc-space-3);
+    font-size: var(--vc-text-xs);
+}
+
+.vc-field {
+    display: flex;
+    flex-direction: column;
+    gap: var(--vc-space-1);
+}
+
+.vc-label {
+    font-family: var(--vc-font-mono);
+    font-size: var(--vc-text-2xs);
+    letter-spacing: var(--vc-tracking-wide);
+    text-transform: uppercase;
+    color: var(--vc-text-faint);
+}
+
+.vc-input,
+.vc-select {
+    padding: 0.44rem var(--vc-space-3);
+    font-size: var(--vc-text-sm);
+    color: var(--vc-text);
+    background: var(--vc-surface);
+    border: 1px solid var(--vc-rule-strong);
+    border-radius: var(--vc-radius-md);
+}
+
+.vc-select {
+    padding-right: var(--vc-space-6);
+    /* A drawn chevron rather than the platform arrow, so the control matches
+       the rest of the line art. Encoded as a data URI to stay request-free. */
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 8'%3E%3Cpath d='M1 1.5 6 6.5 11 1.5' fill='none' stroke='%23888' stroke-width='1.5' stroke-linecap='square'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right var(--vc-space-3) center;
+    background-size: 0.7rem;
+    appearance: none;
+    cursor: pointer;
+}
+
+.vc-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--vc-space-2);
+    padding: 0.22rem var(--vc-space-3);
+    font-size: var(--vc-text-xs);
+    font-weight: 500;
+    color: var(--vc-text-muted);
+    background: var(--vc-surface);
+    border: 1px solid var(--vc-rule);
+    border-radius: var(--vc-radius-pill);
+    cursor: pointer;
+    white-space: nowrap;
+}
+
+.vc-chip:hover {
+    border-color: var(--vc-rule-strong);
+    color: var(--vc-text);
+}
+
+.vc-chip--active {
+    color: var(--vc-on-secondary);
+    background: var(--vc-secondary);
+    border-color: var(--vc-secondary);
+}
+
+
+/* --- 6.5b Page head ------------------------------------------------------ */
+
+.vc-hero {
+    display: flex;
+    flex-direction: column;
+    gap: var(--vc-space-3);
+    max-width: 64ch;
+    padding-block: var(--vc-space-2) var(--vc-space-7);
+}
+
+.vc-hero__meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--vc-space-2) var(--vc-space-4);
+    font-family: var(--vc-font-mono);
+    font-variant-numeric: tabular-nums;
+    font-size: var(--vc-text-2xs);
+    letter-spacing: var(--vc-tracking-wide);
+    text-transform: uppercase;
+    color: var(--vc-text-faint);
+}
+
+
+/* --- 6.6 Toolbar --------------------------------------------------------- */
+
+.vc-toolbar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-end;
+    gap: var(--vc-space-3);
+    padding-block: var(--vc-space-4);
+    border-top: 1px solid var(--vc-rule);
+    border-bottom: 1px solid var(--vc-rule);
+}
+
+.vc-toolbar__group {
+    display: flex;
+    align-items: flex-end;
+    gap: var(--vc-space-3);
+}
+
+.vc-toolbar__spacer {
+    flex: 1 1 auto;
+}
+
+/* Reserved width so the count settling from "—" to "288 products" cannot
+   shove the sort control sideways. */
+.vc-result-count {
+    min-width: 13ch;
+    font-family: var(--vc-font-mono);
+    font-variant-numeric: tabular-nums;
+    font-size: var(--vc-text-xs);
+    letter-spacing: 0.02em;
+    color: var(--vc-text-muted);
+    padding-bottom: 0.5rem;
+}
+
+.vc-result-count strong {
+    color: var(--vc-text);
+    font-weight: 600;
+}
+
+
+/* --- 6.7 Grid and card --------------------------------------------------- */
+
+.vc-grid {
+    display: grid;
+    gap: var(--vc-space-5) var(--vc-space-4);
+    grid-template-columns: repeat(auto-fill, minmax(15rem, 1fr));
+    margin-top: var(--vc-space-6);
+}
+
+/* 375px: one column, but the card must not overflow its padding. */
+@media (max-width: 26rem) {
+    .vc-grid {
+        grid-template-columns: 1fr;
+    }
+}
+
+.vc-card {
+    display: flex;
+    flex-direction: column;
+    background: var(--vc-surface);
+    border: 1px solid var(--vc-rule);
+    border-radius: var(--vc-radius-lg);
+    overflow: hidden;
+    transition: border-color var(--vc-duration) var(--vc-ease),
+                box-shadow var(--vc-duration) var(--vc-ease),
+                transform var(--vc-duration) var(--vc-ease);
+}
+
+.vc-card:hover,
+.vc-card:focus-within {
+    border-color: var(--vc-accent-line);
+    box-shadow: var(--vc-shadow-md);
+    transform: translateY(-2px);
+}
+
+.vc-card__media {
+    position: relative;
+    /* Fixed ratio: the grid's row heights are known before any content
+       arrives, so nothing reflows as cards fill in. */
+    aspect-ratio: 4 / 3;
+    border-bottom: 1px solid var(--vc-rule);
+}
+
+.vc-card__body {
+    display: flex;
+    flex: 1 1 auto;
+    flex-direction: column;
+    gap: var(--vc-space-2);
+    padding: var(--vc-space-4);
+}
+
+.vc-card__eyebrow {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--vc-space-2);
+}
+
+.vc-card__title {
+    font-family: var(--vc-font-display);
+    font-size: var(--vc-text-md);
+    font-weight: 600;
+    font-variation-settings: "opsz" 24;
+    line-height: var(--vc-leading-snug);
+    /* Two lines, always. A one-line name and a three-line name must not make
+       two cards different heights. */
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+    min-height: calc(2 * var(--vc-text-md) * var(--vc-leading-snug));
+}
+
+.vc-card:hover .vc-card__title {
+    color: var(--vc-accent-strong);
+}
+
+.vc-card__foot {
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: var(--vc-space-3);
+    margin-top: auto;
+    padding-top: var(--vc-space-3);
+    border-top: 1px solid var(--vc-rule);
+}
+
+/* The quiet right-hand note in a card footer: where the thing was made. */
+.vc-card__note {
+    flex: 0 1 auto;
+    min-width: 0;
+    font-family: var(--vc-font-mono);
+    font-size: var(--vc-text-2xs);
+    letter-spacing: 0.04em;
+    color: var(--vc-text-faint);
+    text-align: right;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+
+/* --- 6.8 Motif (the drawn placeholder) ----------------------------------- */
+/*
+   No catalog photography exists — the seed writes filenames only. Rather than
+   a broken image or eight grey boxes, each card draws a category motif
+   detailed by a hash of the product slug. Category classes set the ground and
+   the accent; the component sets --vc-motif-angle inline from that hash.
+*/
+
+.vc-motif {
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(var(--vc-motif-angle), var(--vc-motif-ground-a), var(--vc-motif-ground-b));
+    overflow: hidden;
+}
+
+.vc-motif__svg {
+    width: 100%;
+    height: 100%;
+}
+
+/*
+   Colour for generated artwork is applied through these classes, never through SVG
+   presentation attributes: var() is not substituted inside a presentation attribute, so
+   stroke="var(--x)" silently draws nothing. Geometry stays on the element; colour lives here.
+*/
+.vc-motif__line {
+    fill: none;
+    stroke: var(--vc-motif-line);
+    stroke-linecap: square;
+}
+
+.vc-motif__line--soft {
+    opacity: 0.55;
+}
+
+.vc-motif__line--hair {
+    opacity: 0.32;
+}
+
+.vc-motif__ink {
+    fill: none;
+    stroke: var(--vc-motif-ink);
+    stroke-linecap: square;
+}
+
+.vc-motif__fill {
+    fill: var(--vc-motif-line);
+    stroke: none;
+}
+
+.vc-motif__accent {
+    fill: none;
+    stroke: var(--vc-motif-accent);
+    stroke-linecap: square;
+}
+
+.vc-motif__accent-fill {
+    fill: var(--vc-motif-accent);
+    stroke: none;
+}
+
+.vc-motif__text {
+    fill: var(--vc-motif-ink);
+    stroke: none;
+    font-family: var(--vc-font-mono);
+    font-size: 11px;
+    letter-spacing: 0.06em;
+}
+
+.vc-motif__label {
+    position: absolute;
+    left: var(--vc-space-3);
+    bottom: var(--vc-space-2);
+    font-family: var(--vc-font-mono);
+    font-size: var(--vc-text-2xs);
+    letter-spacing: var(--vc-tracking-wide);
+    text-transform: uppercase;
+    color: var(--vc-motif-ink);
+}
+
+.vc-motif--compass {
+    --vc-motif-accent: var(--vela-brass-500);
+}
+
+.vc-motif--rope {
+    --vc-motif-accent: var(--vela-brass-600);
+}
+
+.vc-motif--contours {
+    --vc-motif-accent: var(--vela-sea-600);
+}
+
+.vc-motif--bolt {
+    --vc-motif-accent: var(--vela-ink-600);
+}
+
+.vc-motif--storm {
+    --vc-motif-accent: var(--vela-sea-600);
+}
+
+.vc-motif--blade {
+    --vc-motif-accent: var(--vela-ink-600);
+}
+
+.vc-motif--lens {
+    --vc-motif-accent: var(--vela-brass-500);
+}
+
+.vc-motif--weave {
+    --vc-motif-accent: var(--vela-sea-700);
+}
+
+@media (prefers-color-scheme: dark) {
+    .vc-motif--compass,
+    .vc-motif--lens {
+        --vc-motif-accent: var(--vela-brass-400);
+    }
+
+    .vc-motif--contours,
+    .vc-motif--storm,
+    .vc-motif--weave {
+        --vc-motif-accent: var(--vela-sea-300);
+    }
+
+    .vc-motif--bolt,
+    .vc-motif--blade {
+        --vc-motif-accent: var(--vela-ink-300);
+    }
+}
+
+
+/* --- 6.9 Readouts, specs, price, tags ------------------------------------ */
+/*
+   This catalog is full of breaking loads, lumens, IP ratings and chart
+   scales. They are set like instrument readings: mono, tabular, the unit
+   detached and quieter than the number.
+*/
+
+.vc-readout {
+    display: inline-flex;
+    align-items: baseline;
+    gap: 0.28rem;
+    font-family: var(--vc-font-mono);
+    font-variant-numeric: tabular-nums;
+}
+
+.vc-readout__label {
+    font-size: var(--vc-text-2xs);
+    letter-spacing: var(--vc-tracking-wide);
+    text-transform: uppercase;
+    color: var(--vc-text-faint);
+}
+
+.vc-readout__value {
+    font-size: var(--vc-text-sm);
+    font-weight: 500;
+    color: var(--vc-text);
+}
+
+.vc-readout__unit {
+    font-size: var(--vc-text-2xs);
+    color: var(--vc-text-faint);
+}
+
+/* The card's single headline spec: label above, reading below, fixed height. */
+.vc-readout--stacked {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.1rem;
+    min-height: 2.35rem;
+}
+
+.vc-specs {
+    display: grid;
+    grid-template-columns: minmax(8rem, auto) 1fr;
+    gap: 0;
+    margin: 0;
+    border-top: 1px solid var(--vc-rule);
+}
+
+.vc-specs__key,
+.vc-specs__value {
+    padding: var(--vc-space-2) 0;
+    border-bottom: 1px solid var(--vc-rule);
+}
+
+.vc-specs__key {
+    font-family: var(--vc-font-mono);
+    font-size: var(--vc-text-2xs);
+    letter-spacing: var(--vc-tracking-wide);
+    text-transform: uppercase;
+    color: var(--vc-text-faint);
+    padding-right: var(--vc-space-4);
+}
+
+.vc-specs__value {
+    font-size: var(--vc-text-sm);
+    color: var(--vc-text);
+}
+
+.vc-specs__value--numeric {
+    font-family: var(--vc-font-mono);
+    font-variant-numeric: tabular-nums;
+}
+
+.vc-price {
+    display: inline-flex;
+    align-items: baseline;
+    gap: 0.3rem;
+    font-family: var(--vc-font-mono);
+    font-variant-numeric: tabular-nums;
+    color: var(--vc-text);
+}
+
+.vc-price__label {
+    font-size: var(--vc-text-2xs);
+    letter-spacing: var(--vc-tracking-wide);
+    text-transform: uppercase;
+    color: var(--vc-text-faint);
+}
+
+.vc-price__amount {
+    font-size: var(--vc-text-md);
+    font-weight: 600;
+    letter-spacing: -0.01em;
+}
+
+.vc-price--lg .vc-price__amount {
+    font-size: var(--vc-text-xl);
+}
+
+.vc-tag {
+    display: inline-flex;
+    align-items: center;
+    padding: 0.1rem 0.45rem;
+    font-family: var(--vc-font-mono);
+    font-size: var(--vc-text-2xs);
+    letter-spacing: var(--vc-tracking-wide);
+    text-transform: uppercase;
+    border-radius: var(--vc-radius-sm);
+    color: var(--vc-text-muted);
+    background: var(--vc-bg-sunken);
+}
+
+.vc-tag--sea {
+    color: var(--vc-secondary);
+    background: var(--vc-secondary-soft);
+}
+
+.vc-tag--brass {
+    color: var(--vc-accent-strong);
+    background: var(--vc-accent-soft);
+}
+
+.vc-tag--signal {
+    color: var(--vc-signal);
+    background: var(--vc-signal-soft);
+}
+
+
+/* --- 6.10 Skeletons ------------------------------------------------------ */
+/*
+   Sized to match the real card exactly, so the first paint and the loaded
+   paint occupy identical boxes and the page never jumps.
+*/
+
+.vc-skeleton {
+    background: linear-gradient(90deg,
+        var(--vc-skeleton-base) 0%,
+        var(--vc-skeleton-sheen) 45%,
+        var(--vc-skeleton-base) 90%);
+    background-size: 220% 100%;
+    border-radius: var(--vc-radius-sm);
+    animation: vc-skeleton-pan 1.6s var(--vc-ease) infinite;
+}
+
+.vc-skeleton--media {
+    position: absolute;
+    inset: 0;
+    border-radius: 0;
+}
+
+.vc-skeleton--line {
+    height: 0.7rem;
+}
+
+.vc-skeleton--title {
+    height: 0.95rem;
+}
+
+@keyframes vc-skeleton-pan {
+    from { background-position: 120% 0; }
+    to { background-position: -60% 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .vc-skeleton {
+        animation: none;
+    }
+
+    .vc-card:hover,
+    .vc-card:focus-within {
+        transform: none;
+    }
+}
+
+
+/* --- 6.11 States --------------------------------------------------------- */
+
+.vc-alert {
+    display: flex;
+    flex-direction: column;
+    gap: var(--vc-space-3);
+    padding: var(--vc-space-5);
+    margin-top: var(--vc-space-6);
+    background: var(--vc-surface);
+    border: 1px solid var(--vc-rule-strong);
+    border-left: 3px solid var(--vc-rule-strong);
+    border-radius: var(--vc-radius-md);
+}
+
+.vc-alert--error {
+    border-left-color: var(--vc-signal);
+}
+
+.vc-alert__title {
+    font-family: var(--vc-font-display);
+    font-size: var(--vc-text-lg);
+    font-weight: 600;
+}
+
+.vc-alert__body {
+    max-width: 62ch;
+    color: var(--vc-text-muted);
+    font-size: var(--vc-text-sm);
+}
+
+.vc-alert__detail {
+    font-family: var(--vc-font-mono);
+    font-size: var(--vc-text-xs);
+    color: var(--vc-text-faint);
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    margin-top: var(--vc-space-2);
+}
+
+.vc-alert__detail summary {
+    cursor: pointer;
+    color: var(--vc-text-muted);
+}
+
+.vc-alert__actions {
+    display: flex;
+    gap: var(--vc-space-2);
+}
+
+.vc-empty {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: var(--vc-space-3);
+    padding: var(--vc-space-9) 0;
+    max-width: 52ch;
+}
+
+.vc-empty__title {
+    font-family: var(--vc-font-display);
+    font-size: var(--vc-text-xl);
+    font-weight: 600;
+}
+
+.vc-empty__body {
+    color: var(--vc-text-muted);
+    font-size: var(--vc-text-sm);
+}
+
+
+/* --- 6.12 Pager ---------------------------------------------------------- */
+
+.vc-pager {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--vc-space-3);
+    margin-top: var(--vc-space-7);
+    padding-top: var(--vc-space-4);
+    border-top: 1px solid var(--vc-rule);
+}
+
+.vc-pager__status {
+    font-family: var(--vc-font-mono);
+    font-variant-numeric: tabular-nums;
+    font-size: var(--vc-text-xs);
+    color: var(--vc-text-muted);
+}
+
+
+/* --- 6.13 Boot splash ----------------------------------------------------
+   Styles the markup index.html paints before the WebAssembly runtime is up.
+   It uses the same palette and the same header height as the real shell so
+   the swap is a fade, not a jump.
+   ------------------------------------------------------------------------ */
+
+.vc-boot {
+    display: flex;
+    flex-direction: column;
+    min-height: 100vh;
+}
+
+.vc-boot__bar {
+    display: flex;
+    align-items: center;
+    min-height: var(--vc-header-height);
+    padding-inline: var(--vc-space-4);
+    background: var(--vc-header-bg);
+    color: var(--vc-header-text);
+    border-bottom: 1px solid var(--vc-header-rule);
+}
+
+.vc-boot__name {
+    font-family: var(--vc-font-display);
+    font-size: var(--vc-text-lg);
+    font-weight: 600;
+}
+
+.vc-boot__body {
+    display: flex;
+    flex-direction: column;
+    gap: var(--vc-space-2);
+    padding: var(--vc-space-9) var(--vc-space-4);
+    max-width: var(--vc-container);
+    margin-inline: auto;
+    width: 100%;
+}
+
+.vc-boot__status {
+    font-family: var(--vc-font-mono);
+    font-size: var(--vc-text-xs);
+    letter-spacing: var(--vc-tracking-wide);
+    text-transform: uppercase;
+    color: var(--vc-text-faint);
+}
+
+/* Blazor's own unhandled-error bar, restyled to belong here. */
+#blazor-error-ui {
+    display: none;
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    z-index: 1000;
+    padding: var(--vc-space-3) var(--vc-space-4);
+    font-size: var(--vc-text-sm);
+    color: var(--vc-text-inverse);
+    background: var(--vc-signal);
+    box-shadow: var(--vc-shadow-lg);
+}
+
+#blazor-error-ui .dismiss {
+    float: right;
+    cursor: pointer;
+}
+
+#blazor-error-ui .reload {
+    text-decoration: underline;
+}
+
+
+/* --- 6.14 Product page --------------------------------------------------- */
+
+.vc-crumbs {
+    display: flex;
+    align-items: center;
+    gap: var(--vc-space-2);
+    padding-block: var(--vc-space-1) var(--vc-space-4);
+    font-family: var(--vc-font-mono);
+    font-size: var(--vc-text-2xs);
+    letter-spacing: var(--vc-tracking-wide);
+    text-transform: uppercase;
+    color: var(--vc-text-faint);
+}
+
+.vc-crumbs__link:hover {
+    color: var(--vc-accent-strong);
+}
+
+.vc-crumbs__sep {
+    color: var(--vc-rule-strong);
+}
+
+/*
+   One column at every width until there is genuinely room for two. The media
+   keeps its 4:3 so the page occupies its final geometry while the snapshot is
+   still in flight, exactly like the grid's cards.
+*/
+.vc-product {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: var(--vc-space-6);
+    padding-bottom: var(--vc-space-7);
+}
+
+@media (min-width: 60rem) {
+    .vc-product {
+        grid-template-columns: minmax(0, 1fr) minmax(21rem, 26rem);
+        gap: var(--vc-space-8);
+        align-items: start;
+    }
+}
+
+.vc-product__media {
+    position: relative;
+    aspect-ratio: 4 / 3;
+    margin: 0;
+    background: var(--vc-surface);
+    border: 1px solid var(--vc-rule);
+    border-radius: var(--vc-radius-lg);
+    overflow: hidden;
+}
+
+.vc-product__panel {
+    display: flex;
+    flex-direction: column;
+    gap: var(--vc-space-3);
+    min-width: 0;
+}
+
+.vc-product__title {
+    font-size: var(--vc-text-2xl);
+    font-weight: 600;
+    font-variation-settings: "opsz" 72;
+}
+
+.vc-product__price {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: var(--vc-space-2) var(--vc-space-4);
+    padding-bottom: var(--vc-space-1);
+}
+
+.vc-product__sku {
+    font-family: var(--vc-font-mono);
+    font-size: var(--vc-text-2xs);
+    letter-spacing: var(--vc-tracking-wide);
+    color: var(--vc-text-faint);
+}
+
+.vc-product__desc {
+    max-width: 52ch;
+    color: var(--vc-text-muted);
+    font-size: var(--vc-text-base);
+}
+
+.vc-product__origin {
+    padding-top: var(--vc-space-1);
+    font-family: var(--vc-font-mono);
+    font-size: var(--vc-text-2xs);
+    letter-spacing: var(--vc-tracking-wide);
+    text-transform: uppercase;
+    color: var(--vc-text-faint);
+}
+
+.vc-product__note {
+    font-size: var(--vc-text-sm);
+    color: var(--vc-text-muted);
+}
+
+.vc-code {
+    font-family: var(--vc-font-mono);
+    font-size: 0.95em;
+    padding: 0.05em 0.35em;
+    color: var(--vc-text);
+    background: var(--vc-bg-sunken);
+    border-radius: var(--vc-radius-sm);
+    overflow-wrap: anywhere;
+}
+
+/* Variant selector: real radios, hidden over their own labels, so the group
+   keeps native arrow-key behaviour and the labels can be styled freely. */
+.vc-variants {
+    display: flex;
+    flex-direction: column;
+    gap: var(--vc-space-2);
+    margin: 0;
+    padding: 0;
+    border: 0;
+}
+
+.vc-variants__legend {
+    padding: 0;
+}
+
+.vc-variants__list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--vc-space-2);
+}
+
+.vc-variant {
+    position: relative;
+    display: flex;
+}
+
+.vc-variant__input {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    margin: 0;
+    opacity: 0;
+    cursor: pointer;
+}
+
+.vc-variant__label {
+    display: flex;
+    flex-direction: column;
+    gap: 0.12rem;
+    padding: 0.42rem var(--vc-space-3);
+    min-width: 4.5rem;
+    font-size: var(--vc-text-sm);
+    font-weight: 500;
+    background: var(--vc-surface);
+    border: 1px solid var(--vc-rule-strong);
+    border-radius: var(--vc-radius-md);
+    cursor: pointer;
+    transition: border-color var(--vc-duration) var(--vc-ease),
+                background var(--vc-duration) var(--vc-ease);
+}
+
+.vc-variant__input:hover + .vc-variant__label {
+    border-color: var(--vc-accent-line);
+}
+
+.vc-variant__input:checked + .vc-variant__label {
+    color: var(--vc-text);
+    background: var(--vc-accent-soft);
+    border-color: var(--vc-accent);
+    box-shadow: inset 0 0 0 1px var(--vc-accent);
+}
+
+.vc-variant__input:focus-visible + .vc-variant__label {
+    outline: 2px solid var(--vc-focus);
+    outline-offset: 2px;
+}
+
+.vc-variant__price {
+    font-size: var(--vc-text-2xs);
+    color: var(--vc-text-faint);
+}
+
+.vc-variant__input:checked + .vc-variant__label .vc-variant__price {
+    color: var(--vc-accent-strong);
+}
+
+/* One SKU: a readout, not a control that offers a single choice. */
+.vc-variant-static {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: var(--vc-space-2) var(--vc-space-3);
+    padding-block: var(--vc-space-3);
+    border-block: 1px solid var(--vc-rule);
+}
+
+.vc-variant-static__value {
+    flex: 1 1 auto;
+    font-size: var(--vc-text-sm);
+    font-weight: 500;
+}
+
+.vc-variant-static__price {
+    font-size: var(--vc-text-sm);
+    color: var(--vc-text-muted);
+}
+
+.vc-buy {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--vc-space-3);
+    padding-top: var(--vc-space-2);
+}
+
+.vc-buy__add {
+    flex: 1 1 11rem;
+    padding-block: 0.6rem;
+}
+
+/* Reserved height: the confirmation appearing must not shove the origin line. */
+.vc-buy__status {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--vc-space-3);
+    min-height: 1.9rem;
+}
+
+.vc-buy__status-text {
+    font-size: var(--vc-text-xs);
+    color: var(--vc-secondary);
+}
+
+
+/* --- 6.15 Spec sheet ------------------------------------------------------
+   The signature of the product page. A chandlery's catalog is full of breaking
+   loads, water columns, lumens and chart scales; printed as a bulleted list
+   they are wasted. Here they are set the way a spec plate sets them: label
+   left, a dotted leader across the gap, the figure right in tabular numerals,
+   and the unit kept with its number but a shade quieter.
+   ------------------------------------------------------------------------ */
+
+.vc-specsheet {
+    padding-top: var(--vc-space-5);
+    border-top: 2px solid var(--vc-rule-strong);
+}
+
+.vc-specsheet__head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: var(--vc-space-2) var(--vc-space-4);
+}
+
+.vc-specsheet__title {
+    font-family: var(--vc-font-display);
+    font-size: var(--vc-text-lg);
+    font-weight: 600;
+    font-variation-settings: "opsz" 36;
+}
+
+.vc-specsheet__sku {
+    font-family: var(--vc-font-mono);
+    font-size: var(--vc-text-2xs);
+    letter-spacing: var(--vc-tracking-wide);
+    text-transform: uppercase;
+    color: var(--vc-text-faint);
+}
+
+.vc-specsheet__sku-sep {
+    color: var(--vc-rule-strong);
+}
+
+/*
+   Two columns when there is room, one at 375px. The minimum is generous on
+   purpose: three narrow columns leave the leader too short to read as a leader,
+   and these values run to "Storm flap over a coil zip".
+*/
+.vc-specsheet__grid {
+    display: grid;
+    /* min() inside the minmax, not a bare 24rem: at 375px a bare track minimum
+       is wider than the column and pushes the whole document sideways. */
+    grid-template-columns: repeat(auto-fill, minmax(min(24rem, 100%), 1fr));
+    column-gap: var(--vc-space-9);
+    margin: var(--vc-space-4) 0 0;
+    border-top: 1px solid var(--vc-rule);
+}
+
+.vc-specsheet__row {
+    display: flex;
+    align-items: baseline;
+    gap: var(--vc-space-2);
+    padding-block: var(--vc-space-3);
+    border-bottom: 1px solid var(--vc-rule);
+}
+
+.vc-specsheet__label {
+    display: flex;
+    align-items: baseline;
+    gap: var(--vc-space-2);
+    flex: 1 1 auto;
+    min-width: 0;
+    margin: 0;
+    font-family: var(--vc-font-mono);
+    font-size: var(--vc-text-2xs);
+    letter-spacing: var(--vc-tracking-wide);
+    text-transform: uppercase;
+    color: var(--vc-text-faint);
+}
+
+.vc-specsheet__name {
+    flex: 0 1 auto;
+}
+
+/*
+   The leader. An empty box has no baseline of its own, so a baseline-aligned
+   flex item synthesises one at its bottom margin edge — which puts this rule
+   exactly on the text baseline, and the margin lifts it just clear of it.
+*/
+.vc-specsheet__lead {
+    flex: 1 1 auto;
+    min-width: 1rem;
+    height: 0;
+    margin-bottom: 0.24em;
+    border-bottom: 1px dotted var(--vc-rule-strong);
+}
+
+.vc-specsheet__value {
+    flex: 0 1 auto;
+    min-width: 0;
+    margin: 0;
+    font-size: var(--vc-text-sm);
+    font-weight: 500;
+    color: var(--vc-text);
+    text-align: right;
+    overflow-wrap: anywhere;
+}
+
+.vc-specsheet__value--numeric .vc-specsheet__figure {
+    font-family: var(--vc-font-mono);
+    font-variant-numeric: tabular-nums;
+    font-feature-settings: "tnum" 1;
+}
+
+.vc-specsheet__unit {
+    font-family: var(--vc-font-mono);
+    font-size: var(--vc-text-2xs);
+    font-weight: 400;
+    color: var(--vc-text-faint);
+}
+
+.vc-specsheet__foot {
+    max-width: 62ch;
+    margin-top: var(--vc-space-4);
+    font-size: var(--vc-text-xs);
+    color: var(--vc-text-faint);
+}
+
+
+/* --- 6.16 Quantity stepper ----------------------------------------------- */
+
+.vc-stepper {
+    display: inline-flex;
+    align-items: stretch;
+    flex: none;
+    background: var(--vc-surface);
+    border: 1px solid var(--vc-rule-strong);
+    border-radius: var(--vc-radius-md);
+    overflow: hidden;
+}
+
+.vc-stepper__btn {
+    display: grid;
+    place-items: center;
+    width: 2.1rem;
+    padding: 0;
+    font-size: var(--vc-text-md);
+    line-height: 1;
+    color: var(--vc-text-muted);
+    background: transparent;
+    border: 0;
+    cursor: pointer;
+    transition: background var(--vc-duration) var(--vc-ease),
+                color var(--vc-duration) var(--vc-ease);
+}
+
+.vc-stepper__btn:hover:not(:disabled) {
+    color: var(--vc-text);
+    background: var(--vc-bg-sunken);
+}
+
+.vc-stepper__btn:disabled {
+    opacity: 0.35;
+    cursor: not-allowed;
+}
+
+/* A stepper button that sets `disabled` on itself moves focus to <body> when clicked,
+   which escapes the cart drawer's focus trap. aria-disabled keeps it focusable and
+   announced as unavailable; the handler already clamps, so the click is a no-op. */
+.vc-stepper__btn[aria-disabled="true"] {
+    opacity: 0.35;
+    cursor: not-allowed;
+}
+
+.vc-stepper__btn:focus-visible {
+    outline: 2px solid var(--vc-focus);
+    outline-offset: -3px;
+}
+
+.vc-stepper__input {
+    width: 2.9rem;
+    padding: 0.42rem 0.2rem;
+    font-size: var(--vc-text-sm);
+    text-align: center;
+    background: transparent;
+    border: 0;
+    border-inline: 1px solid var(--vc-rule);
+    /* Our own two buttons are the spinner; the platform pair is redundant. */
+    appearance: textfield;
+    -moz-appearance: textfield;
+}
+
+.vc-stepper__input::-webkit-outer-spin-button,
+.vc-stepper__input::-webkit-inner-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+}
+
+.vc-stepper__input:focus-visible {
+    outline: 2px solid var(--vc-focus);
+    outline-offset: -3px;
+}
+
+.vc-stepper--sm .vc-stepper__btn {
+    width: 1.8rem;
+    font-size: var(--vc-text-sm);
+}
+
+.vc-stepper--sm .vc-stepper__input {
+    width: 2.5rem;
+    padding-block: 0.26rem;
+    font-size: var(--vc-text-xs);
+}
+
+
+/* --- 6.17 Cart drawer -----------------------------------------------------
+   Always in the DOM so the slide has something to animate in BOTH directions.
+   A closed drawer must be unreachable, and that is done with the `inert`
+   attribute the component sets — inert takes its subtree out of the tab order
+   AND out of the accessibility tree, which is exactly the job, and unlike a
+   `visibility` transition it does not depend on a transition finishing. The
+   pointer-events rule below is the belt to that braces.
+   ------------------------------------------------------------------------ */
+
+.vc-drawer-root {
+    position: fixed;
+    inset: 0;
+    z-index: 80;
+    /* The closed panel is parked one panel-width to the right; clip it so it
+       can never widen the page. */
+    overflow: hidden;
+    pointer-events: none;
+}
+
+.vc-drawer-root--open {
+    pointer-events: auto;
+}
+
+.vc-drawer__scrim {
+    position: absolute;
+    inset: 0;
+    background: var(--vc-scrim);
+    opacity: 0;
+    transition: opacity var(--vc-duration-panel) var(--vc-ease);
+}
+
+.vc-drawer-root--open .vc-drawer__scrim {
+    opacity: 1;
+}
+
+.vc-drawer {
+    position: absolute;
+    inset-block: 0;
+    inset-inline-end: 0;
+    display: flex;
+    flex-direction: column;
+    width: min(var(--vc-drawer-width), 100%);
+    background: var(--vc-surface);
+    border-left: 1px solid var(--vc-rule-strong);
+    box-shadow: var(--vc-shadow-lg);
+    transform: translateX(100%);
+    transition: transform var(--vc-duration-panel) var(--vc-ease);
+}
+
+.vc-drawer-root--open .vc-drawer {
+    transform: none;
+}
+
+/* Focusable on purpose, and only ever holds focus for an instant: these are
+   the ends of the focus trap. Not display:none — that would make them
+   unfocusable and the trap would leak onto the page behind. */
+.vc-drawer__guard {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+}
+
+.vc-drawer__head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: var(--vc-space-3);
+    flex: none;
+    padding: var(--vc-space-4) var(--vc-space-5);
+    border-bottom: 1px solid var(--vc-rule);
+}
+
+.vc-drawer__title {
+    font-family: var(--vc-font-display);
+    font-size: var(--vc-text-lg);
+    font-weight: 600;
+    font-variation-settings: "opsz" 36;
+}
+
+.vc-drawer__count {
+    margin-top: 0.15rem;
+    font-family: var(--vc-font-mono);
+    font-variant-numeric: tabular-nums;
+    font-size: var(--vc-text-2xs);
+    letter-spacing: var(--vc-tracking-wide);
+    text-transform: uppercase;
+    color: var(--vc-text-faint);
+}
+
+.vc-drawer__close {
+    display: grid;
+    place-items: center;
+    flex: none;
+    width: 2rem;
+    height: 2rem;
+    color: var(--vc-text-muted);
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: var(--vc-radius-md);
+    cursor: pointer;
+}
+
+.vc-drawer__close:hover {
+    color: var(--vc-text);
+    border-color: var(--vc-rule-strong);
+}
+
+.vc-drawer__body {
+    flex: 1 1 auto;
+    padding-inline: var(--vc-space-5);
+    overflow-y: auto;
+    /* A flick that runs out of drawer must not carry on scrolling the page. */
+    overscroll-behavior: contain;
+}
+
+.vc-drawer__foot {
+    display: flex;
+    flex-direction: column;
+    gap: var(--vc-space-3);
+    flex: none;
+    padding: var(--vc-space-4) var(--vc-space-5) var(--vc-space-5);
+    background: var(--vc-surface-alt);
+    border-top: 1px solid var(--vc-rule);
+}
+
+.vc-drawer__checkout {
+    width: 100%;
+    padding-block: 0.6rem;
+}
+
+.vc-drawer__note {
+    font-size: var(--vc-text-xs);
+    line-height: var(--vc-leading-snug);
+    color: var(--vc-text-muted);
+}
+
+.vc-drawer__note--flag {
+    color: var(--vc-text-faint);
+}
+
+.vc-drawer__actions {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--vc-space-2);
+}
+
+/* The empty state gets a drawing rather than a shrug: an anchor light over
+   water, in the same line weight as the card motifs. */
+.vc-drawer__empty {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: var(--vc-space-3);
+    padding-block: var(--vc-space-8);
+}
+
+.vc-drawer__empty-mark {
+    width: 5rem;
+    height: auto;
+    color: var(--vc-text-faint);
+}
+
+.vc-drawer__empty-title {
+    font-family: var(--vc-font-display);
+    font-size: var(--vc-text-md);
+    font-weight: 600;
+}
+
+.vc-drawer__empty-body {
+    font-size: var(--vc-text-sm);
+    color: var(--vc-text-muted);
+}
+
+.vc-cart-lines {
+    display: flex;
+    flex-direction: column;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+
+.vc-cart-line {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: var(--vc-space-2) var(--vc-space-3);
+    padding-block: var(--vc-space-4);
+    border-bottom: 1px solid var(--vc-rule);
+}
+
+.vc-cart-line:last-child {
+    border-bottom: 0;
+}
+
+.vc-cart-line__main {
+    min-width: 0;
+}
+
+.vc-cart-line__name {
+    display: block;
+    font-family: var(--vc-font-display);
+    font-size: var(--vc-text-base);
+    font-weight: 600;
+    line-height: var(--vc-leading-snug);
+}
+
+.vc-cart-line__name:hover {
+    color: var(--vc-accent-strong);
+}
+
+.vc-cart-line__meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.3rem;
+    margin-top: 0.2rem;
+    font-family: var(--vc-font-mono);
+    font-size: var(--vc-text-2xs);
+    letter-spacing: 0.03em;
+    color: var(--vc-text-faint);
+}
+
+.vc-cart-line__sep {
+    color: var(--vc-rule-strong);
+}
+
+.vc-cart-line__total {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 0.1rem;
+    text-align: right;
+}
+
+.vc-cart-line__unit {
+    font-family: var(--vc-font-mono);
+    font-variant-numeric: tabular-nums;
+    font-size: var(--vc-text-2xs);
+    color: var(--vc-text-faint);
+}
+
+.vc-cart-line__controls {
+    grid-column: 1 / -1;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--vc-space-3);
+}
+
+.vc-cart-line__remove {
+    color: var(--vc-text-faint);
+}
+
+.vc-cart-line__remove:hover:not(:disabled) {
+    color: var(--vc-signal);
+    background: transparent;
+}
+
+.vc-subtotal {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: var(--vc-space-3);
+}
+
+.vc-subtotal__label {
+    font-family: var(--vc-font-mono);
+    font-size: var(--vc-text-2xs);
+    letter-spacing: var(--vc-tracking-wider);
+    text-transform: uppercase;
+    color: var(--vc-text-faint);
+}
+
+/* Set on <html> while the drawer is open, so the page behind cannot scroll
+   under it. Applied through interop and wrapped: if it fails, the page just
+   scrolls. */
+.vc-scroll-locked {
+    overflow: hidden;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .vc-drawer,
+    .vc-drawer__scrim {
+        transition: none;
+    }
+
+    .vc-variant__label {
+        transition: none;
+    }
+
+    .vc-stepper__btn {
+        transition: none;
+    }
+}

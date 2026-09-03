@@ -1,0 +1,273 @@
+@*
+    The catalog grid, at "/" for the whole shop and "/c/{category}" for one shelf.
+
+    Everything on this page is answered from the in-memory snapshot: searching, filtering,
+    sorting and paging never touch the network, so there is no spinner after the first load
+    and typing filters 288 products between keystrokes. That is the whole architectural
+    point — the shop browses with the API and the database switched off.
+
+    The component is called Browse rather than Catalog so its generated type does not
+    collide with the VelaCommerce.Storefront.Catalog namespace it uses on every line.
+*@
+@page "/"
+@page "/c/{Category}"
+@implements IDisposable
+@inject CatalogService Catalog
+@inject StorefrontState State
+@inject NavigationManager Nav
+
+<PageTitle>@PageHeading &middot; Vela Commerce</PageTitle>
+
+@* One query per render, held in a local: the markup reads six things off the result and
+   none of them should re-run the filter. *@
+@{
+    var results = Catalog.Query(CurrentQuery);
+}
+
+<header class="vc-hero">
+    <span class="vc-eyebrow">@(IsCategoryRoute ? "Shelf" : "The chandlery")</span>
+    <h1 class="vc-section-title">@PageHeading</h1>
+    <p class="vc-lede">@Lede</p>
+    <div class="vc-hero__meta">
+        <span>@(Catalog.IsReady ? $"{Catalog.ProductCount} products held" : "Loading catalog")</span>
+        <span>Served as a static snapshot</span>
+    </div>
+</header>
+
+@if (Catalog.State == CatalogLoadState.Failed)
+{
+    <div class="vc-alert vc-alert--error" role="alert">
+        <h2 class="vc-alert__title">The catalog is not aboard</h2>
+        <p class="vc-alert__body">@Catalog.ErrorMessage</p>
+        @if (Catalog.ErrorDetail is { Length: > 0 } detail)
+        {
+            <details class="vc-alert__detail">
+                <summary>Technical detail</summary>
+                @detail
+            </details>
+        }
+        <div class="vc-alert__actions">
+            <button type="button" class="vc-btn vc-btn--primary" @onclick="RetryAsync">Try again</button>
+        </div>
+    </div>
+}
+else
+{
+    <div class="vc-toolbar">
+        <div class="vc-result-count">
+            @if (Catalog.IsReady)
+            {
+                <strong>@results.TotalCount</strong>
+                @(results.TotalCount == 1 ? " product" : " products")
+            }
+            else
+            {
+                <span>Counting&hellip;</span>
+            }
+        </div>
+
+        <div class="vc-toolbar__spacer"></div>
+
+        @if (State.HasSearch)
+        {
+            <button type="button" class="vc-chip vc-chip--active" @onclick="ClearSearch">
+                &ldquo;@State.SearchTerm&rdquo;
+                <span aria-hidden="true">&times;</span>
+                <span class="vc-visually-hidden">Clear search</span>
+            </button>
+        }
+
+        @if (IsCategoryRoute)
+        {
+            <a class="vc-chip vc-chip--active" href="">
+                @PageHeading
+                <span aria-hidden="true">&times;</span>
+                <span class="vc-visually-hidden">Show every category</span>
+            </a>
+        }
+
+        <div class="vc-toolbar__group">
+            <label class="vc-field">
+                <span class="vc-label">Sort</span>
+                <select class="vc-select" @bind="SortOrder" aria-label="Sort products">
+                    <option value="@CatalogSort.Featured">Featured</option>
+                    <option value="@CatalogSort.PriceLowToHigh">Price, low to high</option>
+                    <option value="@CatalogSort.PriceHighToLow">Price, high to low</option>
+                    <option value="@CatalogSort.NameAToZ">Name, A to Z</option>
+                    <option value="@CatalogSort.NameZToA">Name, Z to A</option>
+                </select>
+            </label>
+        </div>
+    </div>
+
+    @if (!Catalog.IsReady)
+    {
+        @* Skeletons occupy the exact geometry of the real cards, so nothing moves on load. *@
+        <div class="vc-grid" aria-busy="true" aria-label="Loading products">
+            @for (var i = 0; i < SkeletonCount; i++)
+            {
+                <ProductCardSkeleton />
+            }
+        </div>
+    }
+    else if (results.TotalCount == 0)
+    {
+        <div class="vc-empty">
+            <h2 class="vc-empty__title">Nothing on that shelf</h2>
+            <p class="vc-empty__body">@EmptyMessage</p>
+            <div class="vc-alert__actions">
+                <button type="button" class="vc-btn" @onclick="ClearEverything">Clear filters</button>
+            </div>
+        </div>
+    }
+    else
+    {
+        <div class="vc-grid">
+            @foreach (var product in results.Items)
+            {
+                <ProductCard @key="product.Slug" Product="product" />
+            }
+        </div>
+
+        @if (results.PageCount > 1)
+        {
+            <nav class="vc-pager" aria-label="Catalog pages">
+                <button type="button" class="vc-btn vc-btn--sm"
+                        disabled="@(!results.HasPrevious)" @onclick="PreviousPage">
+                    Previous
+                </button>
+                <span class="vc-pager__status">
+                    Showing @results.FirstItemNumber&ndash;@results.LastItemNumber of @results.TotalCount
+                    &middot; page @results.Page of @results.PageCount
+                </span>
+                <button type="button" class="vc-btn vc-btn--sm"
+                        disabled="@(!results.HasNext)" @onclick="NextPage">
+                    Next
+                </button>
+            </nav>
+        }
+    }
+}
+
+@code {
+    private const int PageSize = 24;
+    private const int SkeletonCount = 12;
+
+    private CatalogSort _sort = CatalogSort.Featured;
+    private int _page = 1;
+
+    /// <summary>The category slug from the route, or null on "/".</summary>
+    [Parameter]
+    public string? Category { get; set; }
+
+    /// <summary>
+    /// The sort order. The setter resets to page one, because a shopper who re-sorts and
+    /// stays on page seven is looking at a page that no longer means anything.
+    /// </summary>
+    private CatalogSort SortOrder
+    {
+        get => _sort;
+        set
+        {
+            if (_sort == value)
+                return;
+
+            _sort = value;
+            _page = 1;
+        }
+    }
+
+    private bool IsCategoryRoute => !string.IsNullOrEmpty(Category);
+
+    private string PageHeading =>
+        IsCategoryRoute
+            ? Catalog.FindCategory(Category)?.Name ?? SpecFormatter.TitleCaseFromSlug(Category!)
+            : "Everything in the store";
+
+    private string Lede
+    {
+        get
+        {
+            if (!IsCategoryRoute)
+            {
+                return "Eight shelves of a working chandlery. Search, sort and browse the whole "
+                     + "catalog instantly: it is one file, and it is already on your machine.";
+            }
+
+            return Blurbs.TryGetValue(Category!, out var blurb)
+                ? blurb
+                : "Everything we hold on this shelf, priced from its cheapest variant.";
+        }
+    }
+
+    private string EmptyMessage
+    {
+        get
+        {
+            var what = State.HasSearch ? $"“{State.SearchTerm}”" : "these filters";
+            var where = IsCategoryRoute ? $" in {PageHeading}" : string.Empty;
+            return $"No product matches {what}{where}. Try fewer words, or search the whole catalog.";
+        }
+    }
+
+    private CatalogQuery CurrentQuery => new()
+    {
+        Search = State.SearchTerm,
+        Category = Category,
+        Sort = _sort,
+        Page = _page,
+        PageSize = PageSize,
+    };
+
+    /// <summary>
+    /// A line of copy per shelf. Written out rather than templated, because a chandlery that
+    /// has been trading since 1946 does not describe its rope with a placeholder.
+    /// </summary>
+    private static readonly Dictionary<string, string> Blurbs = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ["rope-and-rigging"] = "Braid, three-strand and Vectran core, whipped or spliced to order. Breaking loads are stated, not implied.",
+        ["deck-hardware"] = "Bronze, anodised alloy and passivated stainless, cut for boats that stay in the water through the winter.",
+        ["navigation"] = "Compasses, dividers and hand-bearing instruments, damped in fluid and graduated to be read in a seaway.",
+        ["charts-and-books"] = "Paper charts, pilots and almanacs. Folded, wire-o or section-sewn, and current to the edition stated.",
+        ["foul-weather-gear"] = "Taped seams, welded closures and honest water columns. Built for the fourth day out, not the photograph.",
+        ["knives-and-tools"] = "Carbon and stainless steels, stabilised handles, and a lanyard hole where a lanyard hole belongs.",
+        ["lamps-and-lighting"] = "Anchor lamps, bulkhead fittings and chart lights. Twelve volts, low draw, rated for spray.",
+        ["bags-and-storage"] = "Welded roll-tops and doubled canvas, sized to the lockers boats actually have.",
+    };
+
+    protected override void OnInitialized() => State.Changed += OnStateChanged;
+
+    protected override Task OnInitializedAsync() => Catalog.EnsureLoadedAsync();
+
+    // A route change means a different shelf, so start at the top of it.
+    protected override void OnParametersSet() => _page = 1;
+
+    private void OnStateChanged()
+    {
+        // The header owns the search field; a new term invalidates the current page number.
+        _page = 1;
+        StateHasChanged();
+    }
+
+    private void PreviousPage() => _page = Math.Max(1, _page - 1);
+
+    private void NextPage() => _page += 1;
+
+    private void ClearSearch() => State.ClearSearch();
+
+    private void ClearEverything()
+    {
+        State.ClearSearch();
+        _page = 1;
+        if (IsCategoryRoute)
+            Nav.NavigateTo(string.Empty);
+    }
+
+    private async Task RetryAsync()
+    {
+        Catalog.Reset();
+        await Catalog.EnsureLoadedAsync();
+    }
+
+    public void Dispose() => State.Changed -= OnStateChanged;
+}

@@ -3,6 +3,7 @@
     <Project Path="src/VelaCommerce.Api/VelaCommerce.Api.csproj" />
     <Project Path="src/VelaCommerce.Domain/VelaCommerce.Domain.csproj" />
     <Project Path="src/VelaCommerce.Infrastructure/VelaCommerce.Infrastructure.csproj" />
+    <Project Path="src/VelaCommerce.Storefront/VelaCommerce.Storefront.csproj" />
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/VelaCommerce.Architecture.Tests/VelaCommerce.Architecture.Tests.csproj" />
