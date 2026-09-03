@@ -48,19 +48,14 @@
 #
 # ############################################################################
 # # NOT WIRED UP YET. Program.cs calls AddDataProtection() with no arguments. #
-# # The env var this file exports (VELA_DATAPROTECTION_BLOB_URI) is read by   #
-# # nothing today. Creating the blob is necessary and not sufficient — the    #
-# # application change is:                                                    #
-# #                                                                           #
-# #   builder.Services.AddDataProtection()                                    #
-# #       .SetApplicationName("vela-commerce")                                #
-# #       .PersistKeysToAzureBlobStorage(                                     #
-# #           new Uri(blobUri), new DefaultAzureCredential());                #
-# #                                                                           #
-# # (package Azure.Extensions.AspNetCore.DataProtection.Blobs, plus           #
-# # Azure.Identity). SetApplicationName matters as much as the blob: without  #
-# # it the ring is namespaced by the entry assembly name and a rename         #
-# # invalidates every cookie again.                                           #
+# # WIRED. Program.cs reads VELA_DATAPROTECTION_BLOB_URI and, when it is set,  #
+# # calls SetApplicationName("vela-commerce") + PersistKeysToAzureBlobStorage  #
+# # with DefaultAzureCredential. Absent, it falls back to the local ring and    #
+# # logs a warning outside Development — via ILogger, never stderr, because     #
+# # the build-time OpenAPI generator runs that entry point and treats stderr    #
+# # as a build failure. A malformed URI throws rather than degrading quietly:   #
+# # a typo must not read as "unset".                                            #
+# # (packages Azure.Extensions.AspNetCore.DataProtection.Blobs + Azure.Identity)#
 # ############################################################################
 
 resource "azurerm_storage_account" "dataprotection" {

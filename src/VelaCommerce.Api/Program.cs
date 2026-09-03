@@ -1,3 +1,5 @@
+using Azure.Identity;
+using Microsoft.AspNetCore.DataProtection;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
 using Scalar.AspNetCore;
@@ -79,16 +81,63 @@ builder.Services.AddDemoSessionTenancy();
 // all three: one visitor must not be able to fill the database or spend the whole request budget.
 builder.Services.AddDemoSafety(builder.Configuration);
 
-// The default key ring is fine locally: keys land under ~/.aspnet/DataProtection-Keys and survive
-// a restart, so a session outlives `dotnet run`. Production needs a persisted, shared ring —
-// PersistKeysToAzureBlobStorage plus ProtectKeysToAzureKeyVault for a container app — because keys
-// generated inside an ephemeral filesystem die with the container and keys generated per-instance
-// are not shared across them. The symptom either way is the same and is easy to misread: every
-// visitor silently loses their cart on deploy or on a scale-out, because their cookie no longer
-// decrypts. Not built now — the demo is a single instance and the phase this belongs to is deploy.
-builder.Services.AddDataProtection();
+// DATA PROTECTION KEYS MUST OUTLIVE THE CONTAINER.
+//
+// Everything a visitor holds is sealed with this key ring: the demo-session cookie that IS
+// their identity, and the signed token on an order-retrieval link. The default ring lives in
+// the container's filesystem, so on Container Apps every deploy — and every scale from zero —
+// would mint a new one, silently emptying every cart and 404-ing every order link. The
+// symptom looks like a bug in the cart, which is the worst kind.
+//
+// SetApplicationName matters as much as the blob: without it the ring is namespaced by the
+// entry assembly name, so a project rename invalidates every cookie exactly the same way.
+var dataProtection = builder.Services
+    .AddDataProtection()
+    .SetApplicationName("vela-commerce");
+
+// The blob is opt-in by its environment variable, and its absence is NOT an error. Two hosts
+// legitimately run without it: a developer's machine, and the build-time OpenAPI generator,
+// which executes this entry point as Production. Throwing here would break the build rather
+// than the deployment — the same trap the payment simulator's startup guard already fell into.
+var keyRingBlobUri = builder.Configuration["VELA_DATAPROTECTION_BLOB_URI"]
+                     ?? Environment.GetEnvironmentVariable("VELA_DATAPROTECTION_BLOB_URI");
+
+Uri? keyRingUri = null;
+
+if (!string.IsNullOrWhiteSpace(keyRingBlobUri))
+{
+    if (!Uri.TryCreate(keyRingBlobUri, UriKind.Absolute, out keyRingUri))
+    {
+        throw new InvalidOperationException(
+            $"VELA_DATAPROTECTION_BLOB_URI is set to '{keyRingBlobUri}', which is not an absolute "
+            + "URI. A misspelt blob URI must not be mistaken for an unset one: falling back to an "
+            + "ephemeral key ring would log every visitor out on the next deploy and look like a "
+            + "bug in the cart.");
+    }
+
+    // DefaultAzureCredential resolves the container app's managed identity in Azure and a
+    // developer's az login locally, so the same line works in both without a secret.
+    dataProtection.PersistKeysToAzureBlobStorage(keyRingUri, new DefaultAzureCredential());
+}
+
+var usingBlobKeyRing = keyRingUri is not null;
+// Warned about below, once the logger exists — deliberately NOT written to stderr here. The
+// build-time OpenAPI generator runs this entry point and treats anything on stderr as a build
+// error, so the warning about a misconfigured deployment would have broken the build instead.
+var keyRingIsEphemeral = !usingBlobKeyRing && !builder.Environment.IsDevelopment();
 
 var app = builder.Build();
+
+if (keyRingIsEphemeral)
+{
+    // Loud, but not fatal. A host without a shared ring still serves; it just logs everybody
+    // out on the next deploy, and that deserves to be findable in a log rather than discovered
+    // by a shopper whose cart emptied itself.
+    app.Logger.LogWarning(
+        "VELA_DATAPROTECTION_BLOB_URI is not set outside Development. Data Protection keys will "
+        + "live in the container filesystem, so every deploy and every scale from zero will "
+        + "invalidate every session cookie and every order-retrieval link. See infra/dataprotection.tf.");
+}
 
 // Development convenience only: migrate and seed so a fresh clone is browsable in one
 // command. Production applies migrations as a separate one-shot job, never at startup,
