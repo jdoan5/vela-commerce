@@ -602,6 +602,102 @@
           }
         }
       }
+    },
+    "/api/demo/lab/scenarios": {
+      "get": {
+        "tags": [
+          "Demo Lab"
+        ],
+        "summary": "The invariants this shop claims, and what pressing each button will do",
+        "description": "Read this before running anything. Every entry states the commercial claim, the invariant underneath it, the statement or index that actually enforces it, and the test file that proves the same thing in CI - plus how many simultaneous shoppers a run creates and which rows it writes, so the cost of a button press is known in advance rather than discovered from the transcript. The limits block publishes what the endpoint will refuse to do.",
+        "operationId": "ListDemoLabScenarios",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LabScenarioCatalogResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/demo/lab/run/{scenarioId}": {
+      "post": {
+        "tags": [
+          "Demo Lab"
+        ],
+        "summary": "Run one scenario end to end against the live shop and return the transcript",
+        "description": "Seeds its own private product and stock, drives real HTTP checkouts (released together on one gate, so races are races rather than a loop), reads the resulting rows, destroys everything it created, and returns a transcript: each step's raw request and response, the elapsed milliseconds, a plain-English line saying what happened, the order and ledger rows afterwards, and an explicit verdict naming the invariant and how we know it held. The shared catalog is never touched - the stock raced for is created and destroyed by the run, and the blast-radius block audits that. 429 means the lab is busy or this visitor is in cooldown; runs are deliberately serialised because two overlapping fifty-way races would exhaust the connection pool. Optional ?participants=N lowers the shopper count on the oversell scenario for a smaller demonstration.",
+        "operationId": "RunDemoLabScenario",
+        "parameters": [
+          {
+            "name": "scenarioId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "participants",
+            "in": "query",
+            "schema": {
+              "pattern": "^-?(?:0|[1-9]\\d*)$",
+              "type": [
+                "integer",
+                "string"
+              ],
+              "format": "int32"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LabRunResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too Many Requests",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Service Unavailable",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
@@ -1126,6 +1222,832 @@
           }
         }
       },
+      "LabBlastRadiusResponse": {
+        "required": [
+          "stockStrategy",
+          "explanation",
+          "sharedCatalogRowsTouched",
+          "fixtureRemoved",
+          "removed",
+          "warning"
+        ],
+        "type": "object",
+        "properties": {
+          "stockStrategy": {
+            "type": "string"
+          },
+          "explanation": {
+            "type": "string"
+          },
+          "sharedCatalogRowsTouched": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "fixtureRemoved": {
+            "type": "boolean"
+          },
+          "removed": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/LabRowsRemovedResponse"
+            }
+          },
+          "warning": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        }
+      },
+      "LabCheckResponse": {
+        "required": [
+          "claim",
+          "expected",
+          "actual",
+          "passed"
+        ],
+        "type": "object",
+        "properties": {
+          "claim": {
+            "type": "string"
+          },
+          "expected": {
+            "type": "string"
+          },
+          "actual": {
+            "type": "string"
+          },
+          "passed": {
+            "type": "boolean"
+          }
+        }
+      },
+      "LabEvidenceResponse": {
+        "required": [
+          "orders",
+          "ledger",
+          "reservations",
+          "settlements",
+          "blastRadius"
+        ],
+        "type": "object",
+        "properties": {
+          "orders": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/LabOrderResponse"
+            }
+          },
+          "ledger": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/LabLedgerResponse"
+            }
+          },
+          "reservations": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/LabReservationResponse"
+            }
+          },
+          "settlements": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/LabSettlementResponse"
+            }
+          },
+          "blastRadius": {
+            "$ref": "#/components/schemas/LabBlastRadiusResponse"
+          }
+        }
+      },
+      "LabFixtureResponse": {
+        "required": [
+          "productSlug",
+          "variants",
+          "why"
+        ],
+        "type": "object",
+        "properties": {
+          "productSlug": {
+            "type": "string"
+          },
+          "variants": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/LabFixtureVariantResponse"
+            }
+          },
+          "why": {
+            "type": "string"
+          }
+        }
+      },
+      "LabFixtureVariantResponse": {
+        "required": [
+          "variantId",
+          "sku",
+          "displayName",
+          "unitPrice",
+          "onHand"
+        ],
+        "type": "object",
+        "properties": {
+          "variantId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "sku": {
+            "type": "string"
+          },
+          "displayName": {
+            "type": "string"
+          },
+          "unitPrice": {
+            "$ref": "#/components/schemas/MoneyDto"
+          },
+          "onHand": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          }
+        }
+      },
+      "LabHeaderResponse": {
+        "required": [
+          "name",
+          "value"
+        ],
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "value": {
+            "type": "string"
+          }
+        }
+      },
+      "LabLedgerResponse": {
+        "required": [
+          "sku",
+          "displayName",
+          "onHandBefore",
+          "reservedBefore",
+          "availableBefore",
+          "onHandAfter",
+          "reservedAfter",
+          "availableAfter"
+        ],
+        "type": "object",
+        "properties": {
+          "sku": {
+            "type": "string"
+          },
+          "displayName": {
+            "type": "string"
+          },
+          "onHandBefore": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "reservedBefore": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "availableBefore": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "onHandAfter": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "reservedAfter": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "availableAfter": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          }
+        }
+      },
+      "LabLimitsResponse": {
+        "required": [
+          "enabled",
+          "maxParticipants",
+          "maxConcurrentRuns",
+          "cooldownSeconds",
+          "runTimeoutSeconds",
+          "policy"
+        ],
+        "type": "object",
+        "properties": {
+          "enabled": {
+            "type": "boolean"
+          },
+          "maxParticipants": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "maxConcurrentRuns": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "cooldownSeconds": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "runTimeoutSeconds": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "policy": {
+            "type": "string"
+          }
+        }
+      },
+      "LabOrderResponse": {
+        "required": [
+          "orderNumber",
+          "status",
+          "total",
+          "captured",
+          "placedAt",
+          "paidAt",
+          "quantity",
+          "visitor",
+          "rowVersion"
+        ],
+        "type": "object",
+        "properties": {
+          "orderNumber": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "total": {
+            "$ref": "#/components/schemas/MoneyDto"
+          },
+          "captured": {
+            "$ref": "#/components/schemas/MoneyDto"
+          },
+          "placedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "paidAt": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "date-time"
+          },
+          "quantity": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "visitor": {
+            "type": "string"
+          },
+          "rowVersion": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        }
+      },
+      "LabPaymentScenarioResponse": {
+        "required": [
+          "scenario",
+          "amountTrigger",
+          "authorizationResult",
+          "webhooks",
+          "demonstrates"
+        ],
+        "type": "object",
+        "properties": {
+          "scenario": {
+            "type": "string"
+          },
+          "amountTrigger": {
+            "type": "string"
+          },
+          "authorizationResult": {
+            "type": "string"
+          },
+          "webhooks": {
+            "type": "string"
+          },
+          "demonstrates": {
+            "type": "string"
+          }
+        }
+      },
+      "LabRequestResponse": {
+        "required": [
+          "method",
+          "path",
+          "headers",
+          "body"
+        ],
+        "type": "object",
+        "properties": {
+          "method": {
+            "type": "string"
+          },
+          "path": {
+            "type": "string"
+          },
+          "headers": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/LabHeaderResponse"
+            }
+          },
+          "body": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        }
+      },
+      "LabReservationResponse": {
+        "required": [
+          "sku",
+          "orderNumber",
+          "quantity",
+          "status"
+        ],
+        "type": "object",
+        "properties": {
+          "sku": {
+            "type": "string"
+          },
+          "orderNumber": {
+            "type": "string"
+          },
+          "quantity": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "status": {
+            "type": "string"
+          }
+        }
+      },
+      "LabResponseResponse": {
+        "required": [
+          "status",
+          "reason",
+          "headers",
+          "body",
+          "transport"
+        ],
+        "type": "object",
+        "properties": {
+          "status": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "reason": {
+            "type": "string"
+          },
+          "headers": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/LabHeaderResponse"
+            }
+          },
+          "body": {
+            "type": "string"
+          },
+          "transport": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        }
+      },
+      "LabRowsRemovedResponse": {
+        "required": [
+          "table",
+          "rows"
+        ],
+        "type": "object",
+        "properties": {
+          "table": {
+            "type": "string"
+          },
+          "rows": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          }
+        }
+      },
+      "LabRunResponse": {
+        "required": [
+          "runId",
+          "scenarioId",
+          "title",
+          "claim",
+          "invariant",
+          "mechanism",
+          "provenBy",
+          "provenByTest",
+          "startedAt",
+          "elapsedMilliseconds",
+          "fixture",
+          "steps",
+          "evidence",
+          "verdict",
+          "caveats"
+        ],
+        "type": "object",
+        "properties": {
+          "runId": {
+            "type": "string"
+          },
+          "scenarioId": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "claim": {
+            "type": "string"
+          },
+          "invariant": {
+            "type": "string"
+          },
+          "mechanism": {
+            "type": "string"
+          },
+          "provenBy": {
+            "type": "string"
+          },
+          "provenByTest": {
+            "type": "string"
+          },
+          "startedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "elapsedMilliseconds": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int64"
+          },
+          "fixture": {
+            "$ref": "#/components/schemas/LabFixtureResponse"
+          },
+          "steps": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/LabStepResponse"
+            }
+          },
+          "evidence": {
+            "$ref": "#/components/schemas/LabEvidenceResponse"
+          },
+          "verdict": {
+            "$ref": "#/components/schemas/LabVerdictResponse"
+          },
+          "caveats": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "LabScenarioCatalogResponse": {
+        "required": [
+          "scenarios",
+          "limits",
+          "paymentScenarios",
+          "stockPolicy"
+        ],
+        "type": "object",
+        "properties": {
+          "scenarios": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/LabScenarioResponse"
+            }
+          },
+          "limits": {
+            "$ref": "#/components/schemas/LabLimitsResponse"
+          },
+          "paymentScenarios": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/LabPaymentScenarioResponse"
+            }
+          },
+          "stockPolicy": {
+            "type": "string"
+          }
+        }
+      },
+      "LabScenarioResponse": {
+        "required": [
+          "id",
+          "title",
+          "claim",
+          "invariant",
+          "mechanism",
+          "provenBy",
+          "provenByTest",
+          "participants",
+          "units",
+          "creates",
+          "fidelity",
+          "runPath"
+        ],
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "claim": {
+            "type": "string"
+          },
+          "invariant": {
+            "type": "string"
+          },
+          "mechanism": {
+            "type": "string"
+          },
+          "provenBy": {
+            "type": "string"
+          },
+          "provenByTest": {
+            "type": "string"
+          },
+          "participants": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "units": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "creates": {
+            "type": "string"
+          },
+          "fidelity": {
+            "type": "string"
+          },
+          "runPath": {
+            "type": "string"
+          }
+        }
+      },
+      "LabSettlementResponse": {
+        "required": [
+          "orderNumber",
+          "messageType",
+          "eventId",
+          "status",
+          "attempts",
+          "deliverAfter",
+          "signatureHeader",
+          "timesApplied"
+        ],
+        "type": "object",
+        "properties": {
+          "orderNumber": {
+            "type": "string"
+          },
+          "messageType": {
+            "type": "string"
+          },
+          "eventId": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "attempts": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "deliverAfter": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "signatureHeader": {
+            "type": "string"
+          },
+          "timesApplied": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          }
+        }
+      },
+      "LabStepResponse": {
+        "required": [
+          "number",
+          "title",
+          "narration",
+          "request",
+          "response",
+          "elapsedMilliseconds",
+          "concurrency",
+          "represents",
+          "fidelity",
+          "fidelityNote"
+        ],
+        "type": "object",
+        "properties": {
+          "number": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "title": {
+            "type": "string"
+          },
+          "narration": {
+            "type": "string"
+          },
+          "request": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/LabRequestResponse"
+              }
+            ]
+          },
+          "response": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/LabResponseResponse"
+              }
+            ]
+          },
+          "elapsedMilliseconds": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
+            "format": "int64"
+          },
+          "concurrency": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "represents": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "fidelity": {
+            "type": "string"
+          },
+          "fidelityNote": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        }
+      },
+      "LabVerdictResponse": {
+        "required": [
+          "held",
+          "invariant",
+          "howWeKnow",
+          "checks"
+        ],
+        "type": "object",
+        "properties": {
+          "held": {
+            "type": "boolean"
+          },
+          "invariant": {
+            "type": "string"
+          },
+          "howWeKnow": {
+            "type": "string"
+          },
+          "checks": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/LabCheckResponse"
+            }
+          }
+        }
+      },
       "MoneyDto": {
         "required": [
           "amount",
@@ -1503,6 +2425,9 @@
     },
     {
       "name": "Demo"
+    },
+    {
+      "name": "Demo Lab"
     }
   ]
 }

@@ -51,6 +51,15 @@ public sealed class DemoLabThrottle : IDisposable
     /// <summary>Visitors with a run in flight right now. Presence is the whole value.</summary>
     private readonly ConcurrentDictionary<Guid, byte> _running = new();
 
+    /// <summary>
+    /// Timestamps of recently started runs, newest last. Keyed on nothing, deliberately: the
+    /// per-session cooldown is bypassed by minting a new session, which costs a visitor one
+    /// request. This is the bound that does not care who is asking.
+    /// </summary>
+    private readonly Queue<long> _recentStarts = new();
+
+    private readonly Lock _recentStartsGate = new();
+
     /// <summary>Builds the throttle. One per host: it owns the concurrency slots.</summary>
     /// <param name="options">The bounds. Validated by the caller at registration.</param>
     /// <param name="time">
@@ -103,6 +112,18 @@ public sealed class DemoLabThrottle : IDisposable
                 retryAfterSeconds: Ceiling(remaining));
         }
 
+        // The global budget, checked before the slot and before the marker. A visitor rotating
+        // sessions defeats everything above this line and nothing below it.
+        if (!TryTakeGlobalSlot(out var globalRetryAfter))
+        {
+            return DemoLabAdmission.Refused(
+                $"The lab is limited to {_options.MaxRunsPerWindow} runs every "
+                + $"{Seconds(_options.GlobalWindow)} seconds across all visitors. Each run puts "
+                + "dozens of simultaneous checkouts on a live database, so the ceiling is on the "
+                + "deployment rather than on you.",
+                retryAfterSeconds: Ceiling(globalRetryAfter));
+        }
+
         // TryAdd is the whole check: whoever adds the key owns the run. Two simultaneous requests
         // from one visitor are exactly the case this exists for, and one of them loses here rather
         // than both proceeding to seed fixtures and race each other's stock.
@@ -141,6 +162,34 @@ public sealed class DemoLabThrottle : IDisposable
     /// <summary>
     /// Releases a run's slot and starts its visitor's cooldown. Called by the lease, once.
     /// </summary>
+    /// <summary>
+    /// Takes one slot from the rolling global budget, or reports how long until one frees.
+    /// Starts are recorded rather than completions: a run that is still going is still load.
+    /// </summary>
+    private bool TryTakeGlobalSlot(out TimeSpan retryAfter)
+    {
+        var now = _time.GetUtcNow().UtcTicks;
+        var windowTicks = _options.GlobalWindow.Ticks;
+
+        lock (_recentStartsGate)
+        {
+            while (_recentStarts.Count > 0 && now - _recentStarts.Peek() >= windowTicks)
+            {
+                _recentStarts.Dequeue();
+            }
+
+            if (_recentStarts.Count >= _options.MaxRunsPerWindow)
+            {
+                retryAfter = TimeSpan.FromTicks(windowTicks - (now - _recentStarts.Peek()));
+                return false;
+            }
+
+            _recentStarts.Enqueue(now);
+            retryAfter = TimeSpan.Zero;
+            return true;
+        }
+    }
+
     private void Exit(Guid sessionId)
     {
         _finishedAt[sessionId] = _time.GetUtcNow().ToUnixTimeMilliseconds();

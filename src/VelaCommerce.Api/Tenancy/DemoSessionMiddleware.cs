@@ -100,6 +100,42 @@ public sealed class DemoSessionMiddleware
     }
 
     /// <summary>
+    /// Recovers the session id from a cookie value that this application sealed.
+    /// <para>
+    /// Exposed for the Demo Lab, which mints throwaway visitors and then has to tell its own
+    /// rows apart from a real shopper's during teardown. It got that wrong once and deleted a
+    /// real visitor's paid order, because it inferred ownership instead of knowing it. Keeping
+    /// the purpose string encapsulated here means the lab cannot drift from the middleware by
+    /// constructing its own protector.
+    /// </para>
+    /// <para>
+    /// Returns false for anything unreadable, exactly as the request path does. This never
+    /// throws: the input is attacker-controlled everywhere else it is used.
+    /// </para>
+    /// </summary>
+    public static bool TryReadSessionId(
+        IDataProtectionProvider dataProtection,
+        string? cookieValue,
+        out Guid sessionId)
+    {
+        ArgumentNullException.ThrowIfNull(dataProtection);
+        sessionId = Guid.Empty;
+
+        if (string.IsNullOrEmpty(cookieValue))
+            return false;
+
+        try
+        {
+            var protector = dataProtection.CreateProtector(ProtectorPurpose).ToTimeLimitedDataProtector();
+            return Guid.TryParseExact(protector.Unprotect(cookieValue), "N", out sessionId);
+        }
+        catch (CryptographicException)
+        {
+            return false;
+        }
+    }
+
+    /// <summary>
     /// Reads and verifies the cookie, or reports that there isn't a usable one.
     /// <para>
     /// Every failure — absent, truncated, edited, encrypted under a key that no longer exists,

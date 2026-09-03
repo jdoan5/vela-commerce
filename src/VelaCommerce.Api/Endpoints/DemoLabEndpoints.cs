@@ -69,10 +69,12 @@ using System.Text.Json;
 using Microsoft.AspNetCore.Hosting.Server;
 using Microsoft.AspNetCore.Hosting.Server.Features;
 using Microsoft.AspNetCore.Http.HttpResults;
+using Microsoft.AspNetCore.DataProtection;
 using Microsoft.EntityFrameworkCore;
 
 using VelaCommerce.Api.Contracts;
 using VelaCommerce.Api.Tenancy;
+using VelaCommerce.Domain.Carts;
 using VelaCommerce.Domain.Catalog;
 using VelaCommerce.Domain.Common;
 using VelaCommerce.Domain.Inventory;
@@ -325,7 +327,8 @@ public static class DemoLabEndpoints
 
         if (services.GetService<DemoLabOptions>() is not { } options
             || services.GetService<DemoLabThrottle>() is not { } throttle
-            || services.GetService<DemoLabLoopback>() is not { } loopback)
+            || services.GetService<DemoLabLoopback>() is not { } loopback
+            || services.GetService<IDataProtectionProvider>() is not { } dataProtection)
         {
             return NotComposedProblem();
         }
@@ -362,7 +365,7 @@ public static class DemoLabEndpoints
         using var budget = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         budget.CancelAfter(options.RunTimeout);
 
-        var run = new LabRun(db, loopback, options, origin, runId, budget.Token);
+        var run = new LabRun(db, loopback, options, origin, runId, dataProtection, budget.Token);
         LabFixture? fixture = null;
         LabOutcome outcome;
 
@@ -436,7 +439,7 @@ public static class DemoLabEndpoints
 
             run.Teardown = fixture is null
                 ? LabTeardown.NothingToDo
-                : await DestroyFixtureAsync(db, fixture, logger, teardownBudget.Token);
+                : await DestroyFixtureAsync(db, fixture, run.SessionIds, logger, teardownBudget.Token);
         }
 
         var evidence = run.Evidence ?? await SafeEvidenceAsync(run, logger);
@@ -641,7 +644,10 @@ public static class DemoLabEndpoints
 
         var evidence = await run.EvidenceAsync();
         var ledger = evidence.Ledger[0];
-        var units = jib.OnHand;
+        // What CAN sell, not what is on the shelf. With fewer shoppers than units every shopper
+        // wins and nobody is refused — a correct outcome that the old expectation called a
+        // failure, printing "expected: -3" refusals above a red verdict on a healthy shop.
+        var units = Math.Min(shopperCount, jib.OnHand);
 
         return new LabOutcome(
             "Not from the status codes - a shop that answered politely and reserved eight units "
@@ -669,9 +675,9 @@ public static class DemoLabEndpoints
                     other.Count == 0),
                 Check(
                     "Units reserved in the ledger afterwards",
-                    $"{units} of {units} on hand",
+                    $"{units} of {jib.OnHand} on hand",
                     $"{ledger.ReservedAfter} of {ledger.OnHandAfter} on hand",
-                    ledger.ReservedAfter == units && ledger.OnHandAfter == units),
+                    ledger.ReservedAfter == units && ledger.OnHandAfter == jib.OnHand),
                 Check(
                     "Distinct order numbers (not one order counted five times)",
                     units.ToString(CultureInfo.InvariantCulture),
@@ -1626,11 +1632,18 @@ public static class DemoLabEndpoints
     private static async Task<LabTeardown> DestroyFixtureAsync(
         VelaCommerceDbContext db,
         LabFixture fixture,
+        IReadOnlyCollection<Guid> fixtureSessionIds,
         ILogger logger,
         CancellationToken cancellationToken)
     {
         var removed = new List<LabRowsRemovedResponse>();
         var variantIds = fixture.VariantIds;
+
+        // Rows belonging to somebody who is not this run. Reported, never silently absorbed:
+        // a non-zero here is the shared catalog being touched, which is the one thing the
+        // blast-radius block exists to rule out.
+        var foreignOrdersPreserved = 0;
+        var foreignCartLinesRemoved = 0;
 
         try
         {
@@ -1644,9 +1657,16 @@ public static class DemoLabEndpoints
             var orderIds = orders.Select(order => order.Id).ToList();
             var orderNumbers = orders.Select(order => order.OrderNumber).ToList();
 
-            // The sessions that bought something. Only ever the throwaway visitors this run minted:
-            // holding an order for a variant that was created seconds ago and is about to be
-            // deleted is not a state a real shopper's session can be in.
+            // The sessions that bought something.
+            //
+            // AN EARLIER VERSION OF THIS COMMENT CLAIMED THESE COULD ONLY EVER BE THE THROWAWAY
+            // VISITORS THIS RUN MINTED. THAT WAS FALSE, AND IT DESTROYED REAL DATA. The fixture
+            // product is live in the public catalog API for as long as the run takes, so a real
+            // shopper CAN add it to a cart or buy it — a reviewer measured thousands of sightings
+            // under load, then watched a real Paid order deleted and a real cart lose an unrelated
+            // line. Rows are now partitioned by owner: this run's own sessions are removed whole,
+            // and anything belonging to somebody else keeps its parent row and loses only the
+            // lines that reference the fixture.
             var sessionIds = orders.Select(order => order.DemoSessionId).Distinct().ToList();
 
             var processed = await db.Set<ProcessedWebhookEvent>()
@@ -1679,10 +1699,33 @@ public static class DemoLabEndpoints
 
             removed.Add(new LabRowsRemovedResponse("stock_reservations", reservations));
 
+            // Partition by owner. `fixtureSessionIds` are the visitors this run minted; anything
+            // else is a real shopper who happened to buy the fixture while it was on sale.
+            var foreignOrderIds = orders
+                .Where(order => !fixtureSessionIds.Contains(order.DemoSessionId))
+                .Select(order => order.Id)
+                .ToList();
+
+            var ownOrderIds = orderIds.Except(foreignOrderIds).ToList();
+
             var deletedOrders = await db.Orders
                 .IgnoreQueryFilters()
-                .Where(order => orderIds.Contains(order.Id))
+                .Where(order => ownOrderIds.Contains(order.Id))
                 .ExecuteDeleteAsync(cancellationToken);
+
+            // A real shopper's order is never deleted. Its lines reference a variant that is about
+            // to disappear, so the order becomes a record of something no longer in the catalog —
+            // which is exactly what an order is for. Deleting it would 404 their retrieval link
+            // forever, and they would have no idea why.
+            foreignOrdersPreserved = foreignOrderIds.Count;
+
+            if (foreignOrdersPreserved > 0)
+            {
+                logger.LogWarning(
+                    "Demo Lab teardown left {Count} order(s) belonging to real visitors intact. They "
+                    + "bought a fixture product while it was briefly live in the catalog.",
+                    foreignOrdersPreserved);
+            }
 
             removed.Add(new LabRowsRemovedResponse("orders (lines cascade)", deletedOrders));
 
@@ -1700,9 +1743,44 @@ public static class DemoLabEndpoints
                 .Select(cart => cart.Id)
                 .ToListAsync(cancellationToken);
 
+            // Same partition. A real shopper's cart keeps its row and its unrelated items; only
+            // the lines pointing at the fixture go. Deleting the parent took an innocent line with
+            // it, which a reviewer reproduced: a real two-line cart came back holding nothing.
+            // CartLine carries a CartId and no navigation back to its cart, so the foreign carts
+            // are resolved first and the lines deleted by that id.
+            var foreignCartIds = await db.Carts
+                .AsNoTracking()
+                .IgnoreQueryFilters()
+                .Where(cart => cartIds.Contains(cart.Id) && !fixtureSessionIds.Contains(cart.DemoSessionId))
+                .Select(cart => cart.Id)
+                .ToListAsync(cancellationToken);
+
+            var foreignCartLines = foreignCartIds.Count == 0
+                ? 0
+                : await db.Set<CartLine>()
+                    .IgnoreQueryFilters()
+                    .Where(line => foreignCartIds.Contains(line.CartId) && variantIds.Contains(line.VariantId))
+                    .ExecuteDeleteAsync(cancellationToken);
+
+            if (foreignCartLines > 0)
+            {
+                foreignCartLinesRemoved = foreignCartLines;
+                logger.LogWarning(
+                    "Demo Lab teardown removed {Count} fixture line(s) from real visitors' carts, "
+                    + "leaving those carts and their other items intact.",
+                    foreignCartLines);
+            }
+
+            var ownCartIds = await db.Carts
+                .AsNoTracking()
+                .IgnoreQueryFilters()
+                .Where(cart => cartIds.Contains(cart.Id) && fixtureSessionIds.Contains(cart.DemoSessionId))
+                .Select(cart => cart.Id)
+                .ToListAsync(cancellationToken);
+
             var carts = await db.Carts
                 .IgnoreQueryFilters()
-                .Where(cart => cartIds.Contains(cart.Id))
+                .Where(cart => ownCartIds.Contains(cart.Id))
                 .ExecuteDeleteAsync(cancellationToken);
 
             removed.Add(new LabRowsRemovedResponse("carts (lines cascade)", carts));
@@ -1745,14 +1823,28 @@ public static class DemoLabEndpoints
                     strandedStock);
             }
 
+            var sharedTouched = foreignOrdersPreserved + foreignCartLinesRemoved;
+
+            var sharedNote = sharedTouched == 0
+                ? null
+                : $"While this run's fixture was briefly listed, {foreignOrdersPreserved} real order(s) "
+                  + $"were bought against it and have been LEFT INTACT, and {foreignCartLinesRemoved} "
+                  + "fixture line(s) were removed from real visitors' carts, leaving those carts and "
+                  + "their other items alone.";
+
+            var debrisNote = clean
+                ? null
+                : $"{survivors} fixture variant(s) and {strandedStock} stock row(s) survived the "
+                  + "teardown. They belong to no visitor and sell nothing, but they are debris "
+                  + "and this deployment's log has the details.";
+
             return new LabTeardown(
                 clean,
                 removed,
-                clean
-                    ? null
-                    : $"{survivors} fixture variant(s) and {strandedStock} stock row(s) survived the "
-                      + "teardown. They belong to no visitor and sell nothing, but they are debris "
-                      + "and this deployment's log has the details.");
+                string.Join(" ", new[] { debrisNote, sharedNote }.Where(note => note is not null)) is { Length: > 0 } note
+                    ? note
+                    : null,
+                sharedTouched);
         }
         catch (Exception exception)
         {
@@ -1766,7 +1858,8 @@ public static class DemoLabEndpoints
                 removed,
                 $"The teardown failed with {exception.GetType().Name} after removing "
                 + $"{removed.Sum(entry => entry.Rows)} row(s). The fixture product {fixture.Slug} may "
-                + "still exist; it is inert, but it is not supposed to be there.");
+                + "still exist; it is inert, but it is not supposed to be there.",
+                foreignOrdersPreserved + foreignCartLinesRemoved);
         }
     }
 
@@ -1782,7 +1875,7 @@ public static class DemoLabEndpoints
             + "fixture product is visible to the catalog API. It is not visible in the storefront, "
             + "which browses from a static snapshot, and it is named so that anybody who does see it "
             + "knows what it is.",
-            0,
+            teardown.SharedRowsTouched,
             teardown.Clean,
             teardown.Removed,
             teardown.Warning);
@@ -2030,6 +2123,13 @@ public static class DemoLabEndpoints
         private readonly DemoLabLoopback _loopback;
         private readonly DemoLabOptions _options;
         private readonly Uri _origin;
+        private readonly IDataProtectionProvider _dataProtection;
+
+        /// <summary>
+        /// Every session this run minted. Teardown removes rows owned by these and leaves
+        /// everybody else's alone — ownership is known from the sealed cookie, not inferred.
+        /// </summary>
+        private readonly HashSet<Guid> _sessionIds = [];
         private readonly List<LabStepResponse> _steps = [];
         private readonly List<string> _caveats = [];
         private readonly Dictionary<string, string?> _rowVersions = new(StringComparer.Ordinal);
@@ -2040,6 +2140,7 @@ public static class DemoLabEndpoints
             DemoLabOptions options,
             Uri origin,
             string runId,
+            IDataProtectionProvider dataProtection,
             CancellationToken token)
         {
             Database = db;
@@ -2047,8 +2148,12 @@ public static class DemoLabEndpoints
             _options = options;
             _origin = origin;
             RunId = runId;
+            _dataProtection = dataProtection;
             Token = token;
         }
+
+        /// <summary>The sessions this run created, for teardown to scope by.</summary>
+        public IReadOnlyCollection<Guid> SessionIds => _sessionIds;
 
         public VelaCommerceDbContext Database { get; }
 
@@ -2187,7 +2292,12 @@ public static class DemoLabEndpoints
         {
             var exchange = await SendAsync(Handshake());
 
-            return new LabShopper(exchange.IssuedSessionCookie);
+            if (DemoSessionMiddleware.TryReadSessionId(_dataProtection, exchange.IssuedSessionCookie, out var sessionId))
+            {
+                _sessionIds.Add(sessionId);
+            }
+
+            return new LabShopper(exchange.IssuedSessionCookie, sessionId);
         }
 
         /// <summary>
@@ -2197,7 +2307,19 @@ public static class DemoLabEndpoints
         public async Task<LabCrowd> NewShoppersAsync(int count)
         {
             var handshakes = await AllAtOnceAsync(count, _ => SendAsync(Handshake()));
-            var shoppers = handshakes.Select(exchange => new LabShopper(exchange.IssuedSessionCookie)).ToArray();
+            var shoppers = handshakes
+                .Select(exchange =>
+                {
+                    // Same as NewShopperAsync: ownership is recorded at creation, so teardown
+                    // never has to guess whose row it is looking at.
+                    if (DemoSessionMiddleware.TryReadSessionId(_dataProtection, exchange.IssuedSessionCookie, out var id))
+                    {
+                        _sessionIds.Add(id);
+                    }
+
+                    return new LabShopper(exchange.IssuedSessionCookie, id);
+                })
+                .ToArray();
 
             var strangers = shoppers.Count(shopper => shopper.Cookie is null);
 
@@ -2547,7 +2669,12 @@ public static class DemoLabEndpoints
     // ---------------------------------------------------------------------------------------
 
     /// <summary>One throwaway visitor: a sealed session cookie and nothing else.</summary>
-    private sealed record LabShopper(string? Cookie);
+    /// <summary>
+    /// One throwaway visitor. <paramref name="SessionId"/> is recovered from the sealed cookie at
+    /// creation, so teardown can tell this run's rows from a real shopper's by identity rather
+    /// than by guessing — the guess is what deleted somebody's paid order.
+    /// </summary>
+    private sealed record LabShopper(string? Cookie, Guid SessionId);
 
     /// <summary>A group of visitors that arrived together, with the handshakes that made them.</summary>
     private sealed record LabCrowd(IReadOnlyList<LabShopper> All, IReadOnlyList<DemoLabExchange> Handshakes);
@@ -2575,7 +2702,17 @@ public static class DemoLabEndpoints
     private readonly record struct LabLedgerReading(int OnHand, int Reserved);
 
     /// <summary>What the teardown removed, and whether anything survived it.</summary>
-    private sealed record LabTeardown(bool Clean, IReadOnlyList<LabRowsRemovedResponse> Removed, string? Warning)
+    /// <param name="SharedRowsTouched">
+    /// Rows that did NOT belong to this run: a real visitor's order left intact, or a fixture line
+    /// removed from their cart. It is a measurement, not a constant. It was a hardcoded zero once,
+    /// and it printed zero on the very runs that were deleting real people's paid orders — the one
+    /// number whose job was to catch that could not see it.
+    /// </param>
+    private sealed record LabTeardown(
+        bool Clean,
+        IReadOnlyList<LabRowsRemovedResponse> Removed,
+        string? Warning,
+        int SharedRowsTouched = 0)
     {
         /// <summary>The teardown of a run that never created anything.</summary>
         public static LabTeardown NothingToDo { get; } = new(true, [], null);

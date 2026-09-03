@@ -7,6 +7,7 @@ using VelaCommerce.Api.Endpoints;
 using VelaCommerce.Api.Hosting;
 using VelaCommerce.Api.Tenancy;
 using VelaCommerce.Infrastructure.Checkout;
+using VelaCommerce.Infrastructure.DemoLab;
 using VelaCommerce.Infrastructure.Fulfilment;
 using VelaCommerce.Infrastructure.Messaging;
 using VelaCommerce.Infrastructure.Payments;
@@ -80,6 +81,12 @@ builder.Services.AddDemoSessionTenancy();
 // Rate limits, per-session row caps and security headers. A public demo left unattended needs
 // all three: one visitor must not be able to fill the database or spend the whole request budget.
 builder.Services.AddDemoSafety(builder.Configuration);
+
+// The Demo Lab: a reviewer presses a button and watches an invariant hold, against the same
+// code paths a real purchase uses. Public and unauthenticated, so it seeds its own private
+// stock rather than selling the shared catalog's, and is bounded by a run budget that is not
+// keyed on session — a session is free to mint, so a per-visitor cooldown alone is farmable.
+builder.Services.AddDemoLab(builder.Configuration);
 
 // DATA PROTECTION KEYS MUST OUTLIVE THE CONTAINER.
 //
@@ -177,6 +184,7 @@ app.MapCartEndpoints();
 app.MapCheckoutEndpoints();
 app.MapWebhookEndpoints();
 app.MapDemoEndpoints();
+app.MapDemoLabEndpoints();
 
 // Two separate probes: liveness must never touch the database, or a sleeping
 // database would get the container killed rather than merely reported unhealthy.

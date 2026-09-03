@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Components.WebAssembly.Hosting;
 using VelaCommerce.Storefront;
 using VelaCommerce.Storefront.Catalog;
 using VelaCommerce.Storefront.Checkout;
+using VelaCommerce.Storefront.Lab;
 using VelaCommerce.Storefront.Shell;
 
 var builder = WebAssemblyHostBuilder.CreateDefault(args);
@@ -31,6 +32,9 @@ builder.Services.AddScoped<CartState>();
 // Without it the key is minted per page instance, so a shopper who navigates away from a failed
 // checkout and comes back places a SECOND order and takes a second payment.
 builder.Services.AddStorefrontCheckout();
+
+// Keeps a lab transcript and the cooldown countdown alive across navigation.
+builder.Services.AddStorefrontLab();
 builder.Services.AddScoped<CartDrawerState>();
 
 await builder.Build().RunAsync();

@@ -92,6 +92,22 @@ public sealed record DemoLabOptions
     public TimeSpan CooldownPerSession { get; init; } = TimeSpan.FromSeconds(10);
 
     /// <summary>
+    /// The most runs this deployment will start in <see cref="GlobalWindow"/>, across every
+    /// visitor.
+    /// <para>
+    /// <see cref="CooldownPerSession"/> bounds one visitor and nothing else, and a demo session is
+    /// free — anybody can mint a new one with a request. A reviewer proved the point by rotating
+    /// sessions and getting 376 runs through in ten seconds, about 1,850 checkouts a second, past a
+    /// cooldown that was working exactly as written. This budget is keyed on nothing, so there is
+    /// nothing to rotate.
+    /// </para>
+    /// </summary>
+    public int MaxRunsPerWindow { get; init; } = 8;
+
+    /// <summary>The rolling window <see cref="MaxRunsPerWindow"/> is counted over.</summary>
+    public TimeSpan GlobalWindow { get; init; } = TimeSpan.FromMinutes(1);
+
+    /// <summary>
     /// The wall-clock budget for one run, after which it is abandoned and reported as
     /// inconclusive.
     /// <para>
