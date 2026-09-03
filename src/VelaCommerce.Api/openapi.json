@@ -560,6 +560,48 @@
           }
         }
       }
+    },
+    "/api/demo/reset": {
+      "post": {
+        "tags": [
+          "Demo"
+        ],
+        "summary": "Delete the calling visitor's own demo data",
+        "description": "Removes this visitor's carts and orders and hands their reserved stock back to the catalog. Scope is decided entirely by the signed session cookie: there is no parameter naming a session, so a caller can only ever reset themselves. The catalog, the stock on hand and every other visitor's data are untouched. Reservations belonging to an order that has already shipped are left alone - those units are gone, not held - and reservations already released are ignored. Answers 200 with a count of everything removed, including when there was nothing to remove, so the button is safe to press twice.",
+        "operationId": "ResetDemoData",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DemoResetResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too Many Requests",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal Server Error",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
@@ -1002,6 +1044,88 @@
           }
         }
       },
+      "DemoResetResponse": {
+        "required": [
+          "cartsRemoved",
+          "cartLinesRemoved",
+          "ordersRemoved",
+          "orderLinesRemoved",
+          "reservationsRemoved",
+          "reservationsReleased",
+          "unitsReturnedToStock",
+          "elapsedMilliseconds"
+        ],
+        "type": "object",
+        "properties": {
+          "cartsRemoved": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "cartLinesRemoved": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "ordersRemoved": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "orderLinesRemoved": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "reservationsRemoved": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "reservationsReleased": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "unitsReturnedToStock": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "elapsedMilliseconds": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "removedAnything": {
+            "type": "boolean"
+          }
+        }
+      },
       "MoneyDto": {
         "required": [
           "amount",
@@ -1376,6 +1500,9 @@
     },
     {
       "name": "VelaCommerce.Api"
+    },
+    {
+      "name": "Demo"
     }
   ]
 }

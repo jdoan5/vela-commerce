@@ -16,8 +16,11 @@
       - closing hands focus back to the header button that opened it, via
         CartDrawerState.Closed.
 
-    Nothing here calls the API. The cart is client state; checkout, when it exists, is what
-    will hand it to a server.
+    The cart is the server's now, and this panel renders the last answer it gave. It is still
+    never fetched on first paint — opening the drawer is what asks — so the catalog keeps
+    working with the API asleep. The waking and error states above the lines exist because
+    that API scales to zero: "empty" and "we have not managed to ask yet" look identical to a
+    shopper unless one of them says so.
 *@
 @implements IDisposable
 @inject CartState Cart
@@ -60,7 +63,42 @@
         </div>
 
         <div class="vc-drawer__body">
-            @if (Cart.IsEmpty)
+            @if (Cart.IsLoaded && (Cart.HasPriceChanges || Cart.HasUnavailableLines))
+            {
+                <div class="vc-drawer__note vc-drawer__note--flag" role="status">
+                    The catalog moved under this cart. Checkout will stop rather than change what
+                    you pay &mdash; remove and re-add the flagged lines to accept the new price.
+                </div>
+            }
+
+            @if (Cart.IsWaking || (Cart.IsBusy && !Cart.IsLoaded))
+            {
+                @* The API scales to zero, so the first cart call after a quiet period waits on
+                   a container starting and a database resuming. Saying "empty" here would be a
+                   lie the shopper has no way to tell from the truth. *@
+                <div class="vc-drawer__empty" role="status" aria-live="polite">
+                    <h3 class="vc-drawer__empty-title">Waking the shop up</h3>
+                    <p class="vc-drawer__empty-body">
+                        The shop sleeps when nobody is buying, which is what keeps it free to run.
+                        Fetching your cart &mdash; the first call after a quiet spell takes a few
+                        seconds.
+                    </p>
+                </div>
+            }
+            else if (!Cart.IsLoaded && Cart.ErrorMessage is { Length: > 0 })
+            {
+                <div class="vc-drawer__empty" role="alert">
+                    <h3 class="vc-drawer__empty-title">Could not reach the shop</h3>
+                    <p class="vc-drawer__empty-body">@Cart.ErrorMessage</p>
+                    @if (Cart.CanRetry)
+                    {
+                        <button type="button" class="vc-btn vc-btn--sm" @onclick="Cart.RetryAsync">
+                            Try again
+                        </button>
+                    }
+                </div>
+            }
+            else if (Cart.IsEmpty)
             {
                 <div class="vc-drawer__empty">
                     @* An open, empty crate on the water, in the same line weight as the
@@ -95,6 +133,25 @@
                                     }
                                     <span>@line.Sku</span>
                                 </span>
+
+                                @* The shop's headline promise is that it never reprices a cart
+                                   quietly. The API has always reported the captured price beside
+                                   the live one; until this was rendered the promise was true of
+                                   the API and false of the screen, and a shopper first learned
+                                   the catalog had moved from a 409 at checkout. *@
+                                @if (!line.StillInCatalog)
+                                {
+                                    <span class="vc-tag vc-tag--signal">No longer sold</span>
+                                }
+                                else if (line.PriceChanged)
+                                {
+                                    <span class="vc-cart-line__meta vc-tabular">
+                                        <s>@MoneyFormatter.Format(line.UnitPrice)</s>
+                                        <span aria-hidden="true">&rarr;</span>
+                                        <span>@MoneyFormatter.Format(line.CurrentUnitPrice)</span>
+                                        <span>now</span>
+                                    </span>
+                                }
                             </div>
 
                             <div class="vc-cart-line__total">
@@ -138,26 +195,18 @@
                 </p>
             }
 
-            @* Disabled, and described by the note that says why. Not a fake checkout: there
-               is no server to take an order, and a button that pretended otherwise would be
-               the one dishonest thing in the shop. *@
-            <button type="button"
-                    class="vc-btn vc-btn--primary vc-drawer__checkout"
-                    aria-describedby="vc-drawer-checkout-note"
-                    disabled>
+            @* A real link now. It was disabled through Phase 2 and 3 because there was no
+               server to take an order; the note that said so has to go with it, because the
+               moment checkout works that note becomes the one false statement in the shop. *@
+            <a class="vc-btn vc-btn--primary vc-drawer__checkout"
+               href="checkout"
+               aria-describedby="vc-drawer-checkout-note"
+               @onclick="CloseWithoutRestoringFocus">
                 Checkout
-            </button>
-            <p class="vc-drawer__note vc-drawer__note--flag" id="vc-drawer-checkout-note">
-                Checkout arrives in a later phase. Nothing here is charged, reserved or sent anywhere.
+            </a>
+            <p class="vc-drawer__note" id="vc-drawer-checkout-note">
+                A simulated gateway: nothing is charged and no card details are asked for.
             </p>
-
-            @if (!Cart.IsPersisted)
-            {
-                <p class="vc-drawer__note vc-drawer__note--flag">
-                    This browser is not letting the shop store anything, so the cart will be empty
-                    again after a reload.
-                </p>
-            }
 
             <div class="vc-drawer__actions">
                 @if (!Cart.IsEmpty)

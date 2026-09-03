@@ -2,6 +2,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
 using Scalar.AspNetCore;
 using VelaCommerce.Api.Endpoints;
+using VelaCommerce.Api.Hosting;
 using VelaCommerce.Api.Tenancy;
 using VelaCommerce.Infrastructure.Checkout;
 using VelaCommerce.Infrastructure.Fulfilment;
@@ -74,6 +75,10 @@ builder.Services.AddOrderTimeline(builder.Configuration);
 // mistake to fail in.
 builder.Services.AddDemoSessionTenancy();
 
+// Rate limits, per-session row caps and security headers. A public demo left unattended needs
+// all three: one visitor must not be able to fill the database or spend the whole request budget.
+builder.Services.AddDemoSafety(builder.Configuration);
+
 // The default key ring is fine locally: keys land under ~/.aspnet/DataProtection-Keys and survive
 // a restart, so a session outlives `dotnet run`. Production needs a persisted, shared ring —
 // PersistKeysToAzureBlobStorage plus ProtectKeysToAzureKeyVault for a container app — because keys
@@ -107,6 +112,10 @@ app.UseStatusCodePages();
 // all — has none, and the query filter shows such a caller nothing rather than everything.
 app.UseDemoSession();
 
+// Position is load-bearing: the limiter partitions by demo session, so it has to run after the
+// session is bound and before anything it protects.
+app.UseDemoSafety();
+
 // Scalar is Development-only, per Microsoft's guidance for the built-in OpenAPI document.
 if (app.Environment.IsDevelopment())
 {
@@ -118,6 +127,7 @@ app.MapCatalogEndpoints();
 app.MapCartEndpoints();
 app.MapCheckoutEndpoints();
 app.MapWebhookEndpoints();
+app.MapDemoEndpoints();
 
 // Two separate probes: liveness must never touch the database, or a sleeping
 // database would get the container killed rather than merely reported unhealthy.
@@ -135,6 +145,11 @@ app.MapGet("/health", async (VelaCommerceDbContext db, CancellationToken ct) =>
 })
 .WithName("Readiness")
 .WithSummary("Readiness probe: verifies the database is reachable.");
+
+// LAST, deliberately. This installs static files plus an SPA fallback so a deep link like
+// /p/some-slug survives a refresh. Mapped before the API routes it would swallow them, and
+// the shop would answer index.html to every fetch.
+app.MapStorefront();
 
 app.Run();
 

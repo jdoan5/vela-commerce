@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Components.Web;
 using Microsoft.AspNetCore.Components.WebAssembly.Hosting;
 using VelaCommerce.Storefront;
 using VelaCommerce.Storefront.Catalog;
+using VelaCommerce.Storefront.Checkout;
 using VelaCommerce.Storefront.Shell;
 
 var builder = WebAssemblyHostBuilder.CreateDefault(args);
@@ -18,11 +19,18 @@ builder.Services.AddScoped(sp => new HttpClient { BaseAddress = new Uri(builder.
 builder.Services.AddScoped<CatalogService>();
 builder.Services.AddScoped<StorefrontState>();
 
-// The cart is client state, kept in the tab and mirrored into localStorage. It reaches no
-// network at all: there is no checkout to hand it to yet, and the shop has to keep working
-// with the API switched off. CartDrawerState is only whether the panel is on screen, which
-// is why it is not folded into the cart itself.
+// The cart is held by the SERVER now, and this class mirrors its last answer. There is no
+// localStorage copy, because two stores of one cart means one of them is wrong and neither
+// knows which. It is still never touched on the first-paint path: the catalog is a static
+// file, so browsing works with the API switched off, and the cart is fetched on the first
+// genuine need — the drawer opening, or an add being pressed.
+// CartDrawerState is only whether the panel is on screen, which is why it is not folded in.
 builder.Services.AddScoped<CartState>();
+
+// Holds the checkout's idempotency key and address draft for the tab rather than the component.
+// Without it the key is minted per page instance, so a shopper who navigates away from a failed
+// checkout and comes back places a SECOND order and takes a second payment.
+builder.Services.AddStorefrontCheckout();
 builder.Services.AddScoped<CartDrawerState>();
 
 await builder.Build().RunAsync();

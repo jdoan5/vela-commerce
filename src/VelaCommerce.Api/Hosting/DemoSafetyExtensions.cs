@@ -7,6 +7,7 @@ using Microsoft.AspNetCore.Server.Kestrel.Core;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Options;
 
+using VelaCommerce.Api.Endpoints;
 using VelaCommerce.Infrastructure.Tenancy;
 
 namespace VelaCommerce.Api.Hosting;

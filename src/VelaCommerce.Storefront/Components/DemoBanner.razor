@@ -28,6 +28,7 @@
 
 @implements IDisposable
 @using System.Text.Json
+@using VelaCommerce.Storefront.Checkout
 @inject HttpClient Http
 @inject IJSRuntime JS
 @inject CartState Cart
@@ -60,6 +61,7 @@
         }
 
         .vc-demo__tag {
+            display: inline-block;
             font-family: var(--vc-font-mono);
             font-size: var(--vc-text-xs);
             letter-spacing: 0.08em;
@@ -68,11 +70,11 @@
             border: 1px solid var(--vc-header-accent);
             border-radius: var(--vc-radius-sm);
             padding: 0.1rem 0.4rem;
-            flex: none;
+            margin-right: var(--vc-space-1);
         }
 
         .vc-demo__text {
-            flex: 1 1 22rem;
+            flex: 1 1 20rem;
             min-width: 0;
             margin: 0;
             color: var(--vc-header-text);
@@ -168,6 +170,19 @@
             white-space: nowrap;
         }
 
+        /* The plain-language name beside the value a caller actually sends. Both are wanted: the
+           label is what a shopper recognises, the hint is what goes in the request. */
+        .vc-demo__label {
+            display: block;
+            font-weight: 400;
+            color: var(--vc-header-muted);
+        }
+
+        .vc-demo__trigger {
+            color: var(--vc-header-muted);
+            white-space: nowrap;
+        }
+
         .vc-demo__status {
             color: var(--vc-header-muted);
             flex: 1 1 100%;
@@ -186,11 +201,73 @@
             font-weight: 500;
         }
 
-        /* The strip is a horizontal band, so on a narrow screen the actions belong under the
-           sentence rather than squeezed beside it. */
+        /* A phone has no room to spare above the shop, so the strip gives some back: the actions
+           stop reaching for the right edge, and the notice drops a step in size. Measured rather
+           than guessed — on a 375px viewport this is the difference between the banner taking a
+           quarter of the screen and taking a sixth of it. */
         @@media (max-width: 40rem) {
             .vc-demo__actions {
                 margin-left: 0;
+            }
+
+            .vc-demo__text {
+                font-size: var(--vc-text-xs);
+            }
+
+            .vc-demo__bar {
+                gap: var(--vc-space-2);
+                padding-block: var(--vc-space-2) var(--vc-space-1);
+            }
+
+            /* Three columns in 375 pixels gives three columns of one word each and a scenario
+               list six screens long. Each row becomes a block instead: the name and its trigger
+               on one line, what it proves underneath.
+
+               The header row is hidden the way the design system hides anything visual-only —
+               clipped, not display:none — because display:none would take it out of the
+               accessibility tree too, and then the "Ends the order total in" column would be an
+               unlabelled ".01" for anyone reading with a screen reader. It stays in the tree,
+               and the ::before below restores the same words for everyone who can see. */
+            .vc-demo__table thead {
+                position: absolute;
+                width: 1px;
+                height: 1px;
+                margin: -1px;
+                padding: 0;
+                overflow: hidden;
+                clip-path: inset(50%);
+                white-space: nowrap;
+            }
+
+            .vc-demo__table tr {
+                display: block;
+                padding-block: var(--vc-space-2);
+                border-bottom: 1px solid var(--vc-header-rule);
+            }
+
+            .vc-demo__table th,
+            .vc-demo__table td {
+                display: block;
+                border: 0;
+                padding: 0;
+            }
+
+            .vc-demo__table th[scope="row"],
+            .vc-demo__table td.vc-demo__trigger {
+                display: inline;
+            }
+
+            .vc-demo__label {
+                display: inline;
+            }
+
+            .vc-demo__label::before {
+                content: " · ";
+            }
+
+            .vc-demo__trigger::before {
+                content: " · ";
+                color: var(--vc-header-muted);
             }
         }
     </style>
@@ -199,12 +276,14 @@
 <section class="vc-demo" aria-label="Demo notice">
     <div class="vc-container">
         <div class="vc-demo__bar">
-            <span class="vc-demo__tag">Demo</span>
-
+            @* The tag is inside the paragraph rather than beside it. As a flex sibling it took a
+               line of its own on a narrow screen, which cost about thirty pixels of a phone's
+               viewport to say one word. *@
             <p class="vc-demo__text">
-                This is a portfolio demo of a shop, not a shop. <strong>Nothing is charged</strong>,
-                no card is ever asked for, and every payment is simulated — so you can place an
-                order, watch it ship, and have a card declined on purpose.
+                <span class="vc-demo__tag">Demo</span>
+                A portfolio demo of a shop, not a shop. <strong>Nothing is charged</strong> and no
+                card is ever asked for — payments are simulated, so you can place an order, watch it
+                ship, or have one declined on purpose.
             </p>
 
             <div class="vc-demo__actions">
@@ -229,33 +308,42 @@
                the start means opening it only ever grows the strip downwards. *@
             <details class="vc-demo__scenarios">
                 <summary>Test payment scenarios</summary>
-                @* The six names, and the two ways to reach each one, are the demo's contract with
-                   whoever is trying it. They are written out here rather than fetched because of
-                   constraint 1 at the top of this file: a banner that called the API to find out
-                   what to say would wake a sleeping database for a visitor who only wanted to
-                   browse. The authority is PaymentScenarioCatalog in the Infrastructure project,
-                   which generates PAYMENT-SCENARIOS.md from the same list; if a scenario is ever
-                   added there, it has to be added here too. That duplication is deliberate and is
-                   the price of the storefront reaching no network on first paint - the storefront
-                   does not reference Infrastructure, and it must not. *@
+                @* READ FROM Checkout.PaymentScenarios, NOT COPIED. That list is the storefront's
+                   own shopper-facing rendering of PaymentScenarioCatalog - the checkout page's
+                   scenario picker is built from it - and it already carries the hint a caller
+                   sends, a plain-language label, the amount that triggers it without a hint, and
+                   a sentence about what happens to the cart and the stock. Writing the same six
+                   rows again here would make the banner and the picker able to disagree about what
+                   this demo does, which is a worse failure than it sounds on a page whose entire
+                   job is to be believed.
+
+                   It is a static list rather than a fetch, which is what keeps this component off
+                   the network on first paint - see constraint 1 at the top of the file. The one
+                   copy that does exist, between Infrastructure and the storefront, is argued in
+                   PaymentScenarios itself: the storefront has no project reference to the server
+                   and must not grow one. *@
                 <table class="vc-demo__table">
                     <caption class="vc-visually-hidden">
-                        Payment scenarios you can drive from the checkout page, and what each one proves.
+                        Payment scenarios you can drive from the checkout page, how to trigger each one
+                        without the picker, and what each one proves.
                     </caption>
                     <thead>
                         <tr>
                             <th scope="col">Scenario</th>
-                            <th scope="col">Ends the order total in</th>
+                            <th scope="col">Trigger by amount</th>
                             <th scope="col">What happens</th>
                         </tr>
                     </thead>
                     <tbody>
-                        @foreach (var scenario in Scenarios)
+                        @foreach (var scenario in PaymentScenarios.All)
                         {
                             <tr>
-                                <th scope="row" class="vc-demo__scenario">@scenario.Name</th>
-                                <td class="vc-tabular">@scenario.Cents</td>
-                                <td>@scenario.Effect</td>
+                                <th scope="row">
+                                    <span class="vc-demo__scenario">@scenario.Hint</span>
+                                    <span class="vc-demo__label">@scenario.Label</span>
+                                </th>
+                                <td class="vc-demo__trigger">@scenario.AmountTrigger</td>
+                                <td>@scenario.Summary</td>
                             </tr>
                         }
                     </tbody>
@@ -304,21 +392,6 @@
     /// be gone; above it, silence looks like something is broken.
     /// </summary>
     private static readonly TimeSpan WakingAfter = TimeSpan.FromSeconds(2);
-
-    /// <summary>
-    /// The payment simulator's scenarios, as a shopper needs to know them. Mirrors
-    /// <c>PaymentScenarioCatalog.Descriptors</c> — see the note beside the table above for why this
-    /// is a copy rather than a fetch.
-    /// </summary>
-    private static readonly (string Name, string Cents, string Effect)[] Scenarios =
-    [
-        ("Succeed", ".00", "Paid inside the checkout request. The order then packs and ships on a demo clock."),
-        ("Decline", ".01", "The card is refused. Stock goes back on the shelf and your cart survives."),
-        ("Abandon", ".02", "Nothing is taken and no webhook follows. The stock reservation lapses on its own."),
-        ("Duplicate", ".03", "The same settlement is delivered twice. It is applied exactly once."),
-        ("Delay", ".04", "Settlement arrives later, so the order sits at Pending and says so."),
-        ("Reorder", ".05", "Two settlements arrive in the wrong order. The order state machine sorts it out."),
-    ];
 
     private bool _visible;
     private bool _resetting;

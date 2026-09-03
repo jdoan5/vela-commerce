@@ -64,7 +64,11 @@
                         <time class="vc-timeline__time vc-tabular" datetime="@at.ToString("o")">
                             @if (node.AtIsObserved)
                             {
+                                @* The explicit space is load-bearing: Razor drops the whitespace
+                                   between an element and the expression after it, and without one
+                                   a screen reader reads "seen12:21:39" as a single token. *@
                                 <span class="vc-timeline__seen">seen</span>
+                                @(" ")
                             }
                             @Clock(at)
                         </time>
