@@ -5,7 +5,7 @@
 
 A storefront built for the first sixty seconds.
 
-> **Status: in progress.** Phase 1 of 10 is done. There is no live demo yet — this
+> **Status: in progress.** Phases 1 and 2 of 10 are done. There is no live demo yet — this
 > README will carry the link, the screenshots and the measured numbers once the
 > storefront and checkout land. Nothing below is claimed that the repo cannot show.
 
@@ -30,11 +30,12 @@ a visitor ever seeing a spinner.
 | Area | State |
 |---|---|
 | Domain model | Money, catalog, inventory, cart, orders, order state machine |
-| Domain tests | 161 passing |
-| Database | PostgreSQL 18, EF Core 10, first migration applied |
-| Catalog API | Paging, search, sort, per-variant availability |
+| Database | PostgreSQL 18, EF Core 10, migration applied, invariants enforced by CHECK and unique constraints |
+| Catalog API | Paging, search, sort, per-variant availability; OpenAPI document generated at build time |
 | Seed data | 288 products / 691 variants, byte-identical between runs |
-| Storefront | Not started (Phase 2) |
+| Storefront | Blazor WebAssembly: catalog grid, instant search and filter, product pages, cart in localStorage |
+| Tests | 175 passing — 162 domain, 8 architecture, 5 integration against a real PostgreSQL 18 |
+| CI | Release build with warnings as errors, all three suites, seed-determinism and OpenAPI-drift gates, CodeQL |
 | Checkout & payments | Not started (Phase 4) |
 | Deployment | Not started (Phase 0 remainder) |
 
@@ -69,6 +70,12 @@ Pending -> Paid       Pending -> Cancelled
 Paid    -> Packed     Paid    -> Cancelled
 Packed  -> Shipped
 ```
+
+**Architecture is a test, not a convention.** Eight ArchUnitNET rules run over the compiled
+IL: the domain depends on nothing, dependencies point inward, the `DbContext` does not escape
+persistence, entities stay sealed and keep the constructor EF needs, and no type reads the
+ambient clock. That last rule failed on its first run and was right to — `Order` set `PlacedAt`
+from `DateTimeOffset.UtcNow`, which is now a parameter.
 
 **Money is never a float.** Amounts are `long` minor units plus a currency, mapped to
 `bigint` + `varchar(3)`. Mixing currencies throws rather than coercing. `Money.Allocate`
