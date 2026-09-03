@@ -104,5 +104,31 @@ public sealed class PersistenceBoundaryRules
         || authored.Namespace.Equals(PersistenceNamespace, StringComparison.Ordinal)
         || authored.Namespace.StartsWith(PersistenceNamespace + ".", StringComparison.Ordinal)
         || authored.Namespace.Equals(SeedingNamespace, StringComparison.Ordinal)
-        || authored.Namespace.Equals(EndpointsNamespace, StringComparison.Ordinal);
+        || authored.Namespace.Equals(EndpointsNamespace, StringComparison.Ordinal)
+        || IsBackgroundService(authored);
+
+    /// <summary>
+    /// A hosted service is a transaction owner in the same sense an endpoint is.
+    /// <para>
+    /// The rule exists so business logic cannot reach past its caller and take control of the
+    /// unit of work. A <c>BackgroundService</c> has no caller: it creates its own scope,
+    /// decides its own batch and commits it, which is exactly the responsibility the allowed
+    /// namespaces have. Recognising the base type rather than adding another namespace keeps
+    /// the exemption tied to that responsibility — a helper class sitting beside the reaper
+    /// still cannot touch a context.
+    /// </para>
+    /// </summary>
+    private static bool IsBackgroundService(TypeDefinition authored)
+    {
+        for (var current = authored.BaseType; current is not null;)
+        {
+            if (current.FullName.Equals("Microsoft.Extensions.Hosting.BackgroundService", StringComparison.Ordinal))
+                return true;
+
+            var resolved = current.Resolve();
+            current = resolved?.BaseType;
+        }
+
+        return false;
+    }
 }

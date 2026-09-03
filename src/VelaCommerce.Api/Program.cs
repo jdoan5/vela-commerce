@@ -2,6 +2,8 @@ using Microsoft.EntityFrameworkCore;
 using Scalar.AspNetCore;
 using VelaCommerce.Api.Endpoints;
 using VelaCommerce.Api.Tenancy;
+using VelaCommerce.Infrastructure.Checkout;
+using VelaCommerce.Infrastructure.Payments;
 using VelaCommerce.Infrastructure.Persistence;
 using VelaCommerce.Infrastructure.Seeding;
 using VelaCommerce.Infrastructure.Tenancy;
@@ -35,6 +37,15 @@ builder.Services.AddProblemDetails();
 // locally and in CI, but not in production.
 builder.Services.Configure<RouteHandlerOptions>(options => options.ThrowOnBadRequest = false);
 builder.Services.AddScoped<CatalogSeeder>();
+
+// Checkout registers TimeProvider, which ASP.NET Core does not provide and the handler
+// needs because reading the ambient clock is banned by an architecture test.
+builder.Services.AddCheckout();
+
+// The simulator is the DEFAULT gateway on purpose: this repo has to clone and complete a
+// purchase with no payment account and no network. The environment flag makes it refuse to
+// start outside Development while the committed development signing secret is in use.
+builder.Services.AddPaymentSimulator(builder.Configuration, builder.Environment.IsDevelopment());
 
 // Identity on a site with no accounts: a signed cookie, and a scoped holder the DbContext reads
 // when it filters carts and orders. Registering it here is what turns tenancy on — and forgetting
@@ -84,6 +95,7 @@ if (app.Environment.IsDevelopment())
 
 app.MapCatalogEndpoints();
 app.MapCartEndpoints();
+app.MapCheckoutEndpoints();
 
 // Two separate probes: liveness must never touch the database, or a sleeping
 // database would get the container killed rather than merely reported unhealthy.

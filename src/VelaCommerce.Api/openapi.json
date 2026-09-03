@@ -324,6 +324,147 @@
         }
       }
     },
+    "/api/checkout": {
+      "post": {
+        "tags": [
+          "Checkout"
+        ],
+        "summary": "Place an order from the current visitor's cart",
+        "description": "Takes the shipping address and an idempotency key; everything else - the lines, the prices, the totals - comes from the server. Prices are revalidated against the live catalog first, and a line that has moved fails the checkout with 409 rather than being silently repriced in either direction. Stock is then reserved with a conditional UPDATE per line, so losing the race for the last unit is a 409 naming the variant and not an oversell. 201 means the order was created and paid; 202 means it was created and the gateway will settle asynchronously; 200 means this exact idempotency key had already created an order and you are being handed that same order back, with no second charge and no second order number. 402 means the gateway refused - the cart survives so the shopper can try again. The response carries a signed link that reopens the order later without a session.",
+        "operationId": "PlaceOrder",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CheckoutRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CheckoutOrderResponse"
+                }
+              }
+            }
+          },
+          "201": {
+            "description": "Created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CheckoutOrderResponse"
+                }
+              }
+            }
+          },
+          "202": {
+            "description": "Accepted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CheckoutOrderResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "402": {
+            "description": "Payment Required",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "Bad Gateway",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/orders/{orderNumber}": {
+      "get": {
+        "tags": [
+          "Checkout"
+        ],
+        "summary": "Read an order by its number",
+        "description": "Two ways in. With no token the order must belong to the calling session, which is the ordinary 'my orders' path. With the signed token from the checkout response the order opens for anyone holding the link, whatever session they are in and whether or not they have one - that is what makes a confirmation link forwardable and survivable across a cleared cookie. Every failure is 404: a malformed number, an expired or forged token, and an order belonging to someone else all answer identically, so the endpoint cannot be used to find out which order numbers exist.",
+        "operationId": "GetOrder",
+        "parameters": [
+          {
+            "name": "orderNumber",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "token",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CheckoutOrderResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/health": {
       "get": {
         "tags": [
@@ -489,6 +630,293 @@
               "string"
             ],
             "format": "int32"
+          }
+        }
+      },
+      "CheckoutAddressRequest": {
+        "required": [
+          "recipient",
+          "line1",
+          "line2",
+          "city",
+          "region",
+          "postalCode",
+          "countryCode"
+        ],
+        "type": "object",
+        "properties": {
+          "recipient": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "line1": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "line2": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "city": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "region": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "postalCode": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "countryCode": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        }
+      },
+      "CheckoutAddressResponse": {
+        "required": [
+          "recipient",
+          "line1",
+          "line2",
+          "city",
+          "region",
+          "postalCode",
+          "countryCode"
+        ],
+        "type": "object",
+        "properties": {
+          "recipient": {
+            "type": "string"
+          },
+          "line1": {
+            "type": "string"
+          },
+          "line2": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "city": {
+            "type": "string"
+          },
+          "region": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "postalCode": {
+            "type": "string"
+          },
+          "countryCode": {
+            "type": "string"
+          }
+        }
+      },
+      "CheckoutOrderLineResponse": {
+        "required": [
+          "variantId",
+          "sku",
+          "displayName",
+          "unitPrice",
+          "quantity"
+        ],
+        "type": "object",
+        "properties": {
+          "variantId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "sku": {
+            "type": "string"
+          },
+          "displayName": {
+            "type": "string"
+          },
+          "unitPrice": {
+            "$ref": "#/components/schemas/MoneyDto"
+          },
+          "quantity": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "lineTotal": {
+            "$ref": "#/components/schemas/MoneyDto"
+          }
+        }
+      },
+      "CheckoutOrderResponse": {
+        "required": [
+          "orderNumber",
+          "status",
+          "placedAt",
+          "paidAt",
+          "currency",
+          "lines",
+          "subtotal",
+          "shipping",
+          "tax",
+          "total",
+          "captured",
+          "refunded",
+          "shippingAddress",
+          "retrievalToken",
+          "retrievalPath",
+          "payment"
+        ],
+        "type": "object",
+        "properties": {
+          "orderNumber": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "placedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "paidAt": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "date-time"
+          },
+          "currency": {
+            "type": "string"
+          },
+          "lines": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CheckoutOrderLineResponse"
+            }
+          },
+          "subtotal": {
+            "$ref": "#/components/schemas/MoneyDto"
+          },
+          "shipping": {
+            "$ref": "#/components/schemas/MoneyDto"
+          },
+          "tax": {
+            "$ref": "#/components/schemas/MoneyDto"
+          },
+          "total": {
+            "$ref": "#/components/schemas/MoneyDto"
+          },
+          "captured": {
+            "$ref": "#/components/schemas/MoneyDto"
+          },
+          "refunded": {
+            "$ref": "#/components/schemas/MoneyDto"
+          },
+          "shippingAddress": {
+            "$ref": "#/components/schemas/CheckoutAddressResponse"
+          },
+          "retrievalToken": {
+            "type": "string"
+          },
+          "retrievalPath": {
+            "type": "string"
+          },
+          "payment": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/CheckoutPaymentResponse"
+              }
+            ]
+          },
+          "totalQuantity": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          }
+        }
+      },
+      "CheckoutPaymentResponse": {
+        "required": [
+          "outcome",
+          "gatewayReference",
+          "declineReason",
+          "captured",
+          "awaitsSettlement"
+        ],
+        "type": "object",
+        "properties": {
+          "outcome": {
+            "type": "string"
+          },
+          "gatewayReference": {
+            "type": "string"
+          },
+          "declineReason": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "captured": {
+            "type": "boolean"
+          },
+          "awaitsSettlement": {
+            "type": "boolean"
+          }
+        }
+      },
+      "CheckoutRequest": {
+        "required": [
+          "shippingAddress"
+        ],
+        "type": "object",
+        "properties": {
+          "shippingAddress": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/CheckoutAddressRequest"
+              }
+            ]
+          },
+          "idempotencyKey": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "paymentScenario": {
+            "type": [
+              "null",
+              "string"
+            ]
           }
         }
       },
@@ -770,6 +1198,9 @@
     },
     {
       "name": "Cart"
+    },
+    {
+      "name": "Checkout"
     },
     {
       "name": "VelaCommerce.Api"
