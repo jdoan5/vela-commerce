@@ -86,11 +86,11 @@ public sealed class CheckoutWiringTests(PostgresFixture fixture)
     /// application registers anything.
     /// <para>
     /// This guards the one way wiring checkout into <c>Program.cs</c> could break the whole suite
-    /// at once rather than one test at a time. <c>AddPaymentSimulator</c> validates while services
-    /// are being registered, and outside Development it refuses the committed development secret —
-    /// correctly, since that secret is in the repository. This host runs as Production, exactly as
-    /// the shared demo does, so the application composing the simulator here would throw at startup
-    /// and every checkout test would report a host that never came up.
+    /// at once rather than one test at a time. Outside Development the simulator refuses a
+    /// publicly-known signing secret — correctly, since that secret is in the repository — and this
+    /// host runs as Production, exactly as the shared demo does. The refusal is on the money paths
+    /// (<c>PaymentSimulatorOptions.AssertUsable</c>), not at registration, so the application
+    /// composing the simulator here would start normally and fail every checkout at authorization.
     /// </para>
     /// <para>
     /// The secret is therefore published as an environment variable rather than through anything

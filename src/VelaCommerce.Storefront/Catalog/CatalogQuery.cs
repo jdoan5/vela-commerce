@@ -40,7 +40,7 @@ public readonly record struct AttributeFilter(string Key, string Value);
 /// </summary>
 public sealed record CatalogQuery
 {
-    /// <summary>Free text. Matched against name, category, description, specs and SKUs; all terms must hit.</summary>
+    /// <summary>Free text. Matched against name, category, description and spec values; all terms must hit.</summary>
     public string? Search { get; init; }
 
     /// <summary>A category slug such as <c>rope-and-rigging</c>, or null for the whole catalog.</summary>

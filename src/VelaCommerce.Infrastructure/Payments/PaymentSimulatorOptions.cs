@@ -24,7 +24,9 @@ public sealed record PaymentSimulatorOptions
     /// <para>
     /// Committed on purpose, and named so that it cannot be mistaken for a real one in a log, a
     /// screenshot or a search of the repository. Production must override it — see
-    /// <see cref="Validate"/> — and the value there belongs in an environment variable or a key
+    /// <see cref="AssertUsable"/>, which is where the refusal lives; <see cref="Validate"/> checks
+    /// the secret's shape and deliberately not its publicity — and the value belongs in an
+    /// environment variable or a key
     /// vault reference, never in <c>appsettings.Production.json</c>, because that file ships
     /// inside the container image.
     /// </para>

@@ -302,9 +302,14 @@ resource "azurerm_container_app" "vela" {
       #     a slow migration would then fail the startup probe.
       #   * DemoSessionMiddleware sets the session cookie's Secure flag on everything that
       #     is not Development.
-      #   * PaymentSimulatorOptions.Validate refuses to start outside Development while the
-      #     committed public signing secret is in use. That check is the reason a public
-      #     demo cannot ship a public HMAC key, and Development disarms it.
+      #   * PaymentSimulatorOptions.AssertUsable refuses to authorize a payment or verify a
+      #     settlement outside Development while a publicly-known signing secret is in use.
+      #     Development disarms that refusal, which is why this must not be Development.
+      #
+      #     Note what it does NOT do: it does not stop the host booting. The container starts,
+      #     serves the shop and passes its health probe with a public key configured; the
+      #     failure lands on the first shopper who tries to pay. Setting the real secret with
+      #     `az containerapp secret set` is therefore not verifiable from a deploy smoke test.
       env {
         name  = "ASPNETCORE_ENVIRONMENT"
         value = "Production"

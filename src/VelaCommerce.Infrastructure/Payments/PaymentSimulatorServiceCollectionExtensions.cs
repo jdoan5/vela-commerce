@@ -49,8 +49,17 @@ public static class PaymentSimulatorServiceCollectionExtensions
     /// <b>Production checklist.</b> Set
     /// <c>Payments:Simulator:SigningSecret</c> from an environment variable or a key vault
     /// reference — never from <c>appsettings.Production.json</c>, which ships inside the container
-    /// image. <see cref="PaymentSimulatorOptions.Validate"/> refuses to start outside Development
-    /// while the committed default is still in place.
+    /// image. <see cref="PaymentSimulatorOptions.AssertUsable"/> then refuses to authorize a payment
+    /// or verify a settlement outside Development while a publicly-known secret is in place, and
+    /// <c>PaymentSimulatorStartupValidator</c> logs it at Critical on boot.
+    /// <para>
+    /// <b>The host still starts.</b> The refusal is on the money paths, not at startup, because
+    /// startup also happens under the build-time OpenAPI generator — which runs this entry point
+    /// with no environment set and therefore looks like Production, so refusing to boot there broke
+    /// the build rather than a deployment. The practical consequence is worth knowing: a deployment
+    /// that forgets the secret serves the shop, passes a health check and fails only when somebody
+    /// tries to buy something.
+    /// </para>
     /// </para>
     /// </summary>
     /// <param name="services">The application's service collection.</param>

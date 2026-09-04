@@ -8,7 +8,7 @@ namespace VelaCommerce.Architecture.Tests;
 /// Reading the ambient clock inside a type makes that type untestable at any instant but the
 /// present one, and makes its behaviour depend on the machine it runs on. This codebase takes the
 /// opposite line: time arrives as a parameter, the way
-/// <c>Order.MarkPaid(Money, DateTimeOffset)</c> and <c>Entity.SoftDelete(DateTimeOffset)</c> take
+/// <c>Order.MarkPaid(Money, string, DateTimeOffset)</c> and <c>Entity.SoftDelete(DateTimeOffset)</c> take
 /// it. That is what lets a test assert on a refund window or an expiring reservation without
 /// sleeping, and what lets one checkout stamp every row it touches with a single consistent
 /// timestamp instead of a handful of microseconds apart.
@@ -91,7 +91,7 @@ public sealed class ClockRules
             Assert.Fail(SolutionUnderTest.Explain(
                 "Nothing may read DateTime.Now, DateTime.UtcNow, DateTime.Today, "
                 + "DateTimeOffset.Now or DateTimeOffset.UtcNow directly. Time is an input: take it "
-                + "as a DateTimeOffset parameter the way Order.MarkPaid(Money, DateTimeOffset) does, "
+                + "as a DateTimeOffset parameter the way Order.MarkPaid(Money, string, DateTimeOffset) does, "
                 + "and let the composition root read the clock once per operation.",
                 offenders));
         }

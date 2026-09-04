@@ -81,8 +81,14 @@ Every key is optional. A host with no configuration at all gets a working gatewa
 **Production.** Supply `SigningSecret` from an environment variable or a key vault reference —
 never from `appsettings.Production.json`, which ships inside the container image. The committed
 default is public in this repository, so anyone who has read it could otherwise forge a settlement
-and mark an order paid; `AddPaymentSimulator` refuses to start outside Development while that
-default is still in place.
+and mark an order paid. `PaymentSimulatorOptions.AssertUsable` refuses to authorize a payment or
+verify a settlement outside Development while a publicly-known secret is in use, and startup logs it
+at Critical.
+
+The host still **starts** — the refusal sits on the money paths rather than at boot, because the
+build-time OpenAPI generator runs the same entry point as Production and refusing there would break
+the build instead of a deployment. So a deployment that skips this step serves the shop and passes a
+health check; the first symptom is a shopper's checkout failing.
 
 ## Wiring
 

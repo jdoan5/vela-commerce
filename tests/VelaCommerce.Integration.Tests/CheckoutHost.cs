@@ -50,7 +50,8 @@ public sealed class CheckoutHost : WebApplicationFactory<Program>
     /// <summary>
     /// A signing secret for the payment simulator, long enough to satisfy
     /// <c>PaymentSimulatorOptions.Validate</c> and different from the committed development
-    /// default, which that method refuses outside Development.
+    /// default, which PaymentSimulatorOptions.AssertUsable refuses on the money paths outside
+    /// Development.
     /// <para>
     /// It is not a secret in any meaningful sense — it signs simulated webhooks in a test process
     /// — and it is written down here rather than generated so that a failing signature is
@@ -63,14 +64,19 @@ public sealed class CheckoutHost : WebApplicationFactory<Program>
     /// Published as an environment variable, and that is the only channel that is guaranteed to
     /// arrive in time.
     /// <para>
-    /// <c>AddPaymentSimulator</c> reads configuration and validates it <em>while services are being
-    /// registered</em> — before <c>ConfigureTestServices</c> runs, and before anything this factory
-    /// can add to the configuration pipeline is guaranteed to be visible. Under this host's
-    /// Production environment the committed development secret is refused, so a host that composed
-    /// the simulator the way the guidance recommends would fail to start at all and every test here
-    /// would report a startup exception instead of a checkout result. The default configuration
-    /// builder reads environment variables before <c>Program</c> registers anything, so setting one
-    /// is the one hook that is always early enough.
+    /// <c>AddPaymentSimulator</c> reads configuration <em>while services are being registered</em> —
+    /// before <c>ConfigureTestServices</c> runs, and before anything this factory can add to the
+    /// configuration pipeline is guaranteed to be visible. The default configuration builder reads
+    /// environment variables before <c>Program</c> registers anything, so setting one is the one
+    /// hook that is always early enough.
+    /// <para>
+    /// What breaks without it is every checkout, not the host. Registration validates the secret's
+    /// shape only; the refusal of a publicly-known secret lives in
+    /// <c>PaymentSimulatorOptions.AssertUsable</c>, on the money paths. Under this host's Production
+    /// environment the committed development secret would therefore be accepted at startup and
+    /// refused at the first authorization, so the suite would report failed checkouts rather than a
+    /// host that never came up — a slower thing to diagnose, not a louder one.
+    /// </para>
     /// </para>
     /// <para>
     /// Set from a static constructor so it is in place however the first host is built, and set

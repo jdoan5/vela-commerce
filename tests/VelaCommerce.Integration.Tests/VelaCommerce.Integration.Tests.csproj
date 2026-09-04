@@ -25,6 +25,7 @@
     <ProjectReference Include="..\..\src\VelaCommerce.Api\VelaCommerce.Api.csproj" />
     <ProjectReference Include="..\..\src\VelaCommerce.Infrastructure\VelaCommerce.Infrastructure.csproj" />
     <ProjectReference Include="..\..\src\VelaCommerce.Domain\VelaCommerce.Domain.csproj" />
+    <ProjectReference Include="..\..\src\VelaCommerce.Storefront\VelaCommerce.Storefront.csproj" />
   </ItemGroup>
 
 </Project>

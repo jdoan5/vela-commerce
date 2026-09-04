@@ -214,8 +214,15 @@ public sealed class CatalogService
     }
 
     /// <summary>
-    /// Everything a shopper might plausibly type, flattened and lowercased once. SKUs are in
-    /// here on purpose: someone holding a worn part reads the number off it.
+    /// The fallback haystack, built only when a product arrives with no <c>search</c> field.
+    /// <para>
+    /// <b>No shipped snapshot takes this branch</b> — the generator fills that field for all 288
+    /// products — so this is here for a snapshot generated before the field existed, and nothing a
+    /// visitor types is answered from it. Note the difference that makes: this text includes SKUs
+    /// and the generator's does not, so the shop does NOT search by SKU today whatever this method
+    /// suggests. Making it do so means adding them in <c>CatalogSnapshotBuilder.BuildSearchText</c>
+    /// and regenerating, not editing here.
+    /// </para>
     /// </summary>
     private static string BuildSearchText(CatalogProduct product)
     {
@@ -349,12 +356,49 @@ public sealed class CatalogService
         return candidates;
     }
 
-    private static string[] Tokenise(string? search) =>
-        string.IsNullOrWhiteSpace(search)
-            ? []
-            : search.ToLowerInvariant().Split(
-                (char[])[' ', '\t', '\n', '\r', ',', ';'],
-                StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+    /// <summary>
+    /// Splits the shopper's query the same way the generator split the text it is searched against.
+    /// <para>
+    /// <b>The two sides have to agree, and they did not.</b> The snapshot's search field is built by
+    /// <c>CatalogSnapshotBuilder.Normalise</c>, which reduces every run of non-alphanumerics to a
+    /// single space — so "Ketch Three-Layer Storm Cag" is indexed as "ketch three layer storm cag".
+    /// This method used to split on whitespace and punctuation only, leaving the hyphen inside the
+    /// term: a shopper typing the product's own displayed name searched for "three-layer" against
+    /// text containing "three layer" and got nothing back. Measured against the shipped snapshot,
+    /// 73 of 288 products could not be found by typing their own name.
+    /// </para>
+    /// <para>
+    /// The generator warned about exactly this in a comment above <c>Normalise</c> — "the storefront
+    /// must put the shopper's query through this same function... or a hyphen typed on one side and
+    /// not the other quietly returns nothing" — and nothing checked that it did.
+    /// </para>
+    /// </summary>
+    private static string[] Tokenise(string? search)
+    {
+        if (string.IsNullOrWhiteSpace(search))
+        {
+            return [];
+        }
+
+        // The generator's rule, applied to the query rather than to the corpus. Kept here rather
+        // than referenced from SeedGen because the storefront must not take a dependency on a
+        // build-time tool - so an integration test pins the two implementations together instead.
+        var builder = new StringBuilder(search.Length);
+
+        foreach (var character in search)
+        {
+            if (char.IsAsciiLetterOrDigit(character))
+            {
+                builder.Append(char.ToLowerInvariant(character));
+            }
+            else if (builder.Length > 0 && builder[^1] != ' ')
+            {
+                builder.Append(' ');
+            }
+        }
+
+        return builder.ToString().Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+    }
 
     private static bool MatchesAll(string haystack, string[] terms)
     {

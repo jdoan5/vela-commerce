@@ -225,9 +225,14 @@ variable "payment_signing_secret" {
   description = <<-EOT
     HMAC-SHA256 key for the payment simulator's settlement signatures. Any high-entropy
     string of 32 characters or more; `openssl rand -base64 48` is fine. It must NOT be the
-    committed development default — PaymentSimulatorOptions.Validate refuses to start
-    outside Development if it is, which is the check that stops a public demo shipping a
-    public signing key.
+    committed development default, nor this variable's own placeholder below — both are
+    published in this repository, and PaymentSimulatorOptions.AssertUsable refuses to
+    process a payment outside Development on either.
+
+    THAT REFUSAL DOES NOT STOP A DEPLOY. The host starts, serves the shop and passes its
+    health probe with a public key configured, because the guard sits on the money paths
+    rather than at boot. Nothing in the pipeline will tell you this step was skipped — the
+    smoke test never places an order — so the first symptom is a visitor's checkout failing.
 
     Leave at the placeholder and set the real value with `az containerapp secret set`.
   EOT

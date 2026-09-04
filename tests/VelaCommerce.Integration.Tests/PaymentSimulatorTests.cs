@@ -643,11 +643,15 @@ public sealed class PaymentSimulatorTests
 
     /// <summary>
     /// Environment is inferred from configuration and defaults to Production — the host's own
-    /// default — so a deployment that forgot to set the variable fails to start rather than
+    /// default — so a deployment that forgot to set the variable refuses to take money rather than
     /// signing real settlements with a secret published in this repository.
+    /// <para>
+    /// It does not fail to start, and the difference matters to whoever deploys it: the host comes
+    /// up, serves the shop and passes a health probe, and the refusal lands on the first checkout.
+    /// </para>
     /// </summary>
     [Fact]
-    public async Task Registration_refuses_the_development_secret_when_nothing_says_this_is_development()
+    public async Task Authorizing_refuses_the_development_secret_when_nothing_says_this_is_development()
     {
         var services = new ServiceCollection();
         services.AddLogging();
