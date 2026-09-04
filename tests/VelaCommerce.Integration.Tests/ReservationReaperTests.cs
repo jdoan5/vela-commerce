@@ -736,33 +736,35 @@ public sealed class ReservationReaperTests(PostgresFixture fixture)
     }
 
     /// <summary>
-    /// The reaper is only worth anything if the host actually starts it.
+    /// The reaper is only worth anything if the composed host registers it.
     /// <para>
-    /// Every other test in this file drives <c>SweepAsync</c> directly, which is the right way to
-    /// test the logic and the wrong way to notice that nobody runs it. The cart endpoints once
-    /// shipped unmapped for exactly this shape of reason — a slice fully built, fully tested, and
-    /// never composed — and a reaper that is registered nowhere fails silently and permanently:
-    /// abandoned checkouts simply hold their units for good, and the shop slowly stops selling
-    /// things with no error anywhere.
+    /// Every other test in this file constructs a reaper by hand and drives <c>SweepAsync</c>, which
+    /// is the right way to test the logic and no way at all to notice that nobody runs it. The cart
+    /// endpoints once shipped unmapped for exactly this shape of reason — a slice fully built, fully
+    /// tested and never composed — and a reaper registered nowhere fails silently and permanently:
+    /// abandoned checkouts hold their units for good and the shop stops selling, with no error.
     /// </para>
     /// <para>
-    /// <c>AddHostedService&lt;T&gt;</c> registers under <see cref="IHostedService"/> rather than
-    /// under the concrete type, so the assertion has to look through the descriptors for the
-    /// implementation type rather than resolving it.
+    /// <b>It is asserted against the real host, and it was not.</b> This test used to build its own
+    /// <c>ServiceCollection</c>, call <c>AddCheckout()</c> on it and assert on that — which proves
+    /// the extension method does what it says and nothing about the composition root, so deleting
+    /// the registration from <c>Program.cs</c> left it green.
     /// </para>
     /// </summary>
     [Fact]
-    public void The_host_registers_the_reaper_so_something_actually_sweeps()
+    public void The_composed_host_registers_the_reaper_so_something_actually_sweeps()
     {
-        var services = new ServiceCollection();
-        services.AddCheckout();
+        using var host = new CheckoutHost(fixture.ConnectionString);
 
-        var hosted = services
-            .Where(service => service.ServiceType == typeof(IHostedService))
-            .Select(service => service.ImplementationType)
-            .ToList();
+        // AddHostedService registers under IHostedService rather than the concrete type, so the
+        // assertion has to look through what the host would actually start.
+        var hosted = host.Services.GetServices<IHostedService>().ToList();
 
-        Assert.Contains(typeof(ReservationReaper), hosted);
+        Assert.True(
+            hosted.Exists(service => service is ReservationReaper),
+            "The composed host registers no ReservationReaper, so nothing reclaims stock from "
+            + "abandoned checkouts. Program.cs needs builder.Services.AddCheckout(builder.Configuration). "
+            + $"Hosted services found: {string.Join(", ", hosted.Select(service => service.GetType().Name))}");
     }
 
     /// <summary>

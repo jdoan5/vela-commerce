@@ -33,7 +33,7 @@ public sealed class LayeringRules
     /// Rule 1, the load-bearing one. The domain is where the interesting decisions live, and it is
     /// only worth reading if it can be exercised without a database, a web host or a container.
     /// The moment an aggregate can see <c>DbContext</c> or <c>IQueryable</c> over a real provider,
-    /// persistence concerns start leaking into invariants and the 161 domain tests stop being
+    /// persistence concerns start leaking into invariants and the domain unit tests stop being
     /// evidence of anything.
     /// </summary>
     [Fact]

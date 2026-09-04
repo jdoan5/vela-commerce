@@ -31,8 +31,10 @@ public sealed class ClockRules
     ];
 
     /// <summary>
-    /// The designated place. Empty today, and that is the intended state: no type in this solution
-    /// has earned an exemption. When one is genuinely needed — an expiry sweep, a background job —
+    /// The designated place. Empty today, and that is the intended state: no type this rule can see
+    /// has earned an exemption. Note the scope — Domain, Infrastructure and Api, not the storefront,
+    /// which is not referenced here and does read the clock to render relative times. When an
+    /// exemption is genuinely needed — an expiry sweep, a background job —
     /// the seam is <see cref="TimeProvider"/> injected at the composition root, and the exemption
     /// belongs in this list with a comment saying why, so the decision stays visible in a diff.
     /// </summary>

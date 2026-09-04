@@ -208,7 +208,8 @@ resource "azurerm_container_app" "vela" {
   #
   # These declare NAMES, not values. The values here are placeholders (see the long note
   # above the sensitive variables in variables.tf): the real ones are written once by
-  # `az containerapp secret set` in the deploy workflow, and the lifecycle block at the
+  # `az containerapp secret set` run by a human, once, out of band — the deploy workflow
+  # deliberately does not do this, see its own note — and the lifecycle block at the
   # bottom of this resource stops Terraform reverting them on the next apply.
   #
   # That is what keeps the Neon connection string and the payment signing key out of

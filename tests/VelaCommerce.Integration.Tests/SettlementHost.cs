@@ -44,7 +44,9 @@ namespace VelaCommerce.Integration.Tests;
 /// </para>
 ///
 /// <para>
-/// <b>1. It maps the settlement receiver, because <c>Program.cs</c> does not yet.</b> Same
+/// <b>1. It maps the settlement receiver only if <c>Program.cs</c> stops doing so.</b> Program.cs
+/// maps it today, so this fallback always stands down — which is precisely what
+/// <c>SettlementWiringTests</c> asserts by requiring <c>ComposedForYou</c> to be empty. Same
 /// mechanism <see cref="CheckoutHost"/> uses and for the same reason — a suite driving an
 /// unmapped endpoint is a wall of 404s that says nothing about whether exactly-once delivery
 /// works — and the same standing-down check, so the day the host maps it itself this filter adds

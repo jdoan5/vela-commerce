@@ -2,7 +2,7 @@ namespace VelaCommerce.Domain.Payments;
 
 /// <summary>
 /// Every way an authorization attempt can end. A closed set on purpose: the checkout handler
-/// switches on this, and a gateway that could invent a sixth answer would leave that switch
+/// switches on this, and a gateway that could invent a fifth answer would leave that switch
 /// silently incomplete.
 /// <para>
 /// The distinction that actually matters is between <see cref="Succeeded"/> and

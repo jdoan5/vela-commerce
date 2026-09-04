@@ -37,7 +37,7 @@ public sealed class AsyncNamingRules
         // Both assemblies do I/O, so both must contribute. Asserting per-assembly rather than
         // over the whole set is what catches the dangerous drift: IsHandWritten grows one more
         // exclusion, swallows an entire assembly, and the rule keeps passing while enforcing
-        // nothing. Only four methods in this solution are in scope, so an empty side is a bug in
+        // nothing. Both assemblies have dozens of methods in scope, so an empty side is a bug in
         // the filter, never a fact about the code.
         foreach (var assembly in new[] { SolutionUnderTest.Api, SolutionUnderTest.Infrastructure })
         {

@@ -238,11 +238,11 @@ dotnet run --project tools/VelaCommerce.SeedGen
 
 Part of the HTTP surface has an executable description as a [Bruno collection](api-tests/README.md),
 plain-text `.bru` files that CI runs headless against a live API. **Part of it, and worth naming
-rather than rounding up:** the collection covers the catalog, the cart and the health probes — six
-of the fifteen routes. Checkout, order retrieval, refunds, cancellation, the settlement webhook,
-the demo reset and both Demo Lab routes are proved by the integration suite and by the Lab's own
-scenarios, not by the collection. Extending it to the money path is the next thing on this repo's
-list.
+rather than rounding up:** the collection covers the catalog, the cart and the health probes — ten
+of the eighteen operations the API exposes. Checkout, order retrieval, refunds, cancellation, the
+settlement webhook, the demo reset and both Demo Lab routes are proved by the integration suite and
+by the Lab's own scenarios, not by the collection. Extending it to the money path is the next thing
+on this repo's list.
 
 ## Phases
 

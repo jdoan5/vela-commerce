@@ -1,5 +1,5 @@
 # The repository root .gitignore has no Terraform section, so this file is load-bearing
-# rather than decoration. Removing it means the first `terraform init` commits a ~700 MB
+# rather than decoration. Removing it means the first `terraform init` commits a ~220 MB
 # provider binary, and the first `terraform apply` commits a state file containing every
 # value the root module manages.
 

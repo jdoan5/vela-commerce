@@ -13,7 +13,7 @@ namespace VelaCommerce.Architecture.Tests;
 /// <c>GetType()</c> and so decides a subclass is never equal to its base — a silent duplicate in
 /// a change tracker rather than a compile error. A missing parameterless constructor breaks only
 /// when EF Core materialises that type from a real query, which is to say in integration tests or
-/// in production, never in the 161 domain unit tests.
+/// in production, never in the domain unit tests.
 /// </para>
 /// </summary>
 public sealed class DomainModelRules

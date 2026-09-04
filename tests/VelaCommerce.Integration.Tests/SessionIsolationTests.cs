@@ -217,7 +217,7 @@ public sealed class SessionIsolationTests : IDisposable
     /// <para>
     /// Ids leak. They end up in logs, in a screenshot, in a support ticket, in a URL somebody
     /// pasted into chat. So the interesting test is not whether a session id is hard to guess —
-    /// it is a UUIDv7 with 122 random bits, so it is — but whether knowing one is sufficient. It
+    /// it is a UUIDv7 with 74 random bits, so it is — but whether knowing one is sufficient. It
     /// is not, and that is the whole difference between a signed cookie and a cookie. Here the id
     /// is read straight out of the database, giving the attacker perfect knowledge, and the cookie
     /// is written in exactly the format the middleware itself writes: the plaintext payload,

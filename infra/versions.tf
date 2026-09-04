@@ -5,7 +5,7 @@
 # The plan in docs/PLAN.md sketches reusable modules under infra/modules/ consumed by two
 # thin roots. That is the right shape for two environments. Today there is one, and a module
 # with exactly one caller is not an abstraction — it is a directory that has to be opened
-# twice to read one resource. This root is ~250 lines of HCL a reviewer can read top to
+# twice to read one resource. This root is ~570 lines of HCL a reviewer can read top to
 # bottom and believe.
 #
 # The other split that was considered and rejected: putting the Container Apps *environment*

@@ -99,7 +99,7 @@ public sealed class Order : Entity
     /// Time is a parameter, never <c>DateTimeOffset.UtcNow</c>. The demo runs an
     /// accelerated order timeline and the tests assert on exact timestamps, so an
     /// aggregate that reads the ambient clock cannot be driven or verified. An
-    /// architecture test enforces this across the whole solution.
+    /// architecture test enforces this across the domain, infrastructure and API assemblies.
     /// </para>
     /// </summary>
     public static Order FromCart(
@@ -180,9 +180,12 @@ public sealed class Order : Entity
     /// </para>
     /// <para>
     /// Callers that mean to cancel a paid order want <see cref="CancelAndRefund"/>, which does both
-    /// or neither. Nothing is lost for the two production callers that reach this method — the
+    /// or neither. Three production callers reach this method. Two are safe by construction — the
     /// settlement handler cancelling a decline and the reservation reaper cancelling a lapsed
-    /// checkout — because both act on Pending orders that captured nothing.
+    /// checkout both act on Pending orders that captured nothing. The third is the cancellation
+    /// endpoint, which reaches here only on the branch where nothing is outstanding, having
+    /// returned the money first; a fully refunded Paid order is legally cancellable and this guard
+    /// is what lets it through while still refusing one that owes.
     /// </para>
     /// </summary>
     public void Cancel()

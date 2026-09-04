@@ -38,7 +38,16 @@ internal static class SolutionUnderTest
         .LoadAssemblies(Domain, Infrastructure, Api)
         .Build();
 
-    /// <summary>Every production assembly, for rules that hold across the whole solution.</summary>
+    /// <summary>
+    /// The three production assemblies these rules can see: Domain, Infrastructure and Api.
+    /// <para>
+    /// <b>Not the whole solution.</b> <c>src/</c> holds a fourth project, the Blazor WebAssembly
+    /// storefront, and this test project does not reference it — so no rule here sweeps it. That is
+    /// a deliberate limit rather than an oversight: the storefront is a UI that legitimately reads
+    /// the clock to render "2 minutes ago", and pulling a WASM project into an IL sweep would bring
+    /// its runtime with it. Say "the three production assemblies", never "the solution".
+    /// </para>
+    /// </summary>
     internal static IReadOnlyList<Assembly> Production { get; } = [Domain, Infrastructure, Api];
 
     /// <summary>

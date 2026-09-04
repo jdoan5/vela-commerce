@@ -46,7 +46,10 @@ public sealed class PersistenceBoundaryRules
 
     /// <summary>
     /// Rule 3. Nothing outside persistence, seeding, the endpoint classes and the composition root
-    /// may so much as name the DbContext. In particular this fails the build if a context ever
+    /// may so much as name the DbContext — plus any type deriving from BackgroundService, which the
+    /// predicate allows and which is load-bearing: the reaper, the timeline worker and the outbox
+    /// dispatcher all hold a context and sit in none of the four namespaces above. In particular
+    /// this fails the build if a context ever
     /// reaches an <c>Api.Contracts</c> record — the point at which the storage model and the wire
     /// model quietly become the same thing — or reaches the domain at all.
     /// </summary>
