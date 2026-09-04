@@ -68,7 +68,7 @@ resource "azurerm_federated_identity_credential" "github_environment" {
   # oidc-claims.yml probe requests exactly it.
   audience = [local.azure_oidc_audience]
 
-  # Composed in locals.tf from named parts so the immutable format is legible.
+  # Composed in main.tf from named parts so the immutable format is legible.
   subject = local.github_subject_environment
 }
 
@@ -104,11 +104,17 @@ resource "azurerm_federated_identity_credential" "github_main_branch" {
 # itself, `azurerm_container_app.vela.id`.
 #
 # WHY THAT IS ENOUGH: the deploy pipeline does not run Terraform. It builds an image, pushes
-# it to GHCR, and then does two things against Azure:
+# it to GHCR, and then reads and rolls this one app:
 #
-#     az containerapp secret set   --name ca-vela-prod --resource-group rg-vela-prod ...
-#     az containerapp update       --name ca-vela-prod --resource-group rg-vela-prod \
-#                                  --image ghcr.io/jdoan5/vela-commerce@sha256:...
+#     az containerapp update        --name ca-vela-prod --resource-group rg-vela-prod \
+#                                   --image ghcr.io/jdoan5/vela-commerce@sha256:...
+#     az containerapp show          (before, and again to verify)
+#     az containerapp revision show (to wait for Provisioned)
+#     az containerapp logs show     (on failure, to attach the reason)
+#
+# Note what is NOT in that list: `az containerapp secret set`. The workflow deliberately does
+# not set secrets - they are placed by a human, once, out of band, so no live secret ever
+# passes through a pipeline or through Terraform state.
 #
 # Both are operations on that single resource. The obvious choice, "Container Apps
 # Contributor", DOES NOT WORK — see the role definition below for why, verified against the

@@ -68,7 +68,7 @@ variable "environment_name" {
 # These four values compose the federated credential subject. They are separate variables
 # rather than one pasted string on purpose: the July-2026 immutable subject format is easy
 # to get subtly wrong, and a wrong subject fails at token exchange with an error that never
-# mentions the subject. Composing it in locals.tf from named parts makes the shape reviewable.
+# mentions the subject. Composing it in main.tf from named parts makes the shape reviewable.
 
 variable "github_owner" {
   description = "GitHub account or org that owns the repository, e.g. \"jdoan5\"."
@@ -269,9 +269,12 @@ variable "max_replicas" {
     0.25 vCPU can only consume the whole monthly free grant if held saturated for
     ~66 hours, which recruiter-level traffic will not do.
 
-    Note the correctness angle too: the outbox dispatcher uses FOR UPDATE SKIP LOCKED and is
-    safe above one replica, but the in-memory output cache is not shared, so above one
-    replica the cache warms per instance.
+    Note the correctness angle too: the outbox dispatcher, the reservation reaper and the
+    timeline worker all claim their rows with FOR UPDATE SKIP LOCKED, so all three are safe
+    above one replica. What is NOT shared is the Data Protection key ring unless
+    VELA_DATAPROTECTION_BLOB_URI is set - two replicas each minting their own would hand a
+    visitor a cookie the other cannot read. There is no application cache of any kind to
+    warm per instance; every response this API serves is Cache-Control: no-store.
   EOT
   type        = number
   default     = 3

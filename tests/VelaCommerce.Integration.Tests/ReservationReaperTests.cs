@@ -820,7 +820,7 @@ public sealed class ReservationReaperTests(PostgresFixture fixture)
     /// <para>
     /// <b>What this does NOT prove, said plainly.</b> It is not the test that catches the
     /// interleaving — that is
-    /// <see cref="A_sweep_cannot_release_a_reservation_another_transaction_is_confirming"/>, which
+    /// <see cref="A_settlement_holding_its_order_makes_a_sweep_step_aside_rather_than_deadlock"/>, which
     /// controls the ordering instead of hoping for it. Deleting the claim's lock, or the write's
     /// status guard, leaves this test green: measured, over eight runs each. A sweep is a short
     /// database transaction and a settlement is an HTTP round trip through the receiver, so on this

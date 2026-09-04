@@ -287,9 +287,11 @@ public sealed class ReservationReaper(
                 {
                     // Guarded on status rather than trusting the object read a moment ago:
                     // StockReservation.Release() judges an in-memory copy and EF then emits an
-                    // unguarded UPDATE by primary key. Holding the order lock above now makes this
-                    // unreachable — confirming a reservation requires that lock — so it stands as
-                    // the second of two independent guards rather than as the only one.
+                    // unguarded UPDATE by primary key. It is unreachable while this transaction
+                    // runs, but the reason is the FOR UPDATE on these reservation rows, not the
+                    // order lock: the checkout's settle path confirms reservations without taking
+                    // the order row at all, so only the row lock below actually excludes it. Kept
+                    // as the second of two guards rather than as the only one.
                     var retired = await db.Database.ExecuteSqlAsync(
                         $"""
                          UPDATE stock_reservations
