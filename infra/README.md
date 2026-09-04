@@ -20,6 +20,7 @@ subscription; `terraform plan` and `terraform apply` have deliberately not been 
 | Storage account + blob container | `azurerm_storage_account.dataprotection`, `azurerm_storage_container.dataprotection_keys` | Persisted ASP.NET Core Data Protection key ring | ~$0.00 (a few KB) |
 | Deploy identity | `azurerm_user_assigned_identity.deploy` | Keyless OIDC deploys from GitHub Actions | $0.00 |
 | Federated credentials ×2 | `azurerm_federated_identity_credential.*` | The GitHub → Entra trust | $0.00 |
+| Custom role definition ×1 | `azurerm_role_definition.container_app_deployer` | The deploy role — the built-in one cannot work, see below | $0.00 |
 | Role assignments ×2 | `azurerm_role_assignment.*` | Deploy identity → the app; app identity → its key blob | $0.00 |
 | Log Analytics workspace | `azurerm_log_analytics_workspace.vela` | **Off by default.** `count = 0` unless you opt in | $0.00 (see below) |
 
@@ -104,13 +105,16 @@ the one blob container).
 **Cost:** storage accounts have no standing fee. A few kilobytes at ~$0.018/GiB-month plus a
 handful of transactions per replica start. **Rounds to $0.00.**
 
-> ### ⚠ THIS IS NOT FINISHED
-> `Program.cs` still calls `builder.Services.AddDataProtection()` with **no persistence
-> configured**, and reads nothing from the `VELA_DATAPROTECTION_BLOB_URI` environment
-> variable this Terraform sets. Creating the blob is necessary and not sufficient. The
-> application change — `PersistKeysToAzureBlobStorage` plus `SetApplicationName` — is spelled
-> out in the header comment of `dataprotection.tf`. Until it lands, sessions still die on
-> every deploy.
+> ### Wired, with one way left to get it wrong
+> `Program.cs` reads `VELA_DATAPROTECTION_BLOB_URI`, calls `PersistKeysToAzureBlobStorage`
+> with the app's managed identity and `SetApplicationName("vela-commerce")`, and throws on a
+> URI that is set but malformed — so a typo cannot be mistaken for an absent value.
+>
+> The remaining hazard is the opposite one: an **unset** variable is deliberately not an
+> error, because a developer's machine and the build-time OpenAPI generator both run without
+> it. So a deploy that forgets it starts happily, logs a warning nobody reads, and empties
+> every visitor's cart on the next revision. This Terraform sets it unconditionally, which is
+> the point of setting it here rather than by hand.
 
 ---
 
@@ -174,7 +178,7 @@ infra/
 ├── container_app.tf     the environment and the app — and the three cost warnings
 ├── dataprotection.tf    the key-ring storage account and blob container
 ├── observability.tf     the opt-in, capped Log Analytics workspace
-├── identity.tf          deploy identity, federated credentials, both role assignments
+├── identity.tf          deploy identity, federated credentials, the custom deploy role, both assignments
 ├── outputs.tf           the URL, and the three values the deploy workflow needs
 ├── terraform.tfvars.example
 └── .gitignore           the repo root .gitignore has no Terraform section — this is load-bearing
@@ -332,14 +336,27 @@ storage account is the whole state infrastructure.
 
 ## What the deploy identity may do
 
-`Container Apps Contributor`, scoped to **one resource**: the container app itself. Not the
+A **custom** role, `vela-container-app-deployer` (`azurerm_role_definition.container_app_deployer`,
+defined at resource-group scope), assigned at **one resource**: the container app itself. Not the
 subscription, not the resource group.
 
-That is enough for the only two things the pipeline does against Azure — `az containerapp
-secret set` and `az containerapp update --image <digest>` — and nothing else. A token stolen
-out of a compromised workflow can roll this one app to a different image. It cannot create
-resources, read the storage account, touch the identity that granted it, or see anything
-else in the subscription.
+The built-in `Container Apps Contributor` is deliberately not used, and cannot be: its
+`containerApps/*/read` is a four-segment pattern and cannot match the plain three-segment
+`containerApps/read` operation. Verified against the live tenant — see the comment above the
+role definition in `identity.tf`.
+
+That is enough for what the pipeline does against Azure — `az containerapp secret set` and
+`az containerapp update --image <digest>` — and little else. A token stolen out of a
+compromised workflow can roll this one app to a different image. It cannot create resources,
+read the storage account, touch the identity that granted it, or see anything else in the
+subscription.
+
+**It can read this app's secret values.** The role grants
+`Microsoft.App/containerApps/listSecrets/action`, and the app holds `vela-db-connection` (the
+production Neon connection string) and `payment-signing-secret`. So the honest blast radius of
+a stolen deploy token is: this app's image, the database, and the ability to forge a
+settlement. The action is granted because the CLI resolves the app's secret set on some
+`update` paths; removing it means proving a real image update still works first.
 
 **It deliberately cannot run `terraform apply`.** That would need Contributor on the resource
 group plus User Access Administrator to manage these very role assignments, granted to a

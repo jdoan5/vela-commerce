@@ -147,11 +147,12 @@ public sealed record OrderTimelineOptions
     /// the demo to realistic durations is doing something reasonable. It is worth saying out loud
     /// once at startup, though, because of an interaction that is invisible from here: an order
     /// settled by webhook may still be carrying <c>Held</c> reservations, and those reservations
-    /// are now invisible to the reaper — it only sweeps orders still Pending — so nothing releases
-    /// them and nothing ever will. Ship after that point and the ledger still holds units for a
-    /// parcel that has gone. The reaper used to release them regardless of the order's status,
-    /// which was worse: it handed a paid order's stock back to the pool. Either way the fix is the
-    /// same and it is upstream — confirm reservations in the transaction that pays the order.
+    /// are now invisible to the reaper — it only sweeps orders still Pending — so nothing reclaims
+    /// them early. Shipping is what removes them: the worker takes every reservation not already
+    /// Released and decrements both counters, so the cost is a longer window in which stock is
+    /// promised, not a ledger that disagrees with itself. The reaper used to release them whatever
+    /// the order was doing, which was worse — it handed a paid order's stock back to the pool.
+    /// Either way the fix is upstream: confirm reservations in the transaction that pays the order.
     /// </para>
     /// </summary>
     public bool OutlastsTheReservationWindow =>

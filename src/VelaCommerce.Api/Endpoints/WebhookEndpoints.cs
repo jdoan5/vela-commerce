@@ -613,9 +613,11 @@ public static class WebhookEndpoints
                     // order was doing, so a paid order that skipped this line had its units handed
                     // back to the pool fifteen minutes later - an oversell with no error anywhere.
                     // Now the reaper ignores an order that is not Pending, so the failure is the
-                    // mirror image: nothing releases those reservations and nothing ever will, and
-                    // the ledger holds units for goods that ship. Same line, same necessity,
-                    // opposite symptom. The units stay reserved rather than being deducted:
+                    // mirror image: nothing reclaims those reservations early. They are not stranded
+                    // - the timeline worker ships everything not already Released and confirms it
+                    // there - so the cost is units promised for longer than they should be, and held
+                    // for good on an order that never ships. Same line, same necessity, opposite
+                    // symptom. The units stay reserved rather than being deducted:
                     // on_hand only drops when the parcel ships.
                     var held = await db.StockReservations
                         .Where(entity => entity.OrderId == order.Id

@@ -57,9 +57,10 @@ output "federated_credential_subjects" {
 
 output "dataprotection_blob_uri" {
   description = <<-EOT
-    Blob URI for the ASP.NET Core Data Protection key ring. Read by nothing today —
-    Program.cs still calls AddDataProtection() with no persistence configured. See the
-    header comment in dataprotection.tf for the application change this is waiting on.
+    Blob URI for the ASP.NET Core Data Protection key ring. Program.cs reads it from the
+    VELA_DATAPROTECTION_BLOB_URI environment variable that container_app.tf sets, and
+    persists the ring here through the app's managed identity. See the header comment in
+    dataprotection.tf for why the ring must outlive the container.
   EOT
   value       = "${azurerm_storage_account.dataprotection.primary_blob_endpoint}${azurerm_storage_container.dataprotection_keys.name}/keys.xml"
 }

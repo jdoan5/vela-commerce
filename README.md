@@ -78,12 +78,20 @@ of `DateTimeOffset.UtcNow` and friends, with an exemption list that is deliberat
 
 ## The rule that shapes everything
 
-> **Nothing on the first-paint path may depend on a resource that sleeps.**
+> **Nothing on the first-paint path may query the database or call `/api`.**
 
 The API and the database are meant to scale to zero, which is what keeps the eventual hosting free
-and what makes a cold start otherwise unavoidable. So the first paint is moved off them entirely:
-browsing, search, filtering, sorting and paging all run client-side, in the browser, against a
-static catalog snapshot fetched once from the app's own origin.
+and what makes a cold start otherwise unavoidable. So the first paint is moved off the database
+entirely: browsing, search, filtering, sorting and paging all run client-side, in the browser,
+against a static catalog snapshot fetched once from the app's own origin.
+
+**Where that stops, as built.** The API container still serves the shell, the WebAssembly runtime
+and the snapshot, so the first request after an idle window pays that container's cold start before
+any of the above applies. Putting those files on a CDN with `/api/*` rewritten to the container is
+what would finish the argument, and it is in [the plan](docs/PLAN.md) and not in this repository —
+there is no CDN, no static host and no `vercel.json` here, and `infra/` creates none. What the split
+buys today is real but narrower than "no cold start": once the snapshot is in the browser, every
+browse, search and filter is answered from memory, and the database is never woken to render a page.
 
 The measured shape of that snapshot, from `src/VelaCommerce.Storefront/wwwroot/catalog.snapshot.json`:
 

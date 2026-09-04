@@ -288,10 +288,10 @@ public static class DemoEndpoints
     /// actor can win that statement, and the loser learns it from a row count of zero rather than
     /// from an exception. This is the same claim-then-act discipline the reaper uses in reverse,
     /// and it is what stops two processes both deciding they are the one giving a unit back. The
-    /// reaper takes its reservation locks before its order lock, the opposite order to this method;
-    /// a deadlock is therefore possible in principle, PostgreSQL detects it, and the execution
-    /// strategy retries the whole transaction, which is why the claims have to be re-evaluated on
-    /// every attempt rather than cached.
+    /// reaper takes the order row first and its reservations second — the same sequence this method
+    /// uses — so the cycle this paragraph used to warn about is closed. The claims are still
+    /// re-evaluated on every attempt rather than cached, because the execution strategy may retry
+    /// for other reasons: a serialization failure, or a connection lost mid-transaction.
     /// </para>
     /// <para>
     /// The ledger write is <c>StockItem.Release</c> expressed as SQL, for the reason the checkout

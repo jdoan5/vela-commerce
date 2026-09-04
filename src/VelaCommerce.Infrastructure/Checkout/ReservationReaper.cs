@@ -95,7 +95,9 @@ public sealed class ReservationReaper(
     /// <para>
     /// <b>Lock order: the order row first, then its reservations, then the ledger by variant.</b>
     /// That sequence is not a preference, it is the house convention — the settlement receiver, the
-    /// timeline worker, the refund handler and the checkout all take these rows the same way round.
+    /// timeline worker and the refund handler all take these rows the same way round. The checkout
+    /// is the exception and worth knowing about: its settle transaction touches the ledger before it
+    /// reaches the order row, so the ordering argument below does not cover it.
     /// This worker used to take reservations first and the orders second, and two writers taking
     /// the same two rows in opposite orders is a deadlock. It was reachable in exactly the case
     /// both pieces of code exist for, and was reproduced against the real receiver as PostgreSQL

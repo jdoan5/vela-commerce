@@ -369,10 +369,14 @@ resource "azurerm_container_app" "vela" {
         secret_name = "payment-signing-secret"
       }
 
-      # Where the Data Protection key ring lives. READ dataprotection.tf: this variable is
-      # currently read by NOTHING. Program.cs calls AddDataProtection() with no persistence
-      # configured, so until the application change described there is made, every deploy
-      # still silently invalidates every visitor's cart and order-retrieval link.
+      # Where the Data Protection key ring lives, and Program.cs reads it: it persists the
+      # ring to this blob through the app's managed identity and sets the application name,
+      # so the ring survives a deploy and a scale from zero.
+      #
+      # Set unconditionally, and that is deliberate. The application treats an ABSENT value as
+      # legitimate — a developer's machine and the build-time OpenAPI generator both run
+      # without one — so nothing downstream would refuse a deployment that omitted it. It would
+      # simply invalidate every cart and order link on the next revision, silently.
       env {
         name  = "VELA_DATAPROTECTION_BLOB_URI"
         value = "${azurerm_storage_account.dataprotection.primary_blob_endpoint}${azurerm_storage_container.dataprotection_keys.name}/keys.xml"

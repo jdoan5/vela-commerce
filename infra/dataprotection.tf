@@ -4,9 +4,9 @@
 #
 # THE PROBLEM THIS SOLVES, because it is easy to not notice you have it.
 #
-# Program.cs currently calls `builder.Services.AddDataProtection()` with no persistence
-# configured. The default key repository is the filesystem — ~/.aspnet/DataProtection-Keys
-# — which is correct locally and wrong in a container two ways at once:
+# Program.cs persists the key ring here, and this is the problem that made it necessary.
+# The default key repository is the filesystem — ~/.aspnet/DataProtection-Keys — which is
+# correct locally and wrong in a container two ways at once:
 #
 #   1. The container filesystem is ephemeral. Every deploy generates a brand-new key ring.
 #   2. With scale-to-zero, "every deploy" also means "every cold start after an idle

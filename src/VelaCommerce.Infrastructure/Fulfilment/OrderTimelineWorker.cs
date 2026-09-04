@@ -101,9 +101,10 @@ public sealed class OrderTimelineWorker(
             // error: see OrderTimelineOptions.OutlastsTheReservationWindow for the interaction.
             logger.LogWarning(
                 "The configured timeline ({Total}) is at least as long as the reservation window ({Window}). An "
-                + "order still carrying Held reservations when the window closes has them released by the "
-                + "reaper, and shipping afterwards will find nothing on the ledger to remove. Shorten "
-                + "{PaidKey}/{PackedKey}, or lengthen CheckoutPolicy.ReservationWindow.",
+                + "order that is Paid or Packed when the window closes is invisible to the reaper, which only "
+                + "sweeps orders still Pending - so its units stay reserved until the parcel ships rather than "
+                + "being reclaimed. Nothing breaks; stock is simply promised for longer than the window "
+                + "advertises. Shorten {PaidKey}/{PackedKey}, or lengthen CheckoutPolicy.ReservationWindow.",
                 options.PaidDwell + options.PackedDwell,
                 CheckoutPolicy.ReservationWindow,
                 $"{OrderTimelineOptions.SectionName}:{nameof(OrderTimelineOptions.PaidDwell)}",

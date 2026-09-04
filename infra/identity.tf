@@ -117,6 +117,14 @@ resource "azurerm_federated_identity_credential" "github_main_branch" {
 # storage account, cannot touch the identity that granted it, and cannot see anything else
 # in the subscription.
 #
+# IT CAN, HOWEVER, READ THIS APP'S SECRET VALUES. `containerApps/listSecrets/action` is
+# granted below, and the app carries `vela-db-connection` (the production Neon connection
+# string) and `payment-signing-secret`. So the blast radius of a stolen deploy token is one
+# app's image AND those two secrets — which is the whole of the data tier and the ability to
+# forge a settlement. The action is granted because the CLI resolves the app's secret set on
+# some `az containerapp update` paths; if it is to be dropped, drop it and prove a real
+# image update still succeeds before believing it is unnecessary.
+#
 # WHAT THIS DELIBERATELY DOES NOT GRANT, and the consequence:
 #   * `terraform apply` from CI. That would need Contributor on the resource group at
 #     minimum (to create and modify the environment, the storage account and the app) and
@@ -151,7 +159,11 @@ resource "azurerm_federated_identity_credential" "github_main_branch" {
 # AuthorizationFailed, the deploy workflow's guard step swallows it and reports that the app
 # "was not found", and the operator is told to run a terraform apply they have already run.
 #
-# This role is strictly narrower than the built-in one — no `*/delete`.
+# This role is not a subset of the built-in one, and saying so would contradict the argument
+# directly above. It ADDS the plain `containerApps/read` and `containerApps/write` that the
+# built-in's four-segment wildcards cannot match, and a `logstream` dataAction the built-in
+# has no dataActions for at all; it OMITS every `*/delete`. Differently shaped, and smaller
+# where it matters — not strictly narrower.
 resource "azurerm_role_definition" "container_app_deployer" {
   name        = "vela-container-app-deployer"
   scope       = azurerm_resource_group.vela.id
