@@ -1,4 +1,7 @@
+using System.Data.Common;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Diagnostics;
+using Npgsql;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -90,21 +93,88 @@ public sealed class ReservationReaperTests(PostgresFixture fixture)
     /// would exercise a code path the deployment does not have.
     /// </para>
     /// </summary>
-    private (ReservationReaper Reaper, FixedClock Clock, ServiceProvider Provider) NewReaper(DateTimeOffset? at = null)
+    /// <summary>
+    /// Fails one statement, once, with a fault the provider classes as transient — which is what
+    /// makes the retrying execution strategy re-run the whole sweep body. There is no other way to
+    /// reach the retry path from outside: transient faults are, by definition, not something a test
+    /// can arrange by asking the database nicely.
+    /// </summary>
+    private sealed class FailOnce(Func<string, bool> match) : DbCommandInterceptor
+    {
+        private bool _fired;
+
+        public bool Fired => _fired;
+
+        public override ValueTask<InterceptionResult<int>> NonQueryExecutingAsync(
+            DbCommand command,
+            CommandEventData eventData,
+            InterceptionResult<int> result,
+            CancellationToken cancellationToken = default)
+        {
+            Fail(command);
+            return base.NonQueryExecutingAsync(command, eventData, result, cancellationToken);
+        }
+
+        /// <summary>
+        /// Both hooks, because EF chooses between them and the choice is not the test's to make: a
+        /// bare <c>ExecuteSqlAsync</c> goes through the non-query path, while a batched
+        /// <c>SaveChanges</c> update goes through a reader so the provider can hand back affected
+        /// row counts. Intercepting only one of them silently matches nothing.
+        /// </summary>
+        public override ValueTask<InterceptionResult<DbDataReader>> ReaderExecutingAsync(
+            DbCommand command,
+            CommandEventData eventData,
+            InterceptionResult<DbDataReader> result,
+            CancellationToken cancellationToken = default)
+        {
+            Fail(command);
+            return base.ReaderExecutingAsync(command, eventData, result, cancellationToken);
+        }
+
+        private void Fail(DbCommand command)
+        {
+            if (_fired || !match(command.CommandText))
+            {
+                return;
+            }
+
+            _fired = true;
+
+            // 40P01 is deadlock_detected. Npgsql classes it transient, so EnableRetryOnFailure runs
+            // the whole lambda again rather than surfacing it — which is exactly the second attempt
+            // this test is about.
+            throw new PostgresException("deadlock detected", "ERROR", "ERROR", "40P01");
+        }
+    }
+
+    private (ReservationReaper Reaper, FixedClock Clock, ServiceProvider Provider) NewReaper(
+        DateTimeOffset? at = null,
+        FailOnce? interceptor = null)
     {
         var clock = new FixedClock(at ?? Now);
 
         var provider = new ServiceCollection()
-            .AddDbContext<VelaCommerceDbContext>(options => options.UseNpgsql(
-                fixture.ConnectionString,
-                npgsql => npgsql.EnableRetryOnFailure(
-                    maxRetryCount: 3,
-                    maxRetryDelay: TimeSpan.FromSeconds(5),
-                    errorCodesToAdd: null)))
+            .AddDbContext<VelaCommerceDbContext>(options =>
+            {
+                options.UseNpgsql(
+                    fixture.ConnectionString,
+                    npgsql => npgsql.EnableRetryOnFailure(
+                        maxRetryCount: 3,
+                        maxRetryDelay: TimeSpan.FromSeconds(5),
+                        errorCodesToAdd: null));
+
+                if (interceptor is not null)
+                {
+                    options.AddInterceptors(interceptor);
+                }
+            })
             .BuildServiceProvider();
 
+        // Enabled is irrelevant here and deliberately left at its default: every test drives
+        // SweepAsync directly, and the flag only gates the timer loop in ExecuteAsync.
         var reaper = new ReservationReaper(
             provider.GetRequiredService<IServiceScopeFactory>(),
+            new ReservationReaperOptions(),
             clock,
             NullLogger<ReservationReaper>.Instance);
 
@@ -183,6 +253,57 @@ public sealed class ReservationReaperTests(PostgresFixture fixture)
             .SingleAsync(entity => entity.VariantId == variantId);
 
         return (item.OnHand, item.Reserved);
+    }
+
+    /// <summary>
+    /// Returns once the sweep has provably made its claim decision — either by finishing, or by
+    /// parking on a row this connection holds.
+    /// <para>
+    /// This is the difference between a scripted interleaving and a hopeful one. Starting the sweep
+    /// on a background task and carrying straight on only works if the task happens to get a thread
+    /// and reach the database first, which is a property of the machine rather than of the code.
+    /// Both terminal conditions are asked of PostgreSQL itself: <c>pg_blocking_pids</c> reports
+    /// backends waiting on this one, so "the sweep is inside its transaction, stuck on my row" is
+    /// something the database confirms rather than something a <c>Task.Delay</c> assumes.
+    /// </para>
+    /// <para>
+    /// Two conditions rather than one, because the healthy claim uses <c>SKIP LOCKED</c> and
+    /// therefore never blocks — it passes over the locked row and returns. Waiting only for a
+    /// blocker would hang against correct code and only pass against broken code, which is the
+    /// wrong way round.
+    /// </para>
+    /// </summary>
+    private static async Task ClaimDecidedAsync(VelaCommerceDbContext holder, Task sweep)
+    {
+        var deadline = DateTimeOffset.UtcNow + TimeSpan.FromSeconds(15);
+
+        while (DateTimeOffset.UtcNow < deadline)
+        {
+            if (sweep.IsCompleted)
+            {
+                return;
+            }
+
+            var waitingOnUs = await holder.Database
+                .SqlQuery<int>(
+                    $"""
+                     SELECT count(*)::int AS "Value"
+                     FROM pg_stat_activity a
+                     WHERE pg_backend_pid() = ANY(pg_blocking_pids(a.pid))
+                     """)
+                .SingleAsync();
+
+            if (waitingOnUs > 0)
+            {
+                return;
+            }
+
+            await Task.Delay(25);
+        }
+
+        Assert.Fail(
+            "The sweep neither finished nor blocked on this transaction within 15 seconds, so it "
+            + "never reached the row under test and this test proved nothing.");
     }
 
     private async Task<(OrderStatus Status, ReservationStatus Reservation)> StateAsync(
@@ -456,6 +577,11 @@ public sealed class ReservationReaperTests(PostgresFixture fixture)
         // above, so awaiting it here would deadlock the test against its own transaction.
         var sweep = reaper.SweepAsync(CancellationToken.None);
 
+        // And then WAITED FOR, by a condition rather than a delay. Without this the settlement
+        // below could commit before the sweep had touched anything, and the test would pass
+        // without the two ever having met — the same emptiness as the composed-path test.
+        await ClaimDecidedAsync(settlement, sweep);
+
         // The settlement finishes what it started.
         claimed[0].Confirm();
 
@@ -480,6 +606,62 @@ public sealed class ReservationReaperTests(PostgresFixture fixture)
         // The units are SOLD. A sweep that released them would put stock back on a shelf it had
         // already left, and the next shopper would buy a unit that is spoken for.
         Assert.Equal((4, 2), await LedgerAsync(variantId));
+    }
+
+    /// <summary>
+    /// A retried sweep must re-read everything, and must not carry the previous attempt's decisions
+    /// into the new transaction.
+    /// <para>
+    /// The sweep hands its whole transaction to a retrying execution strategy, which is required:
+    /// <c>EnableRetryOnFailure</c> refuses a user-initiated transaction unless it can re-run the
+    /// entire unit. But the context is resolved once, OUTSIDE that lambda, so a second attempt
+    /// reuses it — and every entity the first attempt mutated is still tracked as Modified. An
+    /// order it called <c>Cancel()</c> on is still queued for a flush, against a row the new attempt
+    /// has not re-claimed and holds no lock on.
+    /// </para>
+    /// <para>
+    /// The reaper was the only execution-strategy transaction in the solution not clearing its
+    /// change tracker first; the timeline worker, both checkout transactions and the refund handler
+    /// all do, and the timeline's comment says why in as many words. Reverting that one line makes
+    /// this test fail with a stale cancellation applied to an order the second attempt left alone.
+    /// </para>
+    /// </summary>
+    [Fact]
+    public async Task A_retried_sweep_does_not_apply_the_previous_attempts_decisions()
+    {
+        await using var db = fixture.CreateContext();
+        var variantId = await StockAsync(db, onHand: 6);
+
+        var (first, firstReservation) = await ReserveAsync(db, variantId, 2, Now.AddMinutes(-6));
+        var (second, secondReservation) = await ReserveAsync(db, variantId, 1, Now.AddMinutes(-4));
+
+        Assert.Equal((6, 3), await LedgerAsync(variantId));
+
+        // Fail the FINAL WRITE once — the flush that persists the cancellations. Targeting anything
+        // earlier proves nothing: the reservations are released by raw SQL and the orders are not
+        // loaded until later, so at any earlier point there is no stale tracked state for a retry to
+        // carry. It has to be the statement that runs after Cancel() has been called.
+        var interceptor = new FailOnce(text => text.Contains("UPDATE orders", StringComparison.Ordinal));
+
+        var (reaper, _, provider) = NewReaper(interceptor: interceptor);
+        await using var _ = provider;
+
+        var reclaimed = await reaper.SweepAsync(CancellationToken.None);
+
+        Assert.True(interceptor.Fired, "The interceptor never fired, so no retry happened and this test proved nothing.");
+
+        // The second attempt did the whole job exactly once: both reservations released, both
+        // orders cancelled, and the ledger back to where it started.
+        Assert.Equal(3, reclaimed);
+        Assert.Equal((6, 0), await LedgerAsync(variantId));
+
+        var (firstStatus, firstReservationStatus) = await StateAsync(first.Id, firstReservation.Id);
+        var (secondStatus, secondReservationStatus) = await StateAsync(second.Id, secondReservation.Id);
+
+        Assert.Equal(OrderStatus.Cancelled, firstStatus);
+        Assert.Equal(OrderStatus.Cancelled, secondStatus);
+        Assert.Equal(ReservationStatus.Released, firstReservationStatus);
+        Assert.Equal(ReservationStatus.Released, secondReservationStatus);
     }
 
     /// <summary>

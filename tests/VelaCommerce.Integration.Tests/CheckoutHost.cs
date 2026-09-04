@@ -159,6 +159,18 @@ public sealed class CheckoutHost : WebApplicationFactory<Program>
                     maxRetryDelay: TimeSpan.FromSeconds(5),
                     errorCodesToAdd: null)));
 
+            // THE REAPER IS SILENCED IN EVERY TEST HOST, FOR THE REASON SettlementHost STATES
+            // ABOUT THE OTHER TWO WORKERS: every sweep in this suite should be one a test asked
+            // for. It is registered — so the composition stays the real one — and its timer loop
+            // returns immediately.
+            //
+            // Without this it swept the SHARED container on the system clock, on boot and every
+            // minute after, from all three hosts at once. Reservations made by other classes
+            // expire fifteen minutes out so they were usually safe, but any test that backdates
+            // expires_at to make a reservation lapse was racing an uncontrolled third writer.
+            services.RemoveAll<ReservationReaperOptions>();
+            services.AddSingleton(new ReservationReaperOptions { Enabled = false });
+
             services.RemoveAll<IDataProtectionProvider>();
             services.AddSingleton<IDataProtectionProvider>(new EphemeralDataProtectionProvider());
 

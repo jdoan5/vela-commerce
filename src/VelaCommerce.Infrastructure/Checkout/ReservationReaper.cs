@@ -29,6 +29,7 @@ namespace VelaCommerce.Infrastructure.Checkout;
 /// </summary>
 public sealed class ReservationReaper(
     IServiceScopeFactory scopeFactory,
+    ReservationReaperOptions options,
     TimeProvider timeProvider,
     ILogger<ReservationReaper> logger) : BackgroundService
 {
@@ -40,6 +41,19 @@ public sealed class ReservationReaper(
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
+        // Checked here rather than inside SweepAsync, so a caller holding this object can still
+        // drive one sweep deliberately — which is what the integration tests do. Off means "nothing
+        // sweeps on a timer", not "sweeping is forbidden".
+        if (!options.Enabled)
+        {
+            logger.LogInformation(
+                "The reservation reaper is disabled by configuration ({Key}). Lapsed reservations will "
+                + "keep holding their units until something sweeps.",
+                $"{ReservationReaperOptions.SectionName}:{nameof(ReservationReaperOptions.Enabled)}");
+
+            return;
+        }
+
         // A first sweep on boot matters: a container that restarts mid-checkout is exactly the
         // case that strands units, and nothing else would notice until the next tick.
         while (!stoppingToken.IsCancellationRequested)
@@ -96,6 +110,20 @@ public sealed class ReservationReaper(
 
         return await strategy.ExecuteAsync(async () =>
         {
+            // EVERY ATTEMPT STARTS FROM A CLEARED CHANGE TRACKER, AND THE SCOPE ABOVE IS WHY.
+            //
+            // The context is resolved once, outside this lambda, so a retry reuses it. The strategy
+            // re-runs the WHOLE body on a transient fault, and without this line the previous
+            // attempt's mutations are still tracked as Modified: the orders it called Cancel() on
+            // are still pending a flush, against rows this attempt has not re-claimed and holds no
+            // lock on. The next SaveChanges would write them anyway — a cancellation applied from a
+            // stale read, which is the interleaving the locks below exist to prevent, arriving by
+            // the back door.
+            //
+            // Every other execution-strategy transaction in this solution clears here for the same
+            // reason. This one did not, which was an omission rather than a decision.
+            db.ChangeTracker.Clear();
+
             await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
 
             var now = timeProvider.GetUtcNow();

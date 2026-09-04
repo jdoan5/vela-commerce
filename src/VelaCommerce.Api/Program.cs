@@ -55,7 +55,7 @@ builder.Services.AddScoped<CatalogSeeder>();
 
 // Checkout registers TimeProvider, which ASP.NET Core does not provide and the handler
 // needs because reading the ambient clock is banned by an architecture test.
-builder.Services.AddCheckout();
+builder.Services.AddCheckout(builder.Configuration);
 
 // The simulator is the DEFAULT gateway on purpose: this repo has to clone and complete a
 // purchase with no payment account and no network. The environment flag makes it refuse to

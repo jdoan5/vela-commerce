@@ -21,8 +21,8 @@ background service moving real rows in real PostgreSQL on a demo clock — 20 se
 which is the "no longer checking" the last frames show.
 
 **Status.** Phases 0–4 and 6 of 10 are done — domain, seeded catalog, storefront, cart, tenancy,
-checkout, payments, transactional outbox, the order timeline, the Demo Lab and refunds — on **348
-passing tests** (191 domain, 8 architecture, 149 integration against a real PostgreSQL 18 in
+checkout, payments, transactional outbox, the order timeline, the Demo Lab and refunds — on **349
+passing tests** (191 domain, 8 architecture, 150 integration against a real PostgreSQL 18 in
 Testcontainers). Phases 5, 7, 8 and 9 are not started: nightly reset and backups, an admin UI,
 preview environments, the ADRs. **There is no hosted demo, deliberately.** The Azure free-trial credit expires
 2026-09-04, and upgrading to Pay-As-You-Go permanently removes the spending limit that currently

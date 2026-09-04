@@ -1,3 +1,4 @@
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Hosting;
@@ -34,11 +35,21 @@ public static class CheckoutServiceCollectionExtensions
     /// which gateway it is talking to.
     /// </para>
     /// </summary>
-    public static IServiceCollection AddCheckout(this IServiceCollection services)
+    /// <param name="services">The host's collection.</param>
+    /// <param name="configuration">
+    /// Root configuration, for <c>Checkout:Reaper</c>. Optional so that a host with nothing to say
+    /// about the reaper still calls this the short way — the defaults are the deployment's, and a
+    /// missing section means the sweeper runs.
+    /// </param>
+    public static IServiceCollection AddCheckout(this IServiceCollection services, IConfiguration? configuration = null)
     {
         ArgumentNullException.ThrowIfNull(services);
 
         services.TryAddSingleton(TimeProvider.System);
+
+        services.TryAddSingleton(configuration is null
+            ? new ReservationReaperOptions()
+            : ReservationReaperOptions.FromConfiguration(configuration));
 
         // Without the reaper, stock a checkout reserved but never paid for is held forever:
         // only a decline and a failure inside the reservation transaction hand units back on
