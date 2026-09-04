@@ -98,6 +98,10 @@
                             <th scope="col">Units</th>
                             <th scope="col">Total</th>
                             <th scope="col">Captured</th>
+                            @if (ShowRefunded)
+                            {
+                                <th scope="col">Refunded</th>
+                            }
                             <th scope="col">Visitor</th>
                             @if (ShowRowVersion)
                             {
@@ -114,6 +118,10 @@
                                 <td class="vc-tabular">@order.Quantity</td>
                                 <td class="vc-tabular">@Money(order.Total)</td>
                                 <td class="vc-tabular">@Money(order.Captured)</td>
+                                @if (ShowRefunded)
+                                {
+                                    <td class="vc-tabular">@Money(order.Refunded)</td>
+                                }
                                 <td class="vc-tabular">@order.Visitor</td>
                                 @if (ShowRowVersion)
                                 {
@@ -276,6 +284,14 @@
     /// </summary>
     private bool ShowRowVersion =>
         Evidence.AllOrders.Any(order => order.RowVersion is { Length: > 0 });
+
+    /// <summary>
+    /// Whether any order has had money go back. Shown on the same terms as <c>xmin</c>: a column of
+    /// zeroes on the eight scenarios that never refund anything would read as a shop that failed to
+    /// refund rather than as one that was never asked to.
+    /// </summary>
+    private bool ShowRefunded =>
+        Evidence.AllOrders.Any(order => order.Refunded is { Amount: > 0 });
 
     private static string Money(LabMoneyDocument? money) => money?.Text ?? "—";
 

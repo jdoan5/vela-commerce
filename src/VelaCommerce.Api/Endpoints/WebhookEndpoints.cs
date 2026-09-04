@@ -602,7 +602,7 @@ public static class WebhookEndpoints
                     // the branch above has already established, and refuses an illegal transition,
                     // which the branch before it has. Both are asked rather than caught so that the
                     // exception path stays what it should be: unreachable.
-                    order.MarkPaid(captured.Value, now);
+                    order.MarkPaid(captured.Value, settlement.GatewayReference, now);
 
                     // CONFIRMING THE RESERVATIONS IS NOT OPTIONAL, AND FORGETTING IT OVERSELLS.
                     //

@@ -29,10 +29,20 @@ public sealed class CheckoutIdempotencyTests : IDisposable
     /// second answer that hands back the first one's order rather than an error.
     /// <para>
     /// The two status codes differ deliberately, and the difference is worth defending. The submit
-    /// that created the order answers 201 with a <c>Location</c>; the one that lost answers 200
-    /// with the same body. A client that treats every 2xx as success is correct either way, and a
-    /// client that cares can tell whether it was the one that placed the order — which matters for
-    /// analytics far more than it matters for the shopper.
+    /// that created the order answers 201 with a <c>Location</c>; the one that lost answers for the
+    /// order as it actually stands. A client that treats every 2xx as success is correct either way,
+    /// and a client that cares can tell whether it was the one that placed the order — which matters
+    /// for analytics far more than it matters for the shopper.
+    /// </para>
+    /// <para>
+    /// <strong>The loser's code is 200 or 202, and this test may not insist on which.</strong> The
+    /// order row commits when it is placed; the money settles in a second transaction after the
+    /// gateway has answered. So the losing submit re-reads somewhere inside that gap and reports
+    /// what it finds — 200 for an order already Paid, 202 for one still settling. Both are the
+    /// truth, and the replay branch returns the truth on purpose rather than a flat 200 that once
+    /// told four different non-successes they had succeeded. Asserting 200 alone was really
+    /// asserting that the winner's gateway call finished before the loser's re-read, which is a
+    /// property of how fast the machine is rather than of how the shop behaves.
     /// </para>
     /// <para>
     /// The shelf holds five units rather than one on purpose. With a single unit the losing submit
@@ -72,7 +82,15 @@ public sealed class CheckoutIdempotencyTests : IDisposable
             }
         }
 
-        Assert.Equal([HttpStatusCode.OK, HttpStatusCode.Created], statuses.Order().ToArray());
+        Assert.Contains(HttpStatusCode.Created, statuses);
+
+        var loser = Assert.Single(statuses, status => status != HttpStatusCode.Created);
+
+        Assert.True(
+            loser is HttpStatusCode.OK or HttpStatusCode.Accepted,
+            $"The losing submit answered {(int)loser}. It must replay the winner's order as 200 if "
+            + "settlement has already committed, or 202 if it is still in flight - never a second "
+            + "201, and never a failure.");
 
         // Both callers were told about the same order, so neither storefront shows a number the
         // other one cannot look up.

@@ -93,6 +93,14 @@ internal sealed class OrderConfiguration : IEntityTypeConfiguration<Order>
             .HasColumnName("paid_at")
             .HasColumnType("timestamptz");
 
+        // Nullable because an unpaid order has no payment to name. Not nullable in spirit once
+        // status is Paid, but a CHECK tying the two together would have to be written against the
+        // status integer and would then have to be revisited by every migration that touches the
+        // lifecycle, for a rule the aggregate already refuses to break.
+        builder.Property(order => order.PaymentReference)
+            .HasColumnName("payment_reference")
+            .HasMaxLength(128);
+
         builder.Property(order => order.DeletedAt)
             .HasColumnName("deleted_at")
             .HasColumnType("timestamptz");
@@ -129,6 +137,7 @@ internal sealed class OrderConfiguration : IEntityTypeConfiguration<Order>
         builder.Ignore(order => order.Subtotal);
         builder.Ignore(order => order.Total);
         builder.Ignore(order => order.RefundableRemaining);
+        builder.Ignore(order => order.IsFullyRefunded);
 
         builder.HasMany(order => order.Lines)
             .WithOne()
@@ -138,6 +147,16 @@ internal sealed class OrderConfiguration : IEntityTypeConfiguration<Order>
 
         builder.Navigation(nameof(Order.Lines))
             .HasField("_lines")
+            .UsePropertyAccessMode(PropertyAccessMode.Field);
+
+        builder.HasMany(order => order.Refunds)
+            .WithOne()
+            .HasForeignKey(refund => refund.OrderId)
+            .HasConstraintName("fk_refunds_orders")
+            .OnDelete(DeleteBehavior.Cascade);
+
+        builder.Navigation(nameof(Order.Refunds))
+            .HasField("_refunds")
             .UsePropertyAccessMode(PropertyAccessMode.Field);
 
         // This index is the whole double-submit defence: the second insert with the same key loses
@@ -228,5 +247,84 @@ internal sealed class OrderLineConfiguration : IEntityTypeConfiguration<OrderLin
             .HasDatabaseName("ix_order_lines_order_id");
 
         builder.HasQueryFilter("SoftDelete", line => line.DeletedAt == null);
+    }
+}
+
+/// <summary>
+/// Maps the refund ledger.
+/// <para>
+/// The table carries the invariant the aggregate cannot: a unique index on
+/// <c>(order_id, idempotency_key)</c>, which is what makes a retried refund lose in the database
+/// rather than in a check the handler performs and a concurrent request has already invalidated.
+/// The running total on the order is guarded separately by
+/// <c>ck_orders_refund_within_capture</c>, so over-refunding fails even if both rows are written
+/// by a process that never loaded the aggregate.
+/// </para>
+/// </summary>
+internal sealed class RefundConfiguration : IEntityTypeConfiguration<Refund>
+{
+    public void Configure(EntityTypeBuilder<Refund> builder)
+    {
+        builder.ToTable("refunds", table =>
+        {
+            table.HasCheckConstraint("ck_refunds_amount_positive", "amount > 0");
+            table.HasCheckConstraint("ck_refunds_restocked_units_non_negative", "restocked_units >= 0");
+        });
+
+        builder.HasKey(refund => refund.Id).HasName("pk_refunds");
+
+        builder.Property(refund => refund.Id)
+            .HasColumnName("id")
+            .ValueGeneratedNever();
+
+        builder.Property(refund => refund.OrderId)
+            .HasColumnName("order_id");
+
+        builder.ComplexProperty(refund => refund.Amount, amount =>
+        {
+            amount.Property(money => money.Amount).HasColumnName("amount");
+            amount.Property(money => money.Currency).HasColumnName("currency").HasMaxLength(3).IsRequired();
+        });
+
+        builder.Property(refund => refund.Reason)
+            .HasColumnName("reason")
+            .HasConversion<int>();
+
+        builder.Property(refund => refund.IdempotencyKey)
+            .HasColumnName("idempotency_key")
+            .HasMaxLength(128)
+            .IsRequired();
+
+        builder.Property(refund => refund.GatewayReference)
+            .HasColumnName("gateway_reference")
+            .HasMaxLength(128)
+            .IsRequired();
+
+        builder.Property(refund => refund.RestockedUnits)
+            .HasColumnName("restocked_units");
+
+        builder.Property(refund => refund.RefundedAt)
+            .HasColumnName("refunded_at")
+            .HasColumnType("timestamptz");
+
+        builder.Property(refund => refund.DeletedAt)
+            .HasColumnName("deleted_at")
+            .HasColumnType("timestamptz");
+
+        // Unfiltered on purpose, exactly like the order's idempotency index: a soft-deleted refund
+        // must still spend its key. A filtered index here would let a demo reset followed by a
+        // replayed request refund the same money a second time.
+        builder.HasIndex(refund => new { refund.OrderId, refund.IdempotencyKey })
+            .IsUnique()
+            .HasDatabaseName("ux_refunds_order_id_idempotency_key");
+
+        builder.HasIndex(refund => refund.OrderId)
+            .HasDatabaseName("ix_refunds_order_id");
+
+        // No DemoTenancy filter here, and that is not an oversight. A refund is only ever reached
+        // through its order, which is filtered, so a second predicate would add a way to fail
+        // closed on a row nobody can address directly - and the reaching path is what the tenancy
+        // rule is written against.
+        builder.HasQueryFilter("SoftDelete", refund => refund.DeletedAt == null);
     }
 }

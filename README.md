@@ -20,11 +20,11 @@ background service moving real rows in real PostgreSQL on a demo clock — 20 se
 40 more to Shipped — and the page stops polling by itself once the order reaches a terminal state,
 which is the "no longer checking" the last frames show.
 
-**Status.** Phases 0–4 of 10 are done — domain, seeded catalog, storefront, cart, tenancy,
-checkout, payments, transactional outbox and the order timeline — on **310 passing tests** (184
-domain, 8 architecture, 118 integration against a real PostgreSQL 18 in Testcontainers). Phases
-5–9 are not started: nightly reset and backups, a Demo Lab with refunds, an admin UI, preview
-environments. **There is no hosted demo, deliberately.** The Azure free-trial credit expires
+**Status.** Phases 0–4 and 6 of 10 are done — domain, seeded catalog, storefront, cart, tenancy,
+checkout, payments, transactional outbox, the order timeline, the Demo Lab and refunds — on **335
+passing tests** (191 domain, 8 architecture, 136 integration against a real PostgreSQL 18 in
+Testcontainers). Phases 5, 7, 8 and 9 are not started: nightly reset and backups, an admin UI,
+preview environments, the ADRs. **There is no hosted demo, deliberately.** The Azure free-trial credit expires
 2026-09-04, and upgrading to Pay-As-You-Go permanently removes the spending limit that currently
 makes the subscription unable to bill at all — so the app gets finished first and deployed once,
 rather than half-deployed onto a subscription that can start charging. The GIF above is what a
@@ -34,7 +34,7 @@ clone of this repo does today with `dotnet run`.
 
 ## Read the interesting parts
 
-If you have ten minutes, read these six files. Each opens with a comment block stating the rule it
+If you have ten minutes, read these seven files. Each opens with a comment block stating the rule it
 enforces and the plausible implementation that gets it wrong, so you can judge the reasoning
 without reading the bodies.
 
@@ -47,6 +47,12 @@ without reading the bodies.
   — the only endpoint reachable without a session. Four numbered rules: verify the HMAC over the
   bytes that arrived (never a re-serialization), make exactly-once the database's job, refuse
   out-of-order arrivals by construction, and keep everything before verification off PostgreSQL.
+- **[`src/VelaCommerce.Api/Endpoints/RefundEndpoints.cs`](src/VelaCommerce.Api/Endpoints/RefundEndpoints.cs)**
+  — giving money back, in the one order that survives a gateway saying no: ask first, record
+  second. Read the note on why the order row is locked *across* the gateway call, and why the
+  `refunded <= captured` CHECK constraint cannot catch a concurrent over-refund on its own —
+  every racing handler writes the same absolute figure, so the column ends up correct above a
+  ledger with twelve rows in it. The lock is the only thing load-bearing.
 - **[`src/VelaCommerce.Domain/Orders/OrderStateMachine.cs`](src/VelaCommerce.Domain/Orders/OrderStateMachine.cs)**
   — 34 lines, five legal edges, written as a table so a test can assert the whole set. Look for
   the absent self-transitions: `Paid -> Paid` is missing on purpose, which is what turns a
@@ -237,13 +243,13 @@ Ten phases, tracked in [`docs/PLAN.md`](docs/PLAN.md).
 | 3 | Cart, tenancy | Done — demo-session cookie sealed with Data Protection, DbContext-level tenancy filter that fails closed |
 | 4 | Checkout, payments, order timeline | Done — payment port and signing simulator, atomic reservation, idempotent checkout, transactional outbox, signed webhook receiver, accelerated timeline |
 | 5 | Anti-rot hardening | Not started — nightly reset, backups, uptime monitoring |
-| 6 | Demo Lab + refunds | Not started |
+| 6 | Demo Lab + refunds | Done — nine lab scenarios with per-scenario permalinks and verdicts; refunds and cancellation with a ledger, a row lock that serialises concurrent refunds, and restock on cancellation |
 | 7 | Admin + preview environments | Not started |
 | 8 | Make it legible | Not started — measured cold start, ADRs, `/platform` page |
 | 9 | Optional differentiators | Not started — pgvector, passkeys, multi-cloud |
 
-Also not built, and not hidden: there is no admin UI, no refunds flow, no server-side search beyond
-the client-side filtering, and no real payment processor.
+Also not built, and not hidden: there is no admin UI, no server-side search beyond the client-side
+filtering, and no real payment processor.
 
 ## Layout
 

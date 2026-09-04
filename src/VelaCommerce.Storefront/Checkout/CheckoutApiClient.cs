@@ -225,6 +225,135 @@ public sealed class CheckoutApiClient
     }
 
     /// <summary>
+    /// Asks for the whole outstanding balance back.
+    /// <para>
+    /// No amount is sent. The server refunds what is left, and refuses an overshoot rather than
+    /// clamping it — so a client that computed the remainder itself would eventually be a cent out
+    /// and would turn a refund into a 409 for no reason a shopper could understand.
+    /// </para>
+    /// </summary>
+    /// <param name="orderNumber">The order to refund.</param>
+    /// <param name="idempotencyKey">
+    /// This attempt's key. The caller must reuse it across a retry of the same intent: that is the
+    /// difference between asking again and refunding twice, and the server enforces it.
+    /// </param>
+    /// <param name="cancellationToken">The caller's deadline.</param>
+    public Task<RefundResultDocument> RefundAsync(
+        string orderNumber,
+        string idempotencyKey,
+        CancellationToken cancellationToken) =>
+        PostMoneyAsync(
+            $"api/orders/{Uri.EscapeDataString(orderNumber)}/refunds",
+            idempotencyKey,
+            JsonContent.Create(
+                new RefundBody(Amount: null, idempotencyKey, ScenarioHint: null),
+                CheckoutApiJsonContext.Default.RefundBody),
+            cancellationToken);
+
+    /// <summary>
+    /// Cancels the order, returning anything it has already taken.
+    /// <para>
+    /// One call, because the server treats the two as one act: an order cannot be left cancelled
+    /// with money still on it, and it cannot be refunded and left open.
+    /// </para>
+    /// </summary>
+    public Task<RefundResultDocument> CancelOrderAsync(
+        string orderNumber,
+        string idempotencyKey,
+        CancellationToken cancellationToken) =>
+        PostMoneyAsync(
+            $"api/orders/{Uri.EscapeDataString(orderNumber)}/cancellation",
+            idempotencyKey,
+            JsonContent.Create(
+                new CancelOrderBody(idempotencyKey, ScenarioHint: null),
+                CheckoutApiJsonContext.Default.CancelOrderBody),
+            cancellationToken);
+
+    /// <summary>
+    /// The shared half of both money-moving calls.
+    /// <para>
+    /// These throw on a refusal, unlike <see cref="PlaceOrderAsync"/>, and the difference is not an
+    /// inconsistency. A checkout has four documented business answers a screen must render
+    /// differently; a refund has one success and a sentence explaining why not, and the server
+    /// already writes that sentence. Inventing an outcome enum to carry a string would be ceremony.
+    /// </para>
+    /// </summary>
+    /// <exception cref="OrderApiException">On any non-2xx, timeout or transport failure.</exception>
+    private async Task<RefundResultDocument> PostMoneyAsync(
+        string path,
+        string idempotencyKey,
+        HttpContent body,
+        CancellationToken cancellationToken)
+    {
+        var request = BuildRequest(HttpMethod.Post, path);
+        request.Headers.TryAddWithoutValidation(IdempotencyKeyHeader, idempotencyKey);
+        request.Content = body;
+
+        HttpResponseMessage response;
+
+        try
+        {
+            response = await _http.SendAsync(request, cancellationToken).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw new OrderApiException(
+                "The shop is taking longer than usual to answer.",
+                "The request passed its deadline. Nothing is lost: trying again with the same key "
+                + "cannot move the money twice, which is what the key is for.",
+                notFound: false,
+                retryable: true);
+        }
+        catch (HttpRequestException exception)
+        {
+            throw new OrderApiException(
+                "The shop could not be reached.",
+                $"The request to {request.RequestUri} failed before a response arrived: {exception.Message}. "
+                + "Trying again with the same key is safe.",
+                notFound: false,
+                retryable: true);
+        }
+        finally
+        {
+            request.Dispose();
+        }
+
+        using (response)
+        {
+            if (response.IsSuccessStatusCode)
+            {
+                var result = await TryReadAsync(
+                        response,
+                        CheckoutApiJsonContext.Default.RefundResultDocument,
+                        cancellationToken)
+                    .ConfigureAwait(false);
+
+                return result ?? throw new OrderApiException(
+                    "The shop sent back an answer this storefront could not read.",
+                    "The response was not the JSON this build expects.",
+                    notFound: false,
+                    retryable: false);
+            }
+
+            var problem = await TryReadAsync(
+                    response,
+                    CheckoutApiJsonContext.Default.CheckoutProblem,
+                    cancellationToken)
+                .ConfigureAwait(false);
+
+            var notFound = response.StatusCode == HttpStatusCode.NotFound;
+
+            throw new OrderApiException(
+                problem?.Title is { Length: > 0 } title ? title : "The shop could not do that.",
+                problem?.Detail,
+                notFound,
+                // A 409 is the world disagreeing, not a fault: repeating it changes nothing. A 502
+                // is worth retrying, and the same key makes retrying safe.
+                retryable: response.StatusCode is HttpStatusCode.BadGateway);
+        }
+    }
+
+    /// <summary>
     /// Maps a refusal onto the outcome the page renders.
     /// <para>
     /// The two 409s are told apart by which extension the server sent, not by parsing the title:

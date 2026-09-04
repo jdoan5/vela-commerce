@@ -78,6 +78,24 @@ public sealed record OrderDocument
     /// <summary>What the gateway said, present only on the checkout response that asked it.</summary>
     [JsonPropertyName("payment")] public OrderPaymentDocument? Payment { get; init; }
 
+    /// <summary>
+    /// Every refund against this order, oldest first, and empty for almost every order. Sent with
+    /// the receipt rather than behind a second request, because a receipt showing what was captured
+    /// and not what went back is a receipt that is wrong.
+    /// </summary>
+    [JsonPropertyName("refunds")] public List<RefundEntryDocument>? Refunds { get; init; }
+
+    /// <summary>
+    /// What is still owed to the shopper, derived here rather than read from the response's own
+    /// field — the same rule the cart's subtotal follows, so one arithmetic path in the client
+    /// cannot disagree with itself.
+    /// </summary>
+    public CatalogMoney? RefundableRemaining =>
+        Captured is null ? null : new CatalogMoney(Captured.Amount - (Refunded?.Amount ?? 0), Captured.Currency);
+
+    /// <summary>True once every captured cent is back. Not the same as the order being cancelled.</summary>
+    public bool IsFullyRefunded => Captured is { Amount: > 0 } && RefundableRemaining is { AmountMinorUnits: 0 };
+
     /// <summary>Units across every line, summed here rather than trusting the server's roll-up, so one arithmetic path serves the whole storefront.</summary>
     public int TotalQuantity
     {
@@ -128,6 +146,83 @@ public sealed record OrderLineDocument
     public CatalogMoney? LineTotal =>
         UnitPrice is null ? null : new CatalogMoney(UnitPrice.Amount * Quantity, UnitPrice.Currency);
 }
+
+/// <summary>
+/// One movement of money back, as the ledger holds it.
+/// <para>
+/// A row here means the money actually moved: the server writes it only after the gateway has
+/// confirmed, so this list is never a promise about a refund still in flight.
+/// </para>
+/// </summary>
+public sealed record RefundEntryDocument
+{
+    /// <summary>How much went back.</summary>
+    [JsonPropertyName("amount")] public MoneyDocument? Amount { get; init; }
+
+    /// <summary>CustomerRequest or Cancellation.</summary>
+    [JsonPropertyName("reason")] public string Reason { get; init; } = "";
+
+    /// <summary>The gateway's own identifier for this refund, and the string to quote in a support ticket.</summary>
+    [JsonPropertyName("gatewayReference")] public string GatewayReference { get; init; } = "";
+
+    /// <summary>Units this refund put back on the shelf. Zero unless it was a cancellation.</summary>
+    [JsonPropertyName("restockedUnits")] public int RestockedUnits { get; init; }
+
+    /// <summary>When it was recorded, which is after the gateway confirmed it.</summary>
+    [JsonPropertyName("refundedAt")] public DateTimeOffset RefundedAt { get; init; }
+
+    /// <summary>Whether the goods came back with the money.</summary>
+    public bool Restocked => RestockedUnits > 0;
+}
+
+/// <summary>
+/// What <c>POST /api/orders/{orderNumber}/refunds</c> and <c>.../cancellation</c> answer.
+/// </summary>
+public sealed record RefundResultDocument
+{
+    [JsonPropertyName("orderNumber")] public string OrderNumber { get; init; } = "";
+
+    /// <summary>The order's status afterwards. A refund leaves it alone; a cancellation makes it Cancelled.</summary>
+    [JsonPropertyName("status")] public string Status { get; init; } = "";
+
+    [JsonPropertyName("captured")] public MoneyDocument? Captured { get; init; }
+    [JsonPropertyName("refunded")] public MoneyDocument? Refunded { get; init; }
+    [JsonPropertyName("refundableRemaining")] public MoneyDocument? RefundableRemaining { get; init; }
+
+    /// <summary>True when every captured cent is back.</summary>
+    [JsonPropertyName("fullyRefunded")] public bool FullyRefunded { get; init; }
+
+    /// <summary>Units this operation returned to the shelf.</summary>
+    [JsonPropertyName("restockedUnits")] public int RestockedUnits { get; init; }
+
+    /// <summary>
+    /// True when the key had already been spent and no second refund was issued. The figures are
+    /// the first refund's — so a page that says "refunded" twice is telling the truth both times
+    /// about the same money.
+    /// </summary>
+    [JsonPropertyName("replayed")] public bool Replayed { get; init; }
+
+    /// <summary>The whole ledger, so the page replaces its list rather than merging into it.</summary>
+    [JsonPropertyName("refunds")] public List<RefundEntryDocument>? Refunds { get; init; }
+}
+
+/// <summary>
+/// Body of <c>POST /api/orders/{orderNumber}/refunds</c>.
+/// </summary>
+/// <param name="Amount">
+/// Minor units, or null for the whole outstanding balance. Null is what the storefront sends: a
+/// client that computed the remainder itself would eventually disagree with the server by a cent,
+/// and the server refuses an overshoot rather than clamping it.
+/// </param>
+/// <param name="IdempotencyKey">
+/// This attempt's key, sent here as well as in the header for the reason the checkout body gives —
+/// a proxy that strips unknown request headers turns it into a redundant field rather than a 400.
+/// </param>
+/// <param name="ScenarioHint">Passed to the gateway. <c>refund-refused</c> makes the simulator say no.</param>
+public sealed record RefundBody(long? Amount, string IdempotencyKey, string? ScenarioHint);
+
+/// <summary>Body of <c>POST /api/orders/{orderNumber}/cancellation</c>. No amount: a cancellation returns everything or nothing.</summary>
+public sealed record CancelOrderBody(string IdempotencyKey, string? ScenarioHint);
 
 /// <summary>The shipping address as stored on the order.</summary>
 public sealed record OrderAddressDocument
@@ -306,4 +401,7 @@ public sealed record CheckoutAddressBody(
 [JsonSerializable(typeof(OrderDocument))]
 [JsonSerializable(typeof(CheckoutProblem))]
 [JsonSerializable(typeof(PlaceOrderBody))]
+[JsonSerializable(typeof(RefundResultDocument))]
+[JsonSerializable(typeof(RefundBody))]
+[JsonSerializable(typeof(CancelOrderBody))]
 internal sealed partial class CheckoutApiJsonContext : JsonSerializerContext;

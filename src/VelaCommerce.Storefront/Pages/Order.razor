@@ -120,9 +120,23 @@ else
            page being wrong, not the order. *@
         <div class="vc-notice" role="status">
             <h2 class="vc-notice__title">This order was cancelled</h2>
+            @* Two cancellations reach this banner and they are not the same fact. A refused card
+               never charged anything; a cancellation after payment charged and gave it back. The
+               copy used to say "nothing was charged" for both, which was true until refunds made
+               the second path reachable and then read as a denial that the money had ever moved. *@
             <p class="vc-notice__body">
-                Nothing was charged and the reserved stock has gone back on the shelf. The order stays
-                readable at this address; it simply will not move any further.
+                @if (_order?.Refunded is { Amount: > 0 } returned)
+                {
+                    <text>
+                        @Money(returned) went back to the card it came from, and the reserved stock is
+                        back on the shelf.
+                    </text>
+                }
+                else
+                {
+                    <text>Nothing was charged and the reserved stock has gone back on the shelf.</text>
+                }
+                The order stays readable at this address; it simply will not move any further.
             </p>
         </div>
     }
@@ -260,6 +274,129 @@ else
             </p>
         </section>
 
+        @if (ShowMoneyBack)
+        {
+            <section class="vc-order__panel" aria-labelledby="vc-order-refunds-title">
+                <h2 class="vc-order__section-title" id="vc-order-refunds-title">Money back</h2>
+
+                @if (order.Refunds is { Count: > 0 } ledger)
+                {
+                    <dl class="vc-totals">
+                        @foreach (var entry in ledger)
+                        {
+                            <div class="vc-totals__row">
+                                <dt>
+                                    @(entry.Reason == "Cancellation" ? "Cancelled" : "Refunded")
+                                    <span class="vc-order__aside">
+                                        @entry.RefundedAt.ToLocalTime().ToString("d MMM, HH:mm")
+                                        @if (entry.Restocked)
+                                        {
+                                            <text> &middot; @entry.RestockedUnits back on the shelf</text>
+                                        }
+                                    </span>
+                                </dt>
+                                <dd class="vc-tabular">@Money(entry.Amount)</dd>
+                            </div>
+                        }
+                        <div class="vc-totals__row vc-totals__row--total">
+                            <dt>Still owed</dt>
+                            <dd class="vc-tabular"><PriceTag Money="order.RefundableRemaining" /></dd>
+                        </div>
+                    </dl>
+                }
+
+                @if (_moneyError is { Length: > 0 } moneyError)
+                {
+                    <div class="vc-alert vc-alert--error" role="alert">
+                        <p class="vc-alert__title">@moneyError</p>
+                        @if (_moneyErrorDetail is { Length: > 0 } moneyDetail)
+                        {
+                            <details class="vc-alert__detail">
+                                <summary>Technical detail</summary>
+                                @moneyDetail
+                            </details>
+                        }
+                    </div>
+                }
+                else if (_moneyNote is { Length: > 0 } moneyNote)
+                {
+                    <p class="vc-order__aside" role="status">@moneyNote</p>
+                }
+
+                @if (CanRefund || CanCancel)
+                {
+                    <div class="vc-alert__actions">
+                        @if (CanRefund)
+                        {
+                            <button type="button"
+                                    class="vc-btn vc-btn--primary"
+                                    disabled="@_moneyBusy"
+                                    @onclick="RefundOrderAsync">
+                                Refund @Money(order.Captured is null ? null : new MoneyDocument
+                                {
+                                    Amount = order.RefundableRemaining?.AmountMinorUnits ?? 0,
+                                    Currency = order.Currency,
+                                })
+                            </button>
+                        }
+                        @if (CanCancel)
+                        {
+                            <button type="button"
+                                    class="vc-btn"
+                                    disabled="@_moneyBusy"
+                                    @onclick="CancelOrderAsync">
+                                Cancel order
+                            </button>
+                        }
+                    </div>
+                }
+
+                <p class="vc-order__aside">
+                    @if (CanCancel && order.RefundableRemaining is { AmountMinorUnits: > 0 })
+                    {
+                        <text>
+                            Cancelling returns the money and puts the units back on the shelf as one
+                            act, because an order cannot be left terminated while it still owes:
+                            a cancelled order refuses refunds, so the money would be unreachable.
+                        </text>
+                    }
+                    else if (_stage is OrderStage.Shipped)
+                    {
+                        <text>
+                            The parcel has gone, so this order can be refunded but not cancelled.
+                            It keeps saying Shipped afterwards &mdash; the goods really are in the
+                            world, and a status that hid that would be lying about where they are.
+                        </text>
+                    }
+                    else if (order.IsFullyRefunded)
+                    {
+                        <text>
+                            Every cent is back. The shop asked the gateway first and wrote the line
+                            above only once it confirmed, so a row here always means money that
+                            actually moved.
+                            @if (CanCancel)
+                            {
+                                <text>
+                                    Cancelling now owes nothing and only releases the stock &mdash;
+                                    which is why it is allowed at all: the rule is that an order may
+                                    not be cancelled while it still holds money, not that a paid
+                                    order may never be cancelled.
+                                </text>
+                            }
+                        </text>
+                    }
+                    else
+                    {
+                        <text>
+                            Refunds are issued against the payment rather than the order, and the
+                            same request sent twice returns the money once &mdash; the key that
+                            makes that true is generated here, not by you.
+                        </text>
+                    }
+                </p>
+            </section>
+        }
+
         <section class="vc-order__panel" aria-labelledby="vc-order-address-title">
             <h2 class="vc-order__section-title" id="vc-order-address-title">Shipping to</h2>
 
@@ -363,8 +500,21 @@ else
     private string? _pollNote;
     private string? _loadedFor;
 
+    private string? _moneyError;
+    private string? _moneyErrorDetail;
+    private string? _moneyNote;
+
+    /// <summary>
+    /// The key for the refund attempt in flight, kept across a retry and cleared once the money has
+    /// moved. That lifetime is the whole point: a shopper pressing Refund again after a timeout is
+    /// repeating one intention, and a fresh key would turn it into a second refund. A press after a
+    /// success is a new intention and gets a new key.
+    /// </summary>
+    private string? _moneyKey;
+
     private bool _notFound;
     private bool _loading;
+    private bool _moneyBusy;
     private bool _waking;
     private bool _watchStopped;
     private bool _visible = true;
@@ -418,6 +568,11 @@ else
         _pollNote = null;
         _notFound = false;
         _watchStopped = false;
+        _moneyError = null;
+        _moneyErrorDetail = null;
+        _moneyNote = null;
+        _moneyKey = null;
+        _moneyBusy = false;
         _watchingSince = DateTimeOffset.Now;
 
         // The checkout page hands the freshly placed order over rather than making this page ask for
@@ -619,6 +774,119 @@ else
     /// this page saw it is all there is, and it is labelled "seen" rather than presented as the
     /// shop's own record.
     /// </param>
+    /// <summary>
+    /// Whether the panel has anything to say: money that could come back, money that already has,
+    /// or an order that can still be called off.
+    /// </summary>
+    private bool ShowMoneyBack =>
+        _order is { } order
+        && (CanRefund || CanCancel || order.Refunds is { Count: > 0 } || order.Captured is { Amount: > 0 });
+
+    /// <summary>
+    /// Mirrors the server's rule rather than guessing at it: Paid, Packed and Shipped can be
+    /// refunded, and only while something is left. A button the server would refuse is worse than no
+    /// button, because the shopper reads the refusal as the shop being broken.
+    /// </summary>
+    private bool CanRefund =>
+        _order is { } order
+        && order.RefundableRemaining is { AmountMinorUnits: > 0 }
+        && order.Status is "Paid" or "Packed" or "Shipped";
+
+    /// <summary>
+    /// The two states with a legal edge to Cancelled. Packed and Shipped are absent because the
+    /// parcel has moved, and cancelling would claim the goods are still here.
+    /// </summary>
+    private bool CanCancel => _order?.Status is "Pending" or "Paid";
+
+    private Task RefundOrderAsync() =>
+        MoveMoneyAsync(
+            (api, order, key, token) => api.RefundAsync(order, key, token),
+            success: result => result.Replayed
+                ? "That refund had already gone through. Nothing was refunded twice."
+                : $"Refunded {Money(result.Refunded)}. The gateway confirmed before this was written down.");
+
+    private Task CancelOrderAsync() =>
+        MoveMoneyAsync(
+            (api, order, key, token) => api.CancelOrderAsync(order, key, token),
+            success: result => result.RestockedUnits > 0
+                ? $"Cancelled. {result.RestockedUnits} unit(s) went back on the shelf"
+                  + (result.Refunded is { Amount: > 0 } money ? $" and {Money(money)} went back to you." : ".")
+                : "Cancelled.");
+
+    /// <summary>
+    /// The shared half of both buttons: one attempt, the key held across a retry, and the canonical
+    /// order re-read afterwards.
+    /// <para>
+    /// The local update happens before the re-read on purpose. The server's answer is already the
+    /// truth about the money, so showing it immediately is honest; the re-read then reconciles the
+    /// rest of the page — the timeline, mainly — and a re-read that fails leaves the correct figures
+    /// on screen rather than blanking them.
+    /// </para>
+    /// </summary>
+    private async Task MoveMoneyAsync(
+        Func<CheckoutApiClient, string, string, CancellationToken, Task<RefundResultDocument>> action,
+        Func<RefundResultDocument, string> success)
+    {
+        if (_moneyBusy || _order is not { } order)
+        {
+            return;
+        }
+
+        _moneyBusy = true;
+        _moneyError = null;
+        _moneyErrorDetail = null;
+        _moneyNote = null;
+        StateHasChanged();
+
+        try
+        {
+            _moneyKey ??= $"vela-{Guid.NewGuid():N}";
+
+            using var deadline = new CancellationTokenSource(FirstLoadDeadline);
+            var result = await action(_api, order.OrderNumber, _moneyKey, deadline.Token);
+
+            // Spent. A later press is a new intention and must not reuse it.
+            _moneyKey = null;
+            _moneyNote = success(result);
+
+            _order = order with
+            {
+                Status = result.Status,
+                Refunded = result.Refunded,
+                Refunds = result.Refunds,
+            };
+
+            _stage = OrderProgress.Parse(result.Status);
+        }
+        catch (OrderApiException exception)
+        {
+            _moneyError = exception.Message;
+            _moneyErrorDetail = exception.Detail;
+
+            // Kept only when trying again could still work. A 409 is the world disagreeing and will
+            // disagree identically next time, so holding its key would be holding a key for an
+            // attempt nobody is going to repeat.
+            if (!exception.Retryable)
+            {
+                _moneyKey = null;
+            }
+        }
+        catch (Exception exception)
+        {
+            _moneyError = "Something went wrong while moving the money.";
+            _moneyErrorDetail = $"{exception.GetType().Name}: {exception.Message}";
+        }
+        finally
+        {
+            _moneyBusy = false;
+            StateHasChanged();
+        }
+
+        // Reconciles the timeline and picks up anything the workers did meanwhile. Deliberately
+        // outside the try: a failed re-read must not overwrite the money message above.
+        await LoadAsync(initial: false);
+    }
+
     private void Apply(OrderDocument order, bool watched)
     {
         var stage = OrderProgress.Parse(order.Status);

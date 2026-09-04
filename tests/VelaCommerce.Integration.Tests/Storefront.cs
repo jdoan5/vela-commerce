@@ -180,6 +180,85 @@ internal sealed class Storefront : IDisposable
             .ToListAsync();
     }
 
+    /// <summary>
+    /// The refund ledger for one order, straight from the table, oldest first.
+    /// <para>
+    /// Read behind the counter rather than through the API for the reason this class exists: an
+    /// endpoint that both failed to record a refund and failed to report it would look correct if
+    /// the test asked it about its own work.
+    /// </para>
+    /// </summary>
+    public async Task<IReadOnlyList<RefundRow>> RefundsForAsync(string orderNumber)
+    {
+        await using var db = _fixture.CreateContext();
+
+        var order = await db.Orders
+            .IgnoreQueryFilters()
+            .Include(entity => entity.Refunds)
+            .SingleAsync(entity => entity.OrderNumber == orderNumber);
+
+        return [.. order.Refunds
+            .OrderBy(refund => refund.RefundedAt)
+            .ThenBy(refund => refund.Id)
+            .Select(refund => new RefundRow(
+                refund.Amount.Amount,
+                refund.Reason.ToString(),
+                refund.IdempotencyKey,
+                refund.GatewayReference,
+                refund.RestockedUnits))];
+    }
+
+    /// <summary>What the orders table itself says about the money and the status.</summary>
+    public async Task<OrderMoney> MoneyForAsync(string orderNumber)
+    {
+        await using var db = _fixture.CreateContext();
+
+        var order = await db.Orders
+            .IgnoreQueryFilters()
+            .AsNoTracking()
+            .SingleAsync(entity => entity.OrderNumber == orderNumber);
+
+        return new OrderMoney(
+            order.Status.ToString(),
+            order.Captured.Amount,
+            order.Refunded.Amount,
+            order.PaymentReference);
+    }
+
+    /// <summary>
+    /// Walks a paid order to Shipped the way the timeline worker does: the aggregate's own
+    /// transitions, and the same ledger move — reserved and on-hand both fall when the parcel goes.
+    /// Building the state with an UPDATE would let a test assert against a row the application
+    /// could never have produced.
+    /// </summary>
+    public async Task ShipAsync(string orderNumber)
+    {
+        await using var db = _fixture.CreateContext();
+
+        var order = await db.Orders
+            .IgnoreQueryFilters()
+            .SingleAsync(entity => entity.OrderNumber == orderNumber);
+
+        var reservations = await db.StockReservations
+            .IgnoreQueryFilters()
+            .Where(entity => entity.OrderId == order.Id && entity.Status != ReservationStatus.Released)
+            .ToListAsync();
+
+        foreach (var reservation in reservations)
+        {
+            var item = await db.StockItems
+                .IgnoreQueryFilters()
+                .SingleAsync(entity => entity.VariantId == reservation.VariantId);
+
+            item.Ship(reservation.Quantity);
+        }
+
+        order.MarkPacked();
+        order.MarkShipped();
+
+        await db.SaveChangesAsync();
+    }
+
     // -------------------------------------------------------------------------------------------
     // In front of the counter.
     // -------------------------------------------------------------------------------------------
@@ -258,6 +337,21 @@ internal sealed record OrderRow(
 /// <summary>One stock reservation as the database holds it.</summary>
 internal sealed record ReservationRow(Guid OrderId, int Quantity, string Status);
 
+/// <summary>One refund as the ledger table holds it.</summary>
+internal sealed record RefundRow(
+    long Amount,
+    string Reason,
+    string IdempotencyKey,
+    string GatewayReference,
+    int RestockedUnits);
+
+/// <summary>What the orders row itself says about the money, with no endpoint in between.</summary>
+internal sealed record OrderMoney(string Status, long Captured, long Refunded, string? PaymentReference)
+{
+    /// <summary>Still owed to the shopper.</summary>
+    public long Outstanding => Captured - Refunded;
+}
+
 /// <summary>
 /// One visitor with one cookie jar. Everything it does is an HTTP call a storefront would make.
 /// </summary>
@@ -319,6 +413,56 @@ internal sealed class Shopper(HttpClient client)
 
         return await Client.SendAsync(request);
     }
+
+    /// <summary>
+    /// Asks for money back. Omitting <paramref name="amount"/> means the whole outstanding balance,
+    /// which is what a "refund this order" button sends.
+    /// </summary>
+    /// <param name="orderNumber">The order to refund.</param>
+    /// <param name="idempotencyKey">Sent in the conventional header, as a client library would.</param>
+    /// <param name="amount">Minor units, or null for everything still outstanding.</param>
+    /// <param name="scenarioHint">
+    /// Passed through to the gateway. <c>refund-refused</c> makes the simulator say no, which is
+    /// the only way to exercise the ordering the handler is built around.
+    /// </param>
+    public async Task<HttpResponseMessage> RefundAsync(
+        string orderNumber,
+        string idempotencyKey,
+        long? amount = null,
+        string? scenarioHint = null)
+    {
+        using var request = new HttpRequestMessage(HttpMethod.Post, $"/api/orders/{orderNumber}/refunds")
+        {
+            Content = JsonContent.Create(new { amount, scenarioHint }),
+        };
+
+        request.Headers.Add("Idempotency-Key", idempotencyKey);
+
+        return await Client.SendAsync(request);
+    }
+
+    /// <summary>Cancels the order, returning anything it has already taken.</summary>
+    public async Task<HttpResponseMessage> CancelAsync(
+        string orderNumber,
+        string idempotencyKey,
+        string? scenarioHint = null)
+    {
+        using var request = new HttpRequestMessage(HttpMethod.Post, $"/api/orders/{orderNumber}/cancellation")
+        {
+            Content = JsonContent.Create(new { scenarioHint }),
+        };
+
+        request.Headers.Add("Idempotency-Key", idempotencyKey);
+
+        return await Client.SendAsync(request);
+    }
+
+    /// <summary>Reads an order back, optionally with the signed retrieval token instead of a session.</summary>
+    public async Task<HttpResponseMessage> ReadOrderAsync(string orderNumber, string? token = null) =>
+        await Client.GetAsync(
+            token is null
+                ? $"/api/orders/{orderNumber}"
+                : $"/api/orders/{orderNumber}?token={Uri.EscapeDataString(token)}");
 }
 
 /// <summary>
@@ -355,6 +499,26 @@ internal sealed record OrderLineView(Guid VariantId, string Sku, int Quantity, M
 
 /// <summary>Minor units plus the string the storefront renders.</summary>
 internal sealed record MoneyView(long Amount, string Currency, string Display);
+
+/// <summary>What a refund or cancellation answered.</summary>
+internal sealed record RefundView(
+    string OrderNumber,
+    string Status,
+    MoneyView Captured,
+    MoneyView Refunded,
+    MoneyView RefundableRemaining,
+    bool FullyRefunded,
+    int RestockedUnits,
+    bool Replayed,
+    IReadOnlyList<RefundEntryView> Refunds);
+
+/// <summary>One entry of the refund ledger, as the API renders it.</summary>
+internal sealed record RefundEntryView(
+    MoneyView Amount,
+    string Reason,
+    string GatewayReference,
+    int RestockedUnits,
+    DateTimeOffset RefundedAt);
 
 /// <summary>What the gateway answered, as reported once on the checkout response.</summary>
 internal sealed record PaymentView(
@@ -396,6 +560,11 @@ internal static class ResponseReader
     public static async Task<OrderView> OrderAsync(HttpResponseMessage response) =>
         await response.Content.ReadFromJsonAsync<OrderView>()
         ?? throw new InvalidOperationException("The checkout endpoint answered with a null JSON body.");
+
+    /// <summary>The refund outcome on a 200.</summary>
+    public static async Task<RefundView> RefundAsync(HttpResponseMessage response) =>
+        await response.Content.ReadFromJsonAsync<RefundView>()
+        ?? throw new InvalidOperationException("The refund endpoint answered with a null JSON body.");
 
     /// <summary>The problem document on a 4xx.</summary>
     public static async Task<ProblemView> ProblemAsync(HttpResponseMessage response) =>

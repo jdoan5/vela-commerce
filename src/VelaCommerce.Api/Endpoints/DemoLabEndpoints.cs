@@ -390,9 +390,10 @@ public static partial class DemoLabEndpoints
                     "Every checkout below asks the simulated gateway for the Succeed scenario by "
                     + "name - you can see the hint in each request body. Without it the simulator "
                     + "would read the trailing cents of the order total and refuse or defer about "
-                    + "one checkout in twenty, which would make a demonstration about stock look "
-                    + "like one about payments. The hint changes which answer the gateway gives; it "
-                    + "changes nothing about how stock is reserved, which is what is on trial here.");
+                    + "one checkout in twenty, which would make this look like a demonstration "
+                    + "about payments whatever it is actually about. The hint decides which answer "
+                    + "the gateway gives to a checkout; it changes nothing about the invariant on "
+                    + $"trial here, which is: {scenario.Invariant}");
             }
 
             outcome = await ExecuteAsync(run, scenario, participants);
@@ -496,6 +497,7 @@ public static partial class DemoLabEndpoints
             DemoLabScenarioCatalog.SettlementReplay => RunSettlementReplayAsync(run),
             DemoLabScenarioCatalog.SettlementRace => RunSettlementRaceAsync(run),
             DemoLabScenarioCatalog.PaymentScenarios => RunPaymentScenariosAsync(run),
+            DemoLabScenarioCatalog.RefundRace => RunRefundRaceAsync(run, scenario, participants),
 
             // Unreachable: the id came from TryFind against this same catalogue. Present so that
             // adding a descriptor without adding a runner fails loudly here rather than silently
@@ -503,6 +505,150 @@ public static partial class DemoLabEndpoints
             _ => throw new InvalidOperationException(
                 $"Scenario '{scenario.Id}' is in the catalogue but has no runner."),
         };
+
+    // ---------------------------------------------------------------------------------------
+    // Scenario: twelve refunds, one balance.
+    // ---------------------------------------------------------------------------------------
+
+    /// <summary>
+    /// One paid order, and a crowd all asking for the whole balance back at once.
+    /// <para>
+    /// <b>Why this is not the same demonstration as double-submit.</b> That one is defended by a
+    /// unique index, and the losing insert simply loses. Here every request carries its OWN key, so
+    /// the index has nothing to say: twelve genuinely different refunds of one order are being
+    /// asked for, and what stops eleven of them is the row lock the handler takes before it reads
+    /// the remaining balance.
+    /// </para>
+    /// <para>
+    /// <b>And the database cannot catch it.</b> <c>ck_orders_refund_within_capture</c> compares
+    /// refunded against captured, and twelve concurrent handlers that each read a remaining balance
+    /// of the full amount would each write the SAME absolute figure. The column would end up
+    /// exactly right while twelve refunds had left the building - which is why the verdict below
+    /// counts ledger rows and accepted responses rather than trusting the total.
+    /// </para>
+    /// </summary>
+    private static async Task<LabOutcome> RunRefundRaceAsync(
+        LabRun run,
+        DemoLabScenarioDescriptor scenario,
+        int? requested)
+    {
+        var chronometer = run.Fixture.Variants[0];
+        var refundCount = run.Clamp(requested ?? scenario.Participants);
+
+        if (refundCount != scenario.Participants)
+        {
+            run.Caveat(
+                $"This run raced {refundCount} refunds, not the {scenario.Participants} the claim "
+                + "names. The invariant is the same either way; fewer racers simply make an "
+                + "unguarded handler less likely to be caught in the act.");
+        }
+
+        var shopper = await run.NewShopperAsync();
+        await run.SendAsync(run.AddToCart(shopper, chronometer.VariantId, 1));
+
+        var placed = await run.SendAsync(run.Checkout(shopper, $"lab-{run.RunId}-buy"));
+
+        run.Record(
+            "One shopper buys one unit, and the gateway takes the money",
+            "201 and Paid. The order now records the gateway's reference for the payment, which is "
+            + "what a refund is issued against - an order that captured money it cannot name is an "
+            + "order nobody could ever refund.",
+            placed);
+
+        var orderNumber = OrderNumberOf(placed);
+
+        if (orderNumber is null)
+        {
+            return new LabOutcome(
+                "The checkout did not return an order number, so there was nothing to refund.",
+                [Check("The fixture order was placed", "201 with an order number", "no order number", false)]);
+        }
+
+        run.Note(
+            $"{refundCount} refunds of the whole balance, released together, each with its own key",
+            "None of them names an amount - every one asks for whatever is left. The keys are all "
+            + "different on purpose, so idempotency cannot be what saves this: these are twelve "
+            + "genuinely distinct refunds of one order, and only a lock can stop eleven of them. "
+            + "The handler takes SELECT ... FOR UPDATE on the order row and holds it across the "
+            + "gateway call, so the refunds queue rather than all reading a full balance at once.");
+
+        var attempts = await LabRun.AllAtOnceAsync(
+            refundCount,
+            index => run.SendAsync(run.Refund(shopper, orderNumber, $"lab-{run.RunId}-refund-{index:00}")));
+
+        var accepted = attempts.Count(exchange => exchange.StatusCode == StatusCodes.Status200OK);
+        var refused = attempts.Count(exchange => exchange.StatusCode == StatusCodes.Status409Conflict);
+
+        var winner = attempts.FirstOrDefault(exchange => exchange.StatusCode == StatusCodes.Status200OK);
+        var loser = attempts.FirstOrDefault(exchange => exchange.StatusCode == StatusCodes.Status409Conflict);
+
+        if (winner is not null)
+        {
+            run.Record(
+                "The one that moved the money",
+                "200, and the ledger entry it created. The row was written only after the gateway "
+                + "confirmed the refund - the reverse order would let a refusal leave behind a line "
+                + "telling the shopper their money was on the way.",
+                winner,
+                concurrency: refundCount);
+        }
+
+        if (loser is not null)
+        {
+            run.Record(
+                $"One of the {refused} that were refused",
+                "409, naming what is left rather than clamping the request. Silently refunding less "
+                + "than was asked for is how somebody ends up believing they were made whole when "
+                + "they were not.",
+                loser,
+                concurrency: refundCount);
+        }
+
+        var evidence = await run.EvidenceAsync();
+        var order = evidence.Orders.FirstOrDefault(
+            entity => string.Equals(entity.OrderNumber, orderNumber, StringComparison.Ordinal));
+
+        var ledgerRows = await run.RefundLedgerCountAsync(orderNumber);
+
+        return new LabOutcome(
+            "From the refunds table rather than from the twelve status codes, because the order's "
+            + "own refunded_amount cannot tell the difference: twelve handlers that each read a "
+            + "full remaining balance would each write the same figure into it, leaving a column "
+            + "that looks perfect above a ledger with twelve rows in it. The row count is the "
+            + "honest witness.",
+            [
+                Check(
+                    "Refunds accepted",
+                    "1",
+                    accepted.ToString(CultureInfo.InvariantCulture),
+                    accepted == 1),
+                Check(
+                    "Refunds refused",
+                    $"{refundCount - 1} - every request after the first found nothing left",
+                    refused.ToString(CultureInfo.InvariantCulture),
+                    refused == refundCount - 1),
+                Check(
+                    "Rows on the refund ledger",
+                    "1 - one row per movement of money",
+                    ledgerRows.ToString(CultureInfo.InvariantCulture),
+                    ledgerRows == 1),
+                Check(
+                    "Refunded equals captured, and no more",
+                    order is null ? "the order was readable" : $"{order.Captured.Display}",
+                    order is null ? "(the order could not be read)" : $"{order.Refunded.Display}",
+                    order is not null && order.Refunded.Amount == order.Captured.Amount),
+                Check(
+                    "Nobody was shown a server error",
+                    "0 responses of 5xx",
+                    attempts.Count(exchange => exchange.StatusCode >= 500).ToString(CultureInfo.InvariantCulture),
+                    attempts.All(exchange => exchange.StatusCode < 500)),
+                Check(
+                    "The order kept the status its fulfilment reached",
+                    "Paid - a refund moves money, not goods",
+                    order?.Status ?? "(unreadable)",
+                    order is not null && string.Equals(order.Status, nameof(OrderStatus.Paid), StringComparison.Ordinal)),
+            ]);
+    }
 
     /// <summary>How much stock each scenario needs, and what to call it.</summary>
     private static IReadOnlyList<(string Name, int OnHand)> BlueprintFor(DemoLabScenarioDescriptor scenario) =>
@@ -516,6 +662,7 @@ public static partial class DemoLabEndpoints
             DemoLabScenarioCatalog.SettlementReplay => [("Anchor lantern", 3)],
             DemoLabScenarioCatalog.SettlementRace => [("Bronze sextant", 2)],
             DemoLabScenarioCatalog.PaymentScenarios => [("Ship's kettle", 6)],
+            DemoLabScenarioCatalog.RefundRace => [("Ship's chronometer", 1)],
             _ => [("Fixture", 1)],
         };
 
@@ -2276,6 +2423,27 @@ public static partial class DemoLabEndpoints
                 Headers: [new DemoLabHeader("Idempotency-Key", idempotencyKey)]);
 
         /// <summary>
+        /// A refund of the whole outstanding balance, through the endpoint the storefront's Refund
+        /// button calls.
+        /// <para>
+        /// No amount is sent, deliberately. Every racer therefore asks for "whatever is left", which
+        /// is the request that makes the race meaningful: twelve requests each naming an explicit
+        /// figure could all be within the balance for an innocent reason, while twelve asking for
+        /// the remainder can only all succeed if they all read it before any of them wrote.
+        /// </para>
+        /// </summary>
+        public DemoLabRequest Refund(LabShopper shopper, string orderNumber, string idempotencyKey) =>
+            new(
+                HttpMethod.Post,
+                $"/api/orders/{orderNumber}/refunds",
+                DemoSessionMiddleware.CookieName,
+                shopper.Cookie,
+                JsonSerializer.SerializeToUtf8Bytes(
+                    new RefundRequest(Amount: null, IdempotencyKey: null, ScenarioHint: null),
+                    Wire),
+                Headers: [new DemoLabHeader("Idempotency-Key", idempotencyKey)]);
+
+        /// <summary>
         /// A settlement delivery, exactly as the dispatcher makes it: the stored bytes and the
         /// stored signature header, neither re-serialized nor re-signed.
         /// </summary>
@@ -2466,11 +2634,35 @@ public static partial class DemoLabEndpoints
                     order.Status.ToString(),
                     new MoneyDto(order.Total.Amount, order.Total.Currency),
                     new MoneyDto(order.Captured.Amount, order.Captured.Currency),
+                    new MoneyDto(order.Refunded.Amount, order.Refunded.Currency),
                     order.PlacedAt,
                     order.PaidAt,
                     order.Lines.Sum(line => line.Quantity),
                     "visitor-1",
                     _rowVersions.GetValueOrDefault(orderNumber));
+        }
+
+        /// <summary>
+        /// How many rows the refund ledger holds for one order.
+        /// <para>
+        /// Counted rather than derived from the order's <c>refunded_amount</c>, because that column
+        /// cannot tell an over-refund apart from a correct one: concurrent handlers each writing the
+        /// same absolute figure leave it looking right. One row per movement of money is the fact
+        /// that survives the race.
+        /// </para>
+        /// </summary>
+        public async Task<int> RefundLedgerCountAsync(string orderNumber)
+        {
+            // Filters suppressed by name for the reason the rest of this class documents at length:
+            // these rows belong to a throwaway session, and DemoTenancy fails closed for a caller
+            // with no visitor of its own.
+            var order = await Database.Orders
+                .AsNoTracking()
+                .Include(entity => entity.Refunds)
+                .IgnoreQueryFilters([VelaCommerceDbContext.DemoTenancyFilter])
+                .SingleOrDefaultAsync(entity => entity.OrderNumber == orderNumber, Token);
+
+            return order?.Refunds.Count ?? 0;
         }
 
         /// <summary>
@@ -2522,6 +2714,7 @@ public static partial class DemoLabEndpoints
                     order.Status.ToString(),
                     new MoneyDto(order.Total.Amount, order.Total.Currency),
                     new MoneyDto(order.Captured.Amount, order.Captured.Currency),
+                    new MoneyDto(order.Refunded.Amount, order.Refunded.Currency),
                     order.PlacedAt,
                     order.PaidAt,
                     order.Lines.Sum(line => line.Quantity),

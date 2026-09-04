@@ -18,8 +18,10 @@ namespace VelaCommerce.Domain.Payments;
 /// interface and selected by configuration; nothing above the port changes when it is.
 /// </para>
 /// <para>
-/// One method, on purpose. Refunds, captures and voids are not here yet because nothing calls
-/// them yet, and a port whose members are speculative is a port whose members are wrong.
+/// Two methods, on purpose. Refunding arrived only when a caller needed it; separate captures and
+/// voids still have none, so they are still absent. A port whose members are speculative is a port
+/// whose members are wrong, and the way to keep that true is to add to it under pressure from a
+/// real caller rather than in anticipation of one.
 /// </para>
 /// </summary>
 public interface IPaymentGateway
@@ -44,5 +46,33 @@ public interface IPaymentGateway
     /// </summary>
     Task<PaymentAuthorizationResult> AuthorizeAsync(
         PaymentAuthorizationRequest request,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Returns <see cref="PaymentRefundRequest.Amount"/> of a payment already taken.
+    /// <para>
+    /// Returns a result rather than throwing when the gateway refuses, on the same reasoning as
+    /// <see cref="AuthorizeAsync"/>: a provider declining to refund is a business answer worth
+    /// showing a shopper, while an exception means the gateway could not be reached and the caller
+    /// should retry. The distinction decides whether a ledger row is written, so it cannot be left
+    /// to a catch block that treats both alike.
+    /// </para>
+    /// <para>
+    /// Implementations must be idempotent on
+    /// <see cref="PaymentRefundRequest.IdempotencyKey"/>: calling twice with the same key must move
+    /// the money once and return the same
+    /// <see cref="PaymentRefundResult.GatewayReference"/> both times. Our own unique index stops a
+    /// second ledger row, but it commits after this call returns, so a retry that reaches the
+    /// gateway before that commit is this method's problem to absorb, not the database's.
+    /// </para>
+    /// <para>
+    /// Partial refunds are permitted and repeated refunds accumulate. Keeping the running total
+    /// within what was captured is the caller's job — the order aggregate and a CHECK constraint
+    /// both hold that line — because a gateway cannot know what other refunds this system has
+    /// already recorded against the same payment.
+    /// </para>
+    /// </summary>
+    Task<PaymentRefundResult> RefundAsync(
+        PaymentRefundRequest request,
         CancellationToken cancellationToken = default);
 }

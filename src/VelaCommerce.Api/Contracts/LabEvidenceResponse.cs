@@ -28,6 +28,7 @@ public sealed record LabEvidenceResponse(
 /// <param name="Status">Where the state machine left it.</param>
 /// <param name="Total">What was owed.</param>
 /// <param name="Captured">What was actually taken. The number a double-charge would move.</param>
+/// <param name="Refunded">What has gone back. The number a double-refund would move.</param>
 /// <param name="PlacedAt">When it was created.</param>
 /// <param name="PaidAt">When it was paid, if it was.</param>
 /// <param name="Quantity">Units across all lines.</param>
@@ -46,6 +47,7 @@ public sealed record LabOrderResponse(
     string Status,
     MoneyDto Total,
     MoneyDto Captured,
+    MoneyDto Refunded,
     DateTimeOffset PlacedAt,
     DateTimeOffset? PaidAt,
     int Quantity,

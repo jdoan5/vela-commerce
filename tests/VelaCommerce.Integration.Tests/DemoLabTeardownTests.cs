@@ -70,7 +70,7 @@ public sealed class DemoLabTeardownTests(PostgresFixture fixture)
         db.Context.Carts.Add(cart);
 
         var order = Order.FromCart(cart, "VELA-REAL001", "real-key-1", Address, Money.Zero(), Money.Zero(), PlacedAt);
-        order.MarkPaid(order.Total, PlacedAt.AddSeconds(1));
+        order.MarkPaid(order.Total, "pay_teardown_fixture", PlacedAt.AddSeconds(1));
         db.Context.Orders.Add(order);
         await db.Context.SaveChangesAsync();
 

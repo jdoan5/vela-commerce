@@ -87,6 +87,61 @@ public sealed class SimulatedPaymentGateway : IPaymentGateway, IPaymentSimulator
         return Task.FromResult(Simulate(request).Authorization);
     }
 
+    /// <summary>
+    /// The hint that makes the simulator refuse a refund.
+    /// <para>
+    /// A refusable refund is not decoration. It is the only way to exercise the ordering the refund
+    /// handler is built around — gateway first, ledger second — because a refund that always
+    /// succeeds cannot tell a correct handler from one that writes the row first and would have
+    /// claimed money it never returned.
+    /// </para>
+    /// </summary>
+    public const string RefuseRefundHint = "refund-refused";
+
+    /// <inheritdoc />
+    public Task<PaymentRefundResult> RefundAsync(
+        PaymentRefundRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+
+        _options.AssertUsable(_isDevelopment);
+
+        if (cancellationToken.IsCancellationRequested)
+            return Task.FromCanceled<PaymentRefundResult>(cancellationToken);
+
+        // Derived from the payment being reversed and this refund's own key, and from nothing else.
+        // Excluding the amount is what implements the idempotency promise on the port: a retried
+        // refund of a different amount under the same key is the same refund, which is exactly the
+        // confusion a caller retrying after a timeout would otherwise create.
+        var gatewayReference = Token(_options.GatewayReferencePrefix + "rf", request.AuthorizationReference, request.IdempotencyKey);
+
+        if (string.Equals(request.ScenarioHint, RefuseRefundHint, StringComparison.OrdinalIgnoreCase))
+        {
+            _logger.LogInformation(
+                "Simulated refund REFUSED for order {OrderReference} as {GatewayReference} ({Amount}).",
+                request.OrderReference,
+                gatewayReference,
+                request.Amount);
+
+            return Task.FromResult(PaymentRefundResult.Failed(
+                gatewayReference,
+                request.Amount,
+                "The acquirer refused the refund. The original payment may be too old to reverse."));
+        }
+
+        _logger.LogInformation(
+            "Simulated refund for order {OrderReference} as {GatewayReference} ({Amount}).",
+            request.OrderReference,
+            gatewayReference,
+            request.Amount);
+
+        // No settlement notification follows. A refund here is synchronous and final, which is what
+        // PaymentRefundResult's two outcomes say; inventing an asynchronous refund webhook would add
+        // a delivery path with no receiver and no test.
+        return Task.FromResult(PaymentRefundResult.Succeeded(gatewayReference, request.Amount));
+    }
+
     /// <inheritdoc />
     public SimulatedAuthorization Simulate(PaymentAuthorizationRequest request)
     {

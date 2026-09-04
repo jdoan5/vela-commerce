@@ -32,6 +32,9 @@ public static class DemoLabScenarioCatalog
     private const string PaymentTests =
         "tests/VelaCommerce.Integration.Tests/PaymentSimulatorTests.cs";
 
+    private const string RefundTests =
+        "tests/VelaCommerce.Integration.Tests/RefundTests.cs";
+
     /// <summary>The scenario a page should offer first: the headline claim.</summary>
     public const string Oversell = "oversell";
 
@@ -55,6 +58,9 @@ public static class DemoLabScenarioCatalog
 
     /// <summary>All six simulator scenarios, side by side.</summary>
     public const string PaymentScenarios = "payment-scenarios";
+
+    /// <summary>Many hands reaching for one balance, and it goes back once.</summary>
+    public const string RefundRace = "refund-race";
 
     /// <summary>
     /// The catalogue, in the order a page should show it: the three stock races first, because
@@ -227,6 +233,31 @@ public static class DemoLabScenarioCatalog
                       + "three asynchronous ones are NOT followed to settlement here: their "
                       + "notifications are shown sitting in the outbox with their delivery times. "
                       + "Run settlement-replay or settlement-race to follow one all the way."),
+
+        new(
+            Id: RefundRace,
+            Title: "Twelve refunds of one balance, returned once",
+            Claim: "Twelve requests ask for the same order's whole balance back at the same instant, "
+                   + "each with its own key so idempotency cannot save it. Exactly one refund "
+                   + "happens, eleven are refused, and the ledger holds one row.",
+            Invariant: "refunded never exceeds captured, however many refunds overlap - and a row on "
+                       + "the refund ledger always means money that actually moved.",
+            Mechanism: "SELECT ... FOR UPDATE on the order row, held across the gateway call, so "
+                       + "twelve refunds of one order serialize instead of twelve reading the same "
+                       + "remaining balance and all passing the check. The CHECK constraint cannot "
+                       + "help here and that is the point: each request would write the SAME "
+                       + "absolute refunded_amount, so the column ends up correct while twelve "
+                       + "refunds have left the building. Only the lock is load-bearing. The ledger "
+                       + "row is written after the gateway confirms, never before.",
+            ProvenBy: RefundTests,
+            ProvenByTest: "Twenty_simultaneous_refunds_of_one_balance_return_it_exactly_once",
+            Participants: 12,
+            Units: 1,
+            Creates: "1 throwaway session, 1 cart, 1 order, 1 reservation and 1 refund, against a "
+                     + "private fixture this run creates and destroys.",
+            Fidelity: "Genuine. One real checkout, then twelve real refund requests released "
+                      + "together on one gate against real PostgreSQL, through the same endpoint the "
+                      + "storefront's Refund button calls."),
     ];
 
     /// <summary>

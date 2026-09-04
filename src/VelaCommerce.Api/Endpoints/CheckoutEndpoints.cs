@@ -596,6 +596,7 @@ public static class CheckoutEndpoints
 
                 var order = await db.Orders
                     .Include(entity => entity.Lines)
+                    .Include(entity => entity.Refunds)
                     .FirstOrDefaultAsync(entity => entity.Id == orderId, token);
 
                 if (order is null)
@@ -620,7 +621,7 @@ public static class CheckoutEndpoints
                 {
                     // MarkPaid refuses a capture that does not equal the total to the cent, which is
                     // why the amount comes from the gateway's answer rather than from the order.
-                    order.MarkPaid(authorization.Amount, now);
+                    order.MarkPaid(authorization.Amount, authorization.GatewayReference, now);
 
                     foreach (var reservation in held)
                     {
@@ -773,6 +774,7 @@ public static class CheckoutEndpoints
             order = await db.Orders
                 .AsNoTracking()
                 .Include(entity => entity.Lines)
+                .Include(entity => entity.Refunds)
                 .IgnoreQueryFilters([VelaCommerceDbContext.DemoTenancyFilter])
                 .FirstOrDefaultAsync(entity => entity.Id == tokenOrderId, cancellationToken);
 
@@ -787,6 +789,7 @@ public static class CheckoutEndpoints
         order ??= await db.Orders
             .AsNoTracking()
             .Include(entity => entity.Lines)
+            .Include(entity => entity.Refunds)
             .FirstOrDefaultAsync(entity => entity.OrderNumber == normalized, cancellationToken);
 
         return order is null
@@ -815,6 +818,7 @@ public static class CheckoutEndpoints
         db.Orders
             .AsNoTracking()
             .Include(entity => entity.Lines)
+            .Include(entity => entity.Refunds)
             .FirstOrDefaultAsync(entity => entity.IdempotencyKey == idempotencyKey, cancellationToken);
 
     /// <summary>
@@ -1066,7 +1070,16 @@ public static class CheckoutEndpoints
                 order.ShippingAddress.CountryCode),
             token,
             $"/api/orders/{order.OrderNumber}?token={Uri.EscapeDataString(token)}",
-            payment);
+            payment,
+            [.. order.Refunds
+                .OrderBy(refund => refund.RefundedAt)
+                .ThenBy(refund => refund.Id)
+                .Select(refund => new RefundLedgerEntry(
+                    Amount(refund.Amount),
+                    refund.Reason.ToString(),
+                    refund.GatewayReference,
+                    refund.RestockedUnits,
+                    refund.RefundedAt))]);
     }
 
     private static MoneyDto Amount(Money money) => new(money.Amount, money.Currency);

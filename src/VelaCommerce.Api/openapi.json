@@ -465,6 +465,182 @@
         }
       }
     },
+    "/api/orders/{orderNumber}/refunds": {
+      "post": {
+        "tags": [
+          "Refunds"
+        ],
+        "summary": "Return some or all of what an order captured",
+        "description": "Refunds against the payment the order was settled by, not against the order, which is why an unpaid order has nothing to refund. Omit the amount for the whole outstanding balance. The idempotency key is required and is what makes a retry safe: the same key returns the first refund with replayed=true and issues no second one. 409 means the order is in a status that cannot be refunded, or the amount is more than is left, or the gateway refused - in every case nothing was recorded and no money moved. 502 means the gateway could not be reached at all, which is worth retrying with the same key. Unlike GET /api/orders/{orderNumber}, the signed retrieval token does NOT open this endpoint: a link that lets somebody read a receipt must not also let them move the money.",
+        "operationId": "RefundOrder",
+        "parameters": [
+          {
+            "name": "orderNumber",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/RefundRequest"
+                  }
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RefundResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "Bad Gateway",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/orders/{orderNumber}/cancellation": {
+      "post": {
+        "tags": [
+          "Refunds"
+        ],
+        "summary": "Cancel an order, returning everything it has taken",
+        "description": "Cancels and refunds as one act, so the two can never come apart. A Pending order captured nothing and is simply cancelled; a Paid order has its full outstanding balance returned first, and only then is cancelled. Either way the units it was holding go back on the shelf. Packed and Shipped orders are refused with 409 because the parcel has moved - refund those with POST /api/orders/{orderNumber}/refunds instead, which leaves the fulfilment status telling the truth about where the goods are. Cancelling an already-cancelled order replays rather than failing.",
+        "operationId": "CancelOrder",
+        "parameters": [
+          {
+            "name": "orderNumber",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/CancelOrderRequest"
+                  }
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RefundResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "Bad Gateway",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/payments/webhook": {
       "post": {
         "tags": [
@@ -702,6 +878,27 @@
   },
   "components": {
     "schemas": {
+      "CancelOrderRequest": {
+        "required": [
+          "idempotencyKey",
+          "scenarioHint"
+        ],
+        "type": "object",
+        "properties": {
+          "idempotencyKey": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "scenarioHint": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        }
+      },
       "CartAddItemRequest": {
         "required": [
           "variantId",
@@ -1003,7 +1200,8 @@
           "shippingAddress",
           "retrievalToken",
           "retrievalPath",
-          "payment"
+          "payment",
+          "refunds"
         ],
         "type": "object",
         "properties": {
@@ -1070,6 +1268,12 @@
               }
             ]
           },
+          "refunds": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/RefundLedgerEntry"
+            }
+          },
           "totalQuantity": {
             "pattern": "^-?(?:0|[1-9]\\d*)$",
             "type": [
@@ -1077,6 +1281,9 @@
               "string"
             ],
             "format": "int32"
+          },
+          "refundableRemaining": {
+            "$ref": "#/components/schemas/MoneyDto"
           }
         }
       },
@@ -1522,6 +1729,7 @@
           "status",
           "total",
           "captured",
+          "refunded",
           "placedAt",
           "paidAt",
           "quantity",
@@ -1540,6 +1748,9 @@
             "$ref": "#/components/schemas/MoneyDto"
           },
           "captured": {
+            "$ref": "#/components/schemas/MoneyDto"
+          },
+          "refunded": {
             "$ref": "#/components/schemas/MoneyDto"
           },
           "placedAt": {
@@ -2404,6 +2615,121 @@
             "type": "boolean"
           }
         }
+      },
+      "RefundLedgerEntry": {
+        "required": [
+          "amount",
+          "reason",
+          "gatewayReference",
+          "restockedUnits",
+          "refundedAt"
+        ],
+        "type": "object",
+        "properties": {
+          "amount": {
+            "$ref": "#/components/schemas/MoneyDto"
+          },
+          "reason": {
+            "type": "string"
+          },
+          "gatewayReference": {
+            "type": "string"
+          },
+          "restockedUnits": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "refundedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "RefundRequest": {
+        "required": [
+          "amount",
+          "idempotencyKey",
+          "scenarioHint"
+        ],
+        "type": "object",
+        "properties": {
+          "amount": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
+            "format": "int64"
+          },
+          "idempotencyKey": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "scenarioHint": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        }
+      },
+      "RefundResponse": {
+        "required": [
+          "orderNumber",
+          "status",
+          "captured",
+          "refunded",
+          "refundableRemaining",
+          "fullyRefunded",
+          "restockedUnits",
+          "replayed",
+          "refunds"
+        ],
+        "type": "object",
+        "properties": {
+          "orderNumber": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "captured": {
+            "$ref": "#/components/schemas/MoneyDto"
+          },
+          "refunded": {
+            "$ref": "#/components/schemas/MoneyDto"
+          },
+          "refundableRemaining": {
+            "$ref": "#/components/schemas/MoneyDto"
+          },
+          "fullyRefunded": {
+            "type": "boolean"
+          },
+          "restockedUnits": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "replayed": {
+            "type": "boolean"
+          },
+          "refunds": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/RefundLedgerEntry"
+            }
+          }
+        }
       }
     }
   },
@@ -2416,6 +2742,9 @@
     },
     {
       "name": "Checkout"
+    },
+    {
+      "name": "Refunds"
     },
     {
       "name": "Payments"

@@ -41,6 +41,11 @@ namespace VelaCommerce.Api.Contracts;
 /// leaves this null: the durable facts — status, captured amount, paid-at — are on the order
 /// itself, and the gateway's answer is not persisted anywhere for a second read to find.
 /// </param>
+/// <param name="Refunds">
+/// Every refund against this order, oldest first, and empty for the overwhelming majority of
+/// orders. Carried here rather than behind a second request because a receipt that shows a total
+/// captured without showing what went back is a receipt that is wrong.
+/// </param>
 public sealed record CheckoutOrderResponse(
     string OrderNumber,
     string Status,
@@ -57,10 +62,18 @@ public sealed record CheckoutOrderResponse(
     CheckoutAddressResponse ShippingAddress,
     string RetrievalToken,
     string RetrievalPath,
-    CheckoutPaymentResponse? Payment)
+    CheckoutPaymentResponse? Payment,
+    IReadOnlyList<RefundLedgerEntry> Refunds)
 {
     /// <summary>Units across all lines, for a summary line that should not require the client to sum.</summary>
     public int TotalQuantity => Lines.Sum(line => line.Quantity);
+
+    /// <summary>
+    /// What is still owed to the shopper: captured minus refunded. Derived here so a client cannot
+    /// compute it differently — a receipt that disagrees with the ledger by a cent is a support
+    /// ticket.
+    /// </summary>
+    public MoneyDto RefundableRemaining => new(Captured.Amount - Refunded.Amount, Captured.Currency);
 }
 
 /// <summary>

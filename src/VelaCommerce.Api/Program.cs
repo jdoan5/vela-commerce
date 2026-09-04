@@ -182,6 +182,12 @@ if (app.Environment.IsDevelopment())
 app.MapCatalogEndpoints();
 app.MapCartEndpoints();
 app.MapCheckoutEndpoints();
+
+// Refunds and cancellation. Mapped as its own group rather than onto the checkout's, because the
+// two differ on who may call them: a checkout response's signed retrieval token opens the order for
+// reading, and deliberately does not open these - a forwarded receipt link must not carry the power
+// to move the money it describes.
+app.MapRefundEndpoints();
 app.MapWebhookEndpoints();
 app.MapDemoEndpoints();
 app.MapDemoLabEndpoints();
