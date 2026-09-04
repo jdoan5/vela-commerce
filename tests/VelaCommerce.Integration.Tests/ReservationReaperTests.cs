@@ -673,6 +673,69 @@ public sealed class ReservationReaperTests(PostgresFixture fixture)
     }
 
     /// <summary>
+    /// Cancelling an order releases EVERY line it holds, not only the lines whose window happened
+    /// to have closed.
+    /// <para>
+    /// The inner query deliberately drops the <c>expires_at</c> filter that selects the order in the
+    /// first place. Once the order is being cancelled its lines are not coming back, so a line left
+    /// Held would strand those units on a shelf nobody can ever sell from — a Cancelled order
+    /// holding stock, with no owner anywhere in the system to release it.
+    /// </para>
+    /// <para>
+    /// A real checkout stamps every line with the same expiry, so this state is not one the shop
+    /// produces today. It is asserted anyway because the code deliberately handles it, and because
+    /// the old shape reached it by a route that no longer exists: the batch limit used to count
+    /// reservations, so one order's lines could split across two sweeps and the first could cancel
+    /// the order while the second still held stock for it.
+    /// </para>
+    /// </summary>
+    [Fact]
+    public async Task Cancelling_an_order_releases_every_line_it_holds_not_only_the_lapsed_ones()
+    {
+        await using var db = fixture.CreateContext();
+
+        var lapsedVariant = await StockAsync(db, onHand: 5);
+        var freshVariant = await StockAsync(db, onHand: 5);
+
+        var (order, lapsedReservation) = await ReserveAsync(db, lapsedVariant, 2, Now.AddMinutes(-5));
+
+        // A second line on the SAME order whose window has not closed.
+        var freshReservation = new StockReservation(freshVariant, order.Id, 3, Now.AddMinutes(30));
+        db.StockReservations.Add(freshReservation);
+
+        Assert.Equal(1, await db.Database.ExecuteSqlAsync(
+            $"""
+             UPDATE stock_items
+             SET reserved = reserved + 3
+             WHERE variant_id = {freshVariant}
+               AND deleted_at IS NULL
+               AND on_hand - reserved >= 3
+             """));
+
+        await db.SaveChangesAsync();
+
+        Assert.Equal((5, 2), await LedgerAsync(lapsedVariant));
+        Assert.Equal((5, 3), await LedgerAsync(freshVariant));
+
+        var (reaper, _, provider) = NewReaper();
+        await using var _ = provider;
+
+        // Five units back, not two: the lapsed line is what made the order a candidate, but the
+        // cancellation takes the whole order with it.
+        Assert.Equal(5, await reaper.SweepAsync(CancellationToken.None));
+
+        Assert.Equal((5, 0), await LedgerAsync(lapsedVariant));
+        Assert.Equal((5, 0), await LedgerAsync(freshVariant));
+
+        var (status, lapsedStatus) = await StateAsync(order.Id, lapsedReservation.Id);
+        var (_, freshStatus) = await StateAsync(order.Id, freshReservation.Id);
+
+        Assert.Equal(OrderStatus.Cancelled, status);
+        Assert.Equal(ReservationStatus.Released, lapsedStatus);
+        Assert.Equal(ReservationStatus.Released, freshStatus);
+    }
+
+    /// <summary>
     /// The reaper is only worth anything if the host actually starts it.
     /// <para>
     /// Every other test in this file drives <c>SweepAsync</c> directly, which is the right way to
