@@ -173,8 +173,16 @@ public sealed class ReservationReaper(
                         reservation.Quantity,
                         reservation.VariantId);
                 }
+                else
+                {
+                    // Counted only when the ledger actually moved. This method's contract is "how
+                    // many units it reclaimed", and the branch above is the case where it reclaimed
+                    // none — the reservation is still marked Released so it stops being swept, but
+                    // adding its quantity here would report units that never went back on any shelf,
+                    // in the log line an operator reads while working out what a sweep did.
+                    reclaimed += reservation.Quantity;
+                }
 
-                reclaimed += reservation.Quantity;
                 releasedIds.Add(reservation.OrderId);
             }
 
