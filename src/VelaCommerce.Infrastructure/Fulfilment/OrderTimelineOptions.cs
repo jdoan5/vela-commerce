@@ -146,10 +146,12 @@ public sealed record OrderTimelineOptions
     /// Not an error, so not part of <see cref="Validate"/> — a maintainer who deliberately slows
     /// the demo to realistic durations is doing something reasonable. It is worth saying out loud
     /// once at startup, though, because of an interaction that is invisible from here: an order
-    /// settled by webhook may still be carrying <c>Held</c> reservations, and the reaper releases
-    /// every <c>Held</c> reservation whose window has closed regardless of what its order is doing.
-    /// Ship after that point and the units are no longer on the ledger to remove — the guarded
-    /// UPDATE declines to move them, which is safe but leaves on-hand overstated.
+    /// settled by webhook may still be carrying <c>Held</c> reservations, and those reservations
+    /// are now invisible to the reaper — it only sweeps orders still Pending — so nothing releases
+    /// them and nothing ever will. Ship after that point and the ledger still holds units for a
+    /// parcel that has gone. The reaper used to release them regardless of the order's status,
+    /// which was worse: it handed a paid order's stock back to the pool. Either way the fix is the
+    /// same and it is upstream — confirm reservations in the transaction that pays the order.
     /// </para>
     /// </summary>
     public bool OutlastsTheReservationWindow =>

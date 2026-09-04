@@ -607,11 +607,15 @@ public static class WebhookEndpoints
                     // CONFIRMING THE RESERVATIONS IS NOT OPTIONAL, AND FORGETTING IT OVERSELLS.
                     //
                     // Checkout leaves them Held when the gateway defers, because nothing is
-                    // promised yet. ReservationReaper releases Held reservations once their window
-                    // closes and only cancels orders still Pending - so a paid order whose
-                    // reservations were left Held would have its units handed back to the pool
-                    // fifteen minutes later while the order stayed Paid. That is an oversell with
-                    // no error anywhere. The units stay reserved rather than being deducted:
+                    // promised yet. Confirming here is still mandatory, though the reason changed
+                    // when the reaper was reordered to sweep by order rather than by reservation.
+                    // It used to release any Held reservation whose window had closed whatever its
+                    // order was doing, so a paid order that skipped this line had its units handed
+                    // back to the pool fifteen minutes later - an oversell with no error anywhere.
+                    // Now the reaper ignores an order that is not Pending, so the failure is the
+                    // mirror image: nothing releases those reservations and nothing ever will, and
+                    // the ledger holds units for goods that ship. Same line, same necessity,
+                    // opposite symptom. The units stay reserved rather than being deducted:
                     // on_hand only drops when the parcel ships.
                     var held = await db.StockReservations
                         .Where(entity => entity.OrderId == order.Id

@@ -20,6 +20,14 @@ namespace VelaCommerce.Infrastructure.Checkout;
 /// One abandoned checkout of the last unit would take a product off sale permanently.
 /// </para>
 /// <para>
+/// <b>It works order by order, not reservation by reservation, and the order's status is the
+/// authority.</b> A sweep cancels an order that is still Pending and releases every line that
+/// order holds; it does not touch an order that has moved on. That distinction matters in one
+/// direction in particular: a Paid order whose settlement failed to confirm its reservations
+/// keeps them, because somebody bought those units, and handing them back would be an oversell.
+/// The sweep used to release them.
+/// </para>
+/// <para>
 /// It releases with the same guarded statement the checkout uses in reverse, so a double
 /// release can never drive <c>reserved</c> below zero and trip the check constraint. Reads run
 /// with the tenancy filter ignored on purpose: this is a background job with no visitor, and
