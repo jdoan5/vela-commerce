@@ -10,7 +10,7 @@ namespace VelaCommerce.Infrastructure.Payments;
 /// That default is the point of the whole slice: the README promises <c>git clone</c> then
 /// <c>dotnet run</c>, and a required secret would turn that into a support conversation. The
 /// price is that the shipped signing secret is public, which is fine for a simulator whose
-/// "money" is imaginary and fatal for anything else — hence <see cref="UsesDevelopmentSecret"/>
+/// "money" is imaginary and fatal for anything else — hence <see cref="UsesPubliclyKnownSecret"/>
 /// and the startup warning it drives.
 /// </para>
 /// </summary>
@@ -30,6 +30,37 @@ public sealed record PaymentSimulatorOptions
     /// </para>
     /// </summary>
     public const string DevelopmentSigningSecret = "vela-development-only-signing-secret-not-for-production";
+
+    /// <summary>
+    /// The placeholder <c>infra/variables.tf</c> applies with, and the reason this list exists at
+    /// all rather than a single comparison.
+    /// <para>
+    /// The deployment design is deliberate: Terraform applies with a placeholder and the real
+    /// secret is set out-of-band with <c>az containerapp secret set</c>, so no live signing key
+    /// ever enters Terraform state. The cost of that design is a window in which the container
+    /// runs on a value that is committed to a public repository — and the guard below, checking
+    /// only <see cref="DevelopmentSigningSecret"/>, was blind to it. A deploy that skipped one
+    /// manual step would have signed real settlement notifications with a key any reader of this
+    /// repository could copy, and nothing would have refused.
+    /// </para>
+    /// <para>
+    /// Duplicating the literal here couples the application to the infrastructure, which is the
+    /// lesser evil by a wide margin: the alternative is a guard whose correctness depends on
+    /// somebody remembering that two files have to agree. An integration test asserts the two
+    /// strings still match.
+    /// </para>
+    /// </summary>
+    public const string TerraformPlaceholderSecret = "PLACEHOLDER-set-with-az-containerapp-secret-set";
+
+    /// <summary>
+    /// Every signing secret published somewhere a stranger can read. Add to this list rather than
+    /// to a comparison: the failure mode this closes is a second public value nobody thought of.
+    /// </summary>
+    private static readonly string[] PubliclyKnownSecrets =
+    [
+        DevelopmentSigningSecret,
+        TerraformPlaceholderSecret,
+    ];
 
     /// <summary>
     /// Shared secret for the HMAC-SHA256 signature on settlement notifications. Never logged:
@@ -78,6 +109,13 @@ public sealed record PaymentSimulatorOptions
         string.Equals(SigningSecret, DevelopmentSigningSecret, StringComparison.Ordinal);
 
     /// <summary>
+    /// True while the signing secret is one that anybody who has read this repository already has.
+    /// This — not <see cref="UsesDevelopmentSecret"/> — is what the money path must refuse on.
+    /// </summary>
+    public bool UsesPubliclyKnownSecret =>
+        Array.Exists(PubliclyKnownSecrets, known => string.Equals(SigningSecret, known, StringComparison.Ordinal));
+
+    /// <summary>
     /// Reads the section, falling back to the development default for anything absent or
     /// unparseable-as-configured. Bound by hand rather than through
     /// <c>Microsoft.Extensions.Options.ConfigurationExtensions</c> so that Infrastructure does not
@@ -120,11 +158,14 @@ public sealed record PaymentSimulatorOptions
     /// </summary>
     public void AssertUsable(bool isDevelopment)
     {
-        if (!isDevelopment && UsesDevelopmentSecret)
+        if (!isDevelopment && UsesPubliclyKnownSecret)
             throw new InvalidOperationException(
-                $"{SectionName}:{nameof(SigningSecret)} is still the committed development default outside Development. "
-                + "That value is public in this repository, so anyone could forge a settlement notification. Supply a "
-                + "real secret through an environment variable or a key vault reference.");
+                $"{SectionName}:{nameof(SigningSecret)} is a value published in this repository "
+                + $"({(UsesDevelopmentSecret ? "the committed development default" : "the Terraform placeholder")}), "
+                + "and the host is not in Development. Anyone who has read the repo could forge a settlement "
+                + "notification and mark an order paid. Set the real secret with `az containerapp secret set` — "
+                + "Terraform deliberately applies with a placeholder so that no live key enters its state, which "
+                + "makes this check the only thing standing between a skipped step and a public signing key.");
     }
 
     public void Validate(bool isDevelopment)
@@ -139,7 +180,7 @@ public sealed record PaymentSimulatorOptions
                 + "than the 32-byte block are the one case where key length genuinely reduces security here; use at "
                 + "least 32 characters.");
 
-        // The committed-default check is deliberately NOT here. It is enforced where it bites —
+        // The publicly-known-secret check is deliberately NOT here. It is enforced where it bites —
         // AssertUsable, called before authorizing a payment or verifying a notification — because
         // startup also happens under the build-time OpenAPI generator, which runs this entry point
         // with no environment set and therefore looks like Production. Refusing to boot there
@@ -185,7 +226,7 @@ public sealed record PaymentSimulatorOptions
         // Private, not protected override: the record is sealed, so the compiler emits the hook as
         // private and an `override` here would not compile.
         builder.Append("SigningSecret = <redacted:")
-            .Append(UsesDevelopmentSecret ? "development-default" : "configured")
+            .Append(UsesDevelopmentSecret ? "development-default" : UsesPubliclyKnownSecret ? "PUBLIC-PLACEHOLDER" : "configured")
             .Append(">, GatewayReferencePrefix = ").Append(GatewayReferencePrefix)
             .Append(", SettlementDelay = ").Append(SettlementDelay)
             .Append(", SignatureTolerance = ").Append(SignatureTolerance)

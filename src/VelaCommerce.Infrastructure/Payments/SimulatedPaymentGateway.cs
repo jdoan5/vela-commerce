@@ -58,12 +58,13 @@ public sealed class SimulatedPaymentGateway : IPaymentGateway, IPaymentSimulator
         _logger = logger;
         _isDevelopment = isDevelopment;
 
-        if (options.UsesDevelopmentSecret)
+        if (options.UsesPubliclyKnownSecret)
         {
-            // The value itself is never logged — only the fact that it is the public one.
+            // The value itself is never logged — only the fact that it is a public one.
             _logger.LogWarning(
-                "The payment simulator is signing with the committed development secret. Anyone who has read the "
-                + "repository can forge a settlement notification. Set {Key} before deploying anywhere real.",
+                "The payment simulator is signing with {Which}, which is published in this repository. Anyone who "
+                + "has read it can forge a settlement notification. Set {Key} before deploying anywhere real.",
+                options.UsesDevelopmentSecret ? "the committed development secret" : "the Terraform placeholder secret",
                 $"{PaymentSimulatorOptions.SectionName}:{nameof(PaymentSimulatorOptions.SigningSecret)}");
         }
     }

@@ -490,6 +490,77 @@ public sealed class PaymentSimulatorTests
     }
 
     /// <summary>
+    /// The hole this closes, and why the obvious guard missed it.
+    /// <para>
+    /// <c>infra/variables.tf</c> applies with a placeholder signing secret on purpose, so that no
+    /// live key ever enters Terraform state; the operator is expected to replace it out-of-band
+    /// with <c>az containerapp secret set</c>. The guard checked one string — the committed
+    /// development default — so the placeholder sailed through it: long enough to pass the length
+    /// check, different enough to pass the equality check, and published in a public repository.
+    /// A deploy that skipped that one manual step would have signed real settlement notifications
+    /// with a key any reader could copy, and nothing in the system would have objected.
+    /// </para>
+    /// </summary>
+    [Fact]
+    public void The_terraform_placeholder_secret_is_refused_outside_development()
+    {
+        var options = Options(PaymentSimulatorOptions.TerraformPlaceholderSecret);
+
+        Assert.False(options.UsesDevelopmentSecret);
+        Assert.True(options.UsesPubliclyKnownSecret);
+
+        // Composing a host is still allowed, for the reason the development-default test gives.
+        options.Validate(isDevelopment: false);
+        options.AssertUsable(isDevelopment: true);
+
+        var refusal = Assert.Throws<InvalidOperationException>(() => options.AssertUsable(isDevelopment: false));
+        Assert.Contains("Terraform placeholder", refusal.Message, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// The application duplicates the placeholder literal from <c>infra/variables.tf</c>, which is
+    /// a coupling accepted deliberately — the alternative is a guard whose correctness depends on
+    /// two files agreeing by memory. This is the test that makes them agree by CI instead. If it
+    /// fails, the Terraform default changed and the guard has stopped covering it.
+    /// </summary>
+    [Fact]
+    public void The_placeholder_the_guard_refuses_is_the_one_terraform_actually_applies()
+    {
+        var variables = File.ReadAllText(RepoFile("infra/variables.tf"));
+
+        var occurrences = variables.Split(
+            $"default     = \"{PaymentSimulatorOptions.TerraformPlaceholderSecret}\"",
+            StringSplitOptions.None).Length - 1;
+
+        Assert.True(
+            occurrences > 0,
+            $"infra/variables.tf no longer defaults any variable to "
+            + $"'{PaymentSimulatorOptions.TerraformPlaceholderSecret}'. Either the placeholder changed - in which "
+            + "case PaymentSimulatorOptions.TerraformPlaceholderSecret must change with it, or the money path will "
+            + "sign with a public value it does not recognise - or the default was removed, in which case delete "
+            + "this test and the constant together.");
+    }
+
+    /// <summary>
+    /// Walks up from the test binary to the repository root. The suite runs from
+    /// <c>bin/Debug/net10.0</c>, and hard-coding a relative depth breaks the moment the target
+    /// framework or configuration changes.
+    /// </summary>
+    private static string RepoFile(string relativePath)
+    {
+        var directory = new DirectoryInfo(AppContext.BaseDirectory);
+
+        while (directory is not null && !File.Exists(Path.Combine(directory.FullName, "VelaCommerce.slnx")))
+        {
+            directory = directory.Parent;
+        }
+
+        Assert.NotNull(directory);
+
+        return Path.Combine(directory.FullName, relativePath);
+    }
+
+    /// <summary>
     /// The two delays are not independent: a notification is signed at authorization and delivered
     /// later, so a delay reaching the tolerance means every deferred settlement arrives already
     /// expired. That looks like a signature vulnerability and is a misconfiguration.
