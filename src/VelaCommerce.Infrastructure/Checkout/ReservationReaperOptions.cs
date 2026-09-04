@@ -38,6 +38,15 @@ public sealed record ReservationReaperOptions
     /// </summary>
     public bool Enabled { get; init; } = true;
 
+    /// <summary>
+    /// How many orders one sweep will take. Bounded so a sweep cannot hold a connection open across
+    /// thousands of rows, and configurable for the same reason <c>OutboxOptions</c> and
+    /// <c>OrderTimelineOptions</c> expose theirs — plus one this worker has of its own: the batch is
+    /// what a starving candidate query would fill, so a test needs to be able to make it small
+    /// enough to observe that.
+    /// </summary>
+    public int BatchSize { get; init; } = 100;
+
     /// <summary>Reads the section, falling back to the default for anything absent.</summary>
     public static ReservationReaperOptions FromConfiguration(IConfiguration configuration)
     {
@@ -46,19 +55,33 @@ public sealed record ReservationReaperOptions
         var section = configuration.GetSection(SectionName);
         var defaults = new ReservationReaperOptions();
 
-        var value = section[nameof(Enabled)];
-
-        if (string.IsNullOrWhiteSpace(value))
-        {
-            return defaults;
-        }
-
         return new ReservationReaperOptions
         {
-            Enabled = bool.TryParse(value, out var parsed)
-                ? parsed
-                : throw new InvalidOperationException(
-                    $"{SectionName}:{nameof(Enabled)} is '{value}', which is not true or false.")
+            Enabled = ReadBoolean(section, nameof(Enabled), defaults.Enabled),
+            BatchSize = ReadInt32(section, nameof(BatchSize), defaults.BatchSize)
         };
+    }
+
+    private static bool ReadBoolean(IConfiguration section, string key, bool fallback)
+    {
+        var value = section[key];
+        if (string.IsNullOrWhiteSpace(value)) return fallback;
+
+        return bool.TryParse(value, out var parsed)
+            ? parsed
+            : throw new InvalidOperationException($"{SectionName}:{key} is '{value}', which is not true or false.");
+    }
+
+    private static int ReadInt32(IConfiguration section, string key, int fallback)
+    {
+        var value = section[key];
+        if (string.IsNullOrWhiteSpace(value)) return fallback;
+
+        if (!int.TryParse(value, out var parsed))
+            throw new InvalidOperationException($"{SectionName}:{key} is '{value}', which is not a whole number.");
+
+        return parsed > 0
+            ? parsed
+            : throw new InvalidOperationException($"{SectionName}:{key} is {parsed}; a sweep that takes no orders does nothing.");
     }
 }

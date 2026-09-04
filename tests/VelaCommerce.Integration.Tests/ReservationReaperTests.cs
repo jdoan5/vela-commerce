@@ -149,7 +149,8 @@ public sealed class ReservationReaperTests(PostgresFixture fixture)
 
     private (ReservationReaper Reaper, FixedClock Clock, ServiceProvider Provider) NewReaper(
         DateTimeOffset? at = null,
-        FailOnce? interceptor = null)
+        FailOnce? interceptor = null,
+        int batchSize = 100)
     {
         var clock = new FixedClock(at ?? Now);
 
@@ -174,7 +175,7 @@ public sealed class ReservationReaperTests(PostgresFixture fixture)
         // SweepAsync directly, and the flag only gates the timer loop in ExecuteAsync.
         var reaper = new ReservationReaper(
             provider.GetRequiredService<IServiceScopeFactory>(),
-            new ReservationReaperOptions(),
+            new ReservationReaperOptions { BatchSize = batchSize },
             clock,
             NullLogger<ReservationReaper>.Instance);
 
@@ -253,57 +254,6 @@ public sealed class ReservationReaperTests(PostgresFixture fixture)
             .SingleAsync(entity => entity.VariantId == variantId);
 
         return (item.OnHand, item.Reserved);
-    }
-
-    /// <summary>
-    /// Returns once the sweep has provably made its claim decision — either by finishing, or by
-    /// parking on a row this connection holds.
-    /// <para>
-    /// This is the difference between a scripted interleaving and a hopeful one. Starting the sweep
-    /// on a background task and carrying straight on only works if the task happens to get a thread
-    /// and reach the database first, which is a property of the machine rather than of the code.
-    /// Both terminal conditions are asked of PostgreSQL itself: <c>pg_blocking_pids</c> reports
-    /// backends waiting on this one, so "the sweep is inside its transaction, stuck on my row" is
-    /// something the database confirms rather than something a <c>Task.Delay</c> assumes.
-    /// </para>
-    /// <para>
-    /// Two conditions rather than one, because the healthy claim uses <c>SKIP LOCKED</c> and
-    /// therefore never blocks — it passes over the locked row and returns. Waiting only for a
-    /// blocker would hang against correct code and only pass against broken code, which is the
-    /// wrong way round.
-    /// </para>
-    /// </summary>
-    private static async Task ClaimDecidedAsync(VelaCommerceDbContext holder, Task sweep)
-    {
-        var deadline = DateTimeOffset.UtcNow + TimeSpan.FromSeconds(15);
-
-        while (DateTimeOffset.UtcNow < deadline)
-        {
-            if (sweep.IsCompleted)
-            {
-                return;
-            }
-
-            var waitingOnUs = await holder.Database
-                .SqlQuery<int>(
-                    $"""
-                     SELECT count(*)::int AS "Value"
-                     FROM pg_stat_activity a
-                     WHERE pg_backend_pid() = ANY(pg_blocking_pids(a.pid))
-                     """)
-                .SingleAsync();
-
-            if (waitingOnUs > 0)
-            {
-                return;
-            }
-
-            await Task.Delay(25);
-        }
-
-        Assert.Fail(
-            "The sweep neither finished nor blocked on this transaction within 15 seconds, so it "
-            + "never reached the row under test and this test proved nothing.");
     }
 
     private async Task<(OrderStatus Status, ReservationStatus Reservation)> StateAsync(
@@ -415,38 +365,39 @@ public sealed class ReservationReaperTests(PostgresFixture fixture)
     }
 
     /// <summary>
-    /// THE MONEY-LOSING INTERLEAVING THE ORDER CLAIM'S STATUS PREDICATE EXISTS TO STOP.
+    /// A sweep leaves a paid order alone entirely — its status, its capture AND its stock.
     /// <para>
-    /// The reaper's own doc records it: a settlement pays an order while a sweep holds its
-    /// reservations, and a blind write turns a captured payment into a Cancelled order. The
-    /// surviving state — Paid, with a reservation the settlement never got round to confirming — is
-    /// exactly what a sweep meets afterwards, and it is reproducible without a race because the
-    /// damage is done by the write, not by the timing.
+    /// The order's status is the only authority for handing units back, and the reordered sweep
+    /// makes that structural: it locks Pending orders first and only then looks at their
+    /// reservations, so an order past Pending is never even considered.
     /// </para>
     /// <para>
-    /// The units genuinely do go back, and that is correct: a Held reservation past its window is
-    /// not holding them for anyone. What must not happen is the order being cancelled with money on
-    /// it.
+    /// <b>This is a deliberate change from the old behaviour, and the old behaviour was an
+    /// oversell.</b> The sweep used to select reservations on their own — status Held, window
+    /// closed — with no predicate anywhere on the owning order, so a Paid order whose settlement
+    /// had failed to confirm its reservations had its units released back into the pool fifteen
+    /// minutes later while the order stayed Paid. The settlement receiver's own comment names that
+    /// exact outcome as "an oversell with no error anywhere": it guards against causing it, and the
+    /// reaper then went and did it anyway. Now the units stay promised, which is what they are —
+    /// somebody paid for them.
     /// </para>
     /// <para>
-    /// <b>Two independent guards stand here, and deleting the SQL one was tried to find out which.</b>
-    /// Removing <c>AND status = {pending}</c> from the order claim does not silently destroy the
-    /// capture — it reaches <c>Order.Cancel()</c>, which refuses an order still holding captured
-    /// funds, and the whole sweep transaction rolls back. So the SQL predicate is the one that keeps
-    /// the sweep working, and the aggregate is the one that keeps it honest. Before refunds added
-    /// that second guard, the same edit would have turned a paid order into a cancelled one with no
-    /// error anywhere.
+    /// The order is never cancelled either, and two independent things stop that. The claim's
+    /// <c>AND status = Pending</c> runs first, and <c>Order.Cancel()</c> refuses an order still
+    /// holding captured funds — which the refunds work added. Deleting the SQL predicate no longer
+    /// destroys a capture; it reaches the aggregate, throws, and rolls the whole sweep back.
     /// </para>
     /// </summary>
     [Fact]
-    public async Task A_paid_order_is_never_cancelled_by_a_sweep_however_its_reservations_ended_up()
+    public async Task A_sweep_leaves_a_paid_orders_status_capture_and_stock_untouched()
     {
         await using var db = fixture.CreateContext();
         var variantId = await StockAsync(db, onHand: 5);
 
         var (order, reservation) = await ReserveAsync(db, variantId, 2, Now.AddMinutes(-30));
 
-        // Paid, but the reservation was left Held — the settlement path's documented oversell bug.
+        // Paid, but the reservation was left Held — the settlement path's documented oversell bug,
+        // and the state that used to make this sweep compound it.
         order.MarkPaid(order.Total, "pay_reaper_fixture", Now.AddMinutes(-25));
         await db.SaveChangesAsync();
 
@@ -455,12 +406,15 @@ public sealed class ReservationReaperTests(PostgresFixture fixture)
         var (reaper, _, provider) = NewReaper();
         await using var _ = provider;
 
-        await reaper.SweepAsync(CancellationToken.None);
+        Assert.Equal(0, await reaper.SweepAsync(CancellationToken.None));
 
         var (status, reservationStatus) = await StateAsync(order.Id, reservation.Id);
 
         Assert.Equal(OrderStatus.Paid, status);
-        Assert.Equal(ReservationStatus.Released, reservationStatus);
+        Assert.Equal(ReservationStatus.Held, reservationStatus);
+
+        // The units stay promised rather than going back on a shelf they were sold from.
+        Assert.Equal((5, 2), await LedgerAsync(variantId));
 
         await using var fresh = fixture.CreateContext();
         var after = await fresh.Orders.IgnoreQueryFilters().SingleAsync(entity => entity.Id == order.Id);
@@ -524,87 +478,89 @@ public sealed class ReservationReaperTests(PostgresFixture fixture)
     }
 
     /// <summary>
-    /// THE INTERLEAVING THAT USED TO LOSE MONEY, DRIVEN DETERMINISTICALLY.
+    /// A settlement holding its order makes a sweep step aside — and, until the lock order was
+    /// fixed, deadlocked with it instead.
     /// <para>
-    /// The reaper's doc records the failure: a settlement confirms a reservation while a sweep is
-    /// releasing it, and the sweep's write turns a sold unit back into a shelved one — a paid order
-    /// whose stock went back into the pool, which the timeline later ships having moved nothing.
-    /// Reproducing that by launching both writers at once does not work; it was tried, and the two
-    /// never actually met, because a sweep is a short database transaction and a settlement is an
-    /// HTTP round trip, so one reliably finishes before the other begins.
+    /// The reaper used to take its two locks the other way round: reservations first, then the
+    /// orders they belonged to. Every other writer of these tables goes orders-first — the
+    /// settlement receiver locks the order row before confirming reservations, and so do the
+    /// timeline worker and the refund handler. Two writers taking the same two rows in opposite
+    /// orders is a deadlock, and it was reachable in exactly the situation both pieces of code
+    /// exist for. Driven against the receiver's real ordering it came back as PostgreSQL
+    /// <c>40P01: deadlock detected</c>, aborting the settlement — a 500 to the payment gateway from
+    /// a receiver whose whole design is built never to send one.
     /// </para>
     /// <para>
-    /// So the test takes the settlement's lock itself. It opens a transaction, selects the
-    /// reservation <c>FOR UPDATE</c> — which is exactly what the settlement path holds while it
-    /// confirms — and only then starts a sweep. The sweep now has no choice but to meet a row
-    /// somebody else is committing to, which is the whole point, and the ordering is decided by the
-    /// test rather than by which task the scheduler happened to run first.
-    /// </para>
-    /// <para>
-    /// <b>Two independent guards make this safe, and neither can be caught alone.</b> The claim's
-    /// <c>FOR UPDATE SKIP LOCKED</c> means a locked row is passed over entirely. If that is removed,
-    /// the guarded write — <c>AND status = held</c> — blocks on the same lock, wakes up after the
-    /// confirm has committed, matches zero rows and leaves the units alone. Deleting either one on
-    /// its own changes nothing observable, which is why single-mutant runs of this file stay green;
-    /// deleting BOTH produces the Paid-and-Released state the assertion below refuses. That was
-    /// verified by doing it.
+    /// This is the receiver's half of that, in the receiver's own order: take the order row under
+    /// <c>FOR UPDATE</c>, then confirm. The sweep now meets the order lock FIRST, skips the row
+    /// under <c>SKIP LOCKED</c>, and finishes without touching anything — so there is no cycle to
+    /// detect and nothing blocks. Restoring the old ordering makes this fail.
     /// </para>
     /// </summary>
     [Fact]
-    public async Task A_sweep_cannot_release_a_reservation_another_transaction_is_confirming()
+    public async Task A_settlement_holding_its_order_makes_a_sweep_step_aside_rather_than_deadlock()
     {
         await using var db = fixture.CreateContext();
         var variantId = await StockAsync(db, onHand: 4);
 
         var (order, reservation) = await ReserveAsync(db, variantId, 2, Now.AddMinutes(-5));
 
-        // The settlement's grip on the row, taken before the sweep exists so the ordering is a fact
-        // rather than a hope.
         await using var settlement = fixture.CreateContext();
         await using var holding = await settlement.Database.BeginTransactionAsync();
 
-        var claimed = await settlement.StockReservations
-            .FromSql($"SELECT * FROM stock_reservations WHERE id = {reservation.Id} FOR UPDATE")
-            .IgnoreQueryFilters()
-            .ToListAsync();
-
-        Assert.Single(claimed);
-
-        var (reaper, _, provider) = NewReaper();
-        await using var _ = provider;
-
-        // Started, not awaited: with the lock removed from the claim the sweep BLOCKS on the row
-        // above, so awaiting it here would deadlock the test against its own transaction.
-        var sweep = reaper.SweepAsync(CancellationToken.None);
-
-        // And then WAITED FOR, by a condition rather than a delay. Without this the settlement
-        // below could commit before the sweep had touched anything, and the test would pass
-        // without the two ever having met — the same emptiness as the composed-path test.
-        await ClaimDecidedAsync(settlement, sweep);
-
-        // The settlement finishes what it started.
-        claimed[0].Confirm();
-
-        var paid = await settlement.Orders
+        var locked = await settlement.Orders
             .FromSql($"SELECT * FROM orders WHERE id = {order.Id} FOR UPDATE")
             .IgnoreQueryFilters()
             .ToListAsync();
 
-        paid[0].MarkPaid(paid[0].Total, "pay_race_fixture", Now);
+        Assert.Single(locked);
+
+        var (reaper, _, provider) = NewReaper();
+        await using var _ = provider;
+
+        // Awaited with a deadline, because the failure this guards against is a HANG rather than a
+        // wrong answer. Under the fixed ordering the sweep cannot block: it meets the order lock
+        // first and passes over it. Under the old ordering it claimed the reservation and then
+        // queued behind this transaction for the order — which never releases until after this
+        // line, so a regression would park the suite forever instead of failing it.
+        var sweep = reaper.SweepAsync(CancellationToken.None);
+
+        int reclaimed;
+
+        try
+        {
+            reclaimed = await sweep.WaitAsync(TimeSpan.FromSeconds(10));
+        }
+        catch (TimeoutException)
+        {
+            Assert.Fail(
+                "The sweep blocked on an order this test holds. That is the old lock ordering back: "
+                + "the reaper must take the order row BEFORE the reservations belonging to it, the "
+                + "way the settlement receiver, the timeline worker and the refund handler all do. "
+                + "Taking them the other way round is the deadlock this test exists to keep fixed.");
+
+            return;
+        }
+
+        Assert.Equal(0, reclaimed);
+
+        var confirmed = await settlement.StockReservations
+            .FromSql($"SELECT * FROM stock_reservations WHERE id = {reservation.Id} FOR UPDATE")
+            .IgnoreQueryFilters()
+            .ToListAsync();
+
+        confirmed[0].Confirm();
+        locked[0].MarkPaid(locked[0].Total, "pay_race_fixture", Now);
 
         await settlement.SaveChangesAsync();
         await holding.CommitAsync();
 
-        await sweep;
-
         var (status, reservationStatus) = await StateAsync(order.Id, reservation.Id);
 
         Assert.Equal(OrderStatus.Paid, status);
-
         Assert.Equal(ReservationStatus.Confirmed, reservationStatus);
 
-        // The units are SOLD. A sweep that released them would put stock back on a shelf it had
-        // already left, and the next shopper would buy a unit that is spoken for.
+        // The units are SOLD, and were never handed back to the shelf on the way.
         Assert.Equal((4, 2), await LedgerAsync(variantId));
     }
 
@@ -662,6 +618,58 @@ public sealed class ReservationReaperTests(PostgresFixture fixture)
         Assert.Equal(OrderStatus.Cancelled, secondStatus);
         Assert.Equal(ReservationStatus.Released, firstReservationStatus);
         Assert.Equal(ReservationStatus.Released, secondReservationStatus);
+    }
+
+    /// <summary>
+    /// A stuck order must not occupy a place in the batch forever, starving the abandoned checkouts
+    /// behind it.
+    /// <para>
+    /// A Paid order whose settlement failed to confirm its reservations leaves them Held for good —
+    /// correctly, because somebody bought those units. But those rows still match every predicate
+    /// the reaper uses to notice a lapsed reservation, so before the candidate query joined to
+    /// <c>orders</c>, such an order was returned as a candidate by every sweep and rejected by the
+    /// locking step every time. Order ids are UUIDv7 and sort by age, so the oldest stuck orders
+    /// come first: once a batch's worth of them exists, no newer abandoned checkout is ever reached
+    /// again and the shop quietly stops reclaiming stock.
+    /// </para>
+    /// <para>
+    /// Run with a batch of one, which is the whole reason <c>BatchSize</c> is configurable. The
+    /// stuck order is created first so its id sorts ahead of the abandoned one; without the join it
+    /// takes the only slot and the sweep reclaims nothing.
+    /// </para>
+    /// </summary>
+    [Fact]
+    public async Task A_stuck_order_does_not_crowd_a_genuinely_abandoned_one_out_of_the_batch()
+    {
+        await using var db = fixture.CreateContext();
+        var variantId = await StockAsync(db, onHand: 9);
+
+        // Created FIRST, so its UUIDv7 sorts ahead: paid, but its reservation was never confirmed.
+        var (stuck, stuckReservation) = await ReserveAsync(db, variantId, 4, Now.AddHours(-2));
+        stuck.MarkPaid(stuck.Total, "pay_stuck_fixture", Now.AddHours(-2));
+        await db.SaveChangesAsync();
+
+        // And the one that actually needs reaping.
+        var (abandoned, abandonedReservation) = await ReserveAsync(db, variantId, 3, Now.AddMinutes(-5));
+
+        Assert.Equal((9, 7), await LedgerAsync(variantId));
+
+        var (reaper, _, provider) = NewReaper(batchSize: 1);
+        await using var _ = provider;
+
+        Assert.Equal(3, await reaper.SweepAsync(CancellationToken.None));
+
+        // The abandoned order's units came back...
+        var (abandonedStatus, abandonedReservationStatus) = await StateAsync(abandoned.Id, abandonedReservation.Id);
+        Assert.Equal(OrderStatus.Cancelled, abandonedStatus);
+        Assert.Equal(ReservationStatus.Released, abandonedReservationStatus);
+
+        // ...and the paid order's stayed exactly where they were.
+        var (stuckStatus, stuckReservationStatus) = await StateAsync(stuck.Id, stuckReservation.Id);
+        Assert.Equal(OrderStatus.Paid, stuckStatus);
+        Assert.Equal(ReservationStatus.Held, stuckReservationStatus);
+
+        Assert.Equal((9, 4), await LedgerAsync(variantId));
     }
 
     /// <summary>
