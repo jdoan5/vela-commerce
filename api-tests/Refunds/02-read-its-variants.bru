@@ -1,0 +1,19 @@
+meta {
+  name: Read that product's variants
+  type: http
+  seq: 2
+}
+
+get {
+  url: {{baseUrl}}/api/catalog/products/{{refundSlug}}
+  body: none
+  auth: none
+}
+
+assert {
+  res.status: eq 200
+}
+
+script:post-response {
+  bru.setVar("refundVariantId", res.body.variants[0].id);
+}

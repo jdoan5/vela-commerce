@@ -1,0 +1,31 @@
+meta {
+  name: One refund too many
+  type: http
+  seq: 10
+}
+
+post {
+  url: {{baseUrl}}/api/orders/{{refundOrder}}/refunds
+  body: json
+  auth: none
+}
+
+headers {
+  Idempotency-Key: {{$randomUUID}}
+}
+
+body:json {
+  {
+    "amount": 1
+  }
+}
+
+assert {
+  res.status: eq 409
+}
+
+tests {
+  test("a cent more than was captured is still a cent too many", function() {
+    expect(res.status).to.equal(409);
+  });
+}

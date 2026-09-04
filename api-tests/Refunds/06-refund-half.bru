@@ -1,0 +1,65 @@
+meta {
+  name: Refund half of it
+  type: http
+  seq: 6
+}
+
+post {
+  url: {{baseUrl}}/api/orders/{{refundOrder}}/refunds
+  body: json
+  auth: none
+}
+
+headers {
+  Idempotency-Key: {{$randomUUID}}
+}
+
+body:json {
+  {
+    "amount": {{refundHalf}}
+  }
+}
+
+assert {
+  res.status: eq 200
+  res.body.orderNumber: eq {{refundOrder}}
+  res.body.replayed: eq false
+  res.body.fullyRefunded: eq false
+  res.body.restockedUnits: eq 0
+}
+
+script:post-response {
+  bru.setVar("refundKey", req.getHeader("Idempotency-Key"));
+}
+
+tests {
+  test("the money moved by exactly what was asked for", function() {
+    expect(res.body.refunded.amount).to.equal(Number(bru.getVar("refundHalf")));
+    expect(res.body.refundableRemaining.amount).to.equal(Number(bru.getVar("refundRest")));
+  });
+
+  test("the capture is untouched: a refund does not rewrite what was taken", function() {
+    expect(res.body.captured.amount).to.equal(Number(bru.getVar("refundCaptured")));
+  });
+
+  test("exactly one row on the ledger, and it says why", function() {
+    // The running total is a column a racing handler can write a correct-looking value
+    // into. One row per movement of money is what survives that, so the row count is the
+    // assertion and the figure is the corroboration.
+    expect(res.body.refunds).to.have.length(1);
+    expect(res.body.refunds[0].reason).to.equal("CustomerRequest");
+    expect(res.body.refunds[0].amount.amount).to.equal(Number(bru.getVar("refundHalf")));
+    expect(res.body.refunds[0].gatewayReference).to.be.a("string").with.length.above(0);
+  });
+
+  test("the order keeps the status its fulfilment reached", function() {
+    // A refund moves money, not goods. Collapsing it into Cancelled would lose the fact
+    // that a parcel is on its way.
+    expect(res.body.status).to.equal("Paid");
+  });
+
+  test("no stock came back: nothing was cancelled", function() {
+    expect(res.body.restockedUnits).to.equal(0);
+    expect(res.body.refunds[0].restockedUnits).to.equal(0);
+  });
+}

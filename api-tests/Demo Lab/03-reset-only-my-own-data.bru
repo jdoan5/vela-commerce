@@ -1,0 +1,40 @@
+meta {
+  name: Reset clears this visitor and nobody else
+  type: http
+  seq: 3
+}
+
+post {
+  url: {{baseUrl}}/api/demo/reset
+  body: none
+  auth: none
+}
+
+assert {
+  res.status: eq 200
+}
+
+tests {
+  test("it removed the orders this run created, and counted them", function() {
+    // By the time this runs, the Checkout and Refunds folders have placed several orders
+    // against this same cookie. A reset that reported nothing would mean it had not found
+    // its own visitor's rows - the failure mode a session-scoped delete fails silently in.
+    expect(res.body.removedAnything).to.equal(true);
+    expect(res.body.ordersRemoved).to.be.above(0);
+  });
+
+  test("stock taken by anything still holding it went back", function() {
+    // Cancelled and refunded orders have already released theirs, so this is only the
+    // remainder. What matters is that the number is reported rather than assumed: a reset
+    // that deleted reservation rows without decrementing the ledger would take units off
+    // the shelf permanently, and nothing else in the system would notice.
+    expect(res.body.unitsReturnedToStock).to.be.a("number").of.at.least(0);
+    expect(res.body.reservationsReleased).to.be.a("number").of.at.least(0);
+  });
+
+  test("it is fast enough to be a button rather than a job", function() {
+    // The demo banner offers this to any visitor at any time. A reset that took seconds
+    // would be a way for one person to hold a connection open on a scale-to-zero container.
+    expect(res.body.elapsedMilliseconds).to.be.below(3000);
+  });
+}

@@ -1,0 +1,27 @@
+meta {
+  name: Refunds
+  seq: 4
+}
+
+docs {
+  Giving money back, and the three ways that must not go wrong.
+
+  A refund is the one operation where a bug costs the shop money directly rather than
+  costing it a sale, so each request here asserts what moved rather than that something
+  returned 200.
+
+  **The folder buys its own order.** It could lean on the one the Checkout folder leaves
+  behind, and then it would only run as part of a full pass. Five requests of setup buys
+  the ability to run `bru run Refunds -r` on its own while debugging.
+
+  What it proves, in order: a partial refund moves the money and writes exactly one ledger
+  row; the same idempotency key replayed returns the first refund rather than issuing a
+  second; a refund larger than what is left is refused rather than clamped; the remainder
+  can then be taken; and a cancellation refunds the whole outstanding balance and puts the
+  units back on the shelf as one act.
+
+  **The ledger, not the running total, is what is asserted.** `refunded` is a column that
+  concurrent handlers can each write the same correct-looking value into. One row per
+  movement of money is the fact that survives a race, which is why every check below counts
+  `refunds.length` as well as reading the figure.
+}

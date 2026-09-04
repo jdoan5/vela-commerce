@@ -1,0 +1,83 @@
+meta {
+  name: Place the order
+  type: http
+  seq: 5
+}
+
+post {
+  url: {{baseUrl}}/api/checkout
+  body: json
+  auth: none
+}
+
+headers {
+  Idempotency-Key: {{$randomUUID}}
+}
+
+body:json {
+  {
+    "paymentScenario": "Succeed",
+    "shippingAddress": {
+      "recipient": "Ada Lovelace",
+      "line1": "12 Marylebone Road",
+      "city": "London",
+      "postalCode": "NW1 5LA",
+      "countryCode": "GB"
+    }
+  }
+}
+
+assert {
+  res.status: eq 201
+  res.body.status: eq Paid
+  res.body.totalQuantity: eq 1
+  res.body.payment.outcome: eq Succeeded
+  res.body.payment.captured: eq true
+  res.body.payment.awaitsSettlement: eq false
+}
+
+script:post-response {
+  bru.setVar("orderNumber", res.body.orderNumber);
+  bru.setVar("orderToken", res.body.retrievalToken);
+  bru.setVar("orderTotal", res.body.total.amount);
+  // The header value Bruno generated, kept so the next request can replay THIS key rather
+  // than a fresh one - which would create a second order and prove nothing.
+  bru.setVar("orderKey", req.getHeader("Idempotency-Key"));
+}
+
+tests {
+  test("201 rather than 200: this request created something", function() {
+    expect(res.status).to.equal(201);
+  });
+
+  test("the gateway took exactly the order total, to the cent", function() {
+    // MarkPaid refuses a capture that is not equal to the total, so a mismatch here would
+    // be a 500 rather than a wrong number - but assert it anyway, because the alternative
+    // is trusting one guard with the only fact that matters.
+    expect(res.body.captured.amount).to.equal(res.body.total.amount);
+    expect(res.body.refunded.amount).to.equal(0);
+  });
+
+  test("the total is the server's arithmetic over the catalog's price", function() {
+    const unit = Number(bru.getVar("buyUnitAmount"));
+    expect(res.body.subtotal.amount).to.equal(unit);
+    expect(res.body.total.amount).to.equal(
+      res.body.subtotal.amount + res.body.shipping.amount + res.body.tax.amount);
+  });
+
+  test("the line is a snapshot, not a join into the live catalog", function() {
+    // Name, SKU and price are copied at checkout so the order still reads correctly after
+    // the product is renamed, repriced or withdrawn.
+    expect(res.body.lines[0].sku).to.equal(bru.getVar("buySku"));
+    expect(res.body.lines[0].unitPrice.amount).to.equal(Number(bru.getVar("buyUnitAmount")));
+  });
+
+  test("a signed retrieval link came back with it", function() {
+    expect(res.body.retrievalToken).to.be.a("string").with.length.above(0);
+    expect(res.body.retrievalPath).to.contain(res.body.orderNumber);
+  });
+
+  test("no refunds yet", function() {
+    expect(res.body.refunds).to.be.an("array").that.is.empty;
+  });
+}

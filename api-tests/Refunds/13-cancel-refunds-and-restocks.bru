@@ -1,0 +1,50 @@
+meta {
+  name: Cancelling refunds it and puts the stock back
+  type: http
+  seq: 13
+}
+
+post {
+  url: {{baseUrl}}/api/orders/{{cancelOrder}}/cancellation
+  body: json
+  auth: none
+}
+
+headers {
+  Idempotency-Key: {{$randomUUID}}
+}
+
+body:json {
+  {}
+}
+
+assert {
+  res.status: eq 200
+  res.body.status: eq Cancelled
+  res.body.fullyRefunded: eq true
+  res.body.restockedUnits: eq 2
+}
+
+tests {
+  test("the money and the goods move together, or not at all", function() {
+    // The state machine has always had a Paid -> Cancelled edge, and taking it used to
+    // strand the capture: a cancelled order refuses refunds, so the money became not merely
+    // unreturned but unreturnable. Cancellation now refunds the whole outstanding balance
+    // and terminates the order in one act.
+    expect(res.body.status).to.equal("Cancelled");
+    expect(res.body.refunded.amount).to.equal(Number(bru.getVar("cancelCaptured")));
+    expect(res.body.refundableRemaining.amount).to.equal(0);
+  });
+
+  test("both units went back on the shelf", function() {
+    expect(res.body.restockedUnits).to.equal(2);
+  });
+
+  test("the ledger row says it was a cancellation, and carries the stock with it", function() {
+    // Recording the unit count on the refund row keeps the two halves of the decision - the
+    // money and the goods - in one row that either happened or did not.
+    expect(res.body.refunds).to.have.length(1);
+    expect(res.body.refunds[0].reason).to.equal("Cancellation");
+    expect(res.body.refunds[0].restockedUnits).to.equal(2);
+  });
+}

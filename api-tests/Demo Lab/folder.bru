@@ -1,0 +1,21 @@
+meta {
+  name: Demo Lab
+  seq: 6
+}
+
+docs {
+  The lab's own contract: what it says it will do, and one run proving it does.
+
+  The lab is a public, unauthenticated endpoint that drives real checkouts against the live
+  shop, so its catalogue is a promise about cost as much as about behaviour — how many
+  sessions a button press creates, which rows it writes, and what it refuses. The first
+  request asserts that promise is complete rather than decorative.
+
+  **One scenario runs here, not nine.** A full pass would push this job toward its
+  `timeout-minutes` in CI, and would prove the same property nine times. `oversell` is the
+  headline claim and the most expensive of them, so if the harness works at all it works
+  there. The other eight are covered by the integration suite each of them names.
+
+  **Every scenario must name a test file, and that is asserted.** A lab entry that could not
+  point at CI would be a claim dressed up as a demonstration, which is worse than no lab.
+}

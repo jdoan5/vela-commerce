@@ -1,0 +1,27 @@
+meta {
+  name: The cart survived the decline
+  type: http
+  seq: 11
+}
+
+get {
+  url: {{baseUrl}}/api/cart
+  body: none
+  auth: none
+}
+
+assert {
+  res.status: eq 200
+  res.body.isEmpty: eq false
+  res.body.totalQuantity: eq 1
+  res.body.lines[0].variantId: eq {{buyVariantId}}
+}
+
+tests {
+  test("the shopper can fix their card and try again", function() {
+    // A successful checkout empties the cart; a declined one must not. Clearing here would
+    // send somebody whose card was refused back to an empty basket to start over, which is
+    // the single most annoying way to lose a sale.
+    expect(res.body.totalQuantity).to.equal(1);
+  });
+}

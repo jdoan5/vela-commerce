@@ -1,0 +1,50 @@
+meta {
+  name: A refused card keeps the cart
+  type: http
+  seq: 10
+}
+
+post {
+  url: {{baseUrl}}/api/checkout
+  body: json
+  auth: none
+}
+
+headers {
+  Idempotency-Key: {{$randomUUID}}
+}
+
+body:json {
+  {
+    "paymentScenario": "Decline",
+    "shippingAddress": {
+      "recipient": "Ada Lovelace",
+      "line1": "12 Marylebone Road",
+      "city": "London",
+      "postalCode": "NW1 5LA",
+      "countryCode": "GB"
+    }
+  }
+}
+
+assert {
+  res.status: eq 402
+  res.body.payment.outcome: eq Declined
+  res.body.payment.captured: eq false
+}
+
+tests {
+  test("402 with the gateway's reason, not a 500", function() {
+    // A refused card is a business answer. Modelling it as an exception would run the
+    // ordinary path of a checkout through a catch block.
+    expect(res.status).to.equal(402);
+    expect(res.body.payment.declineReason).to.be.a("string").with.length.above(0);
+  });
+
+  test("the order exists and is named, rather than being rolled away", function() {
+    // The row is kept for three reasons: the state machine has a Pending -> Cancelled edge
+    // for it, the attempt really happened, and the row is what keeps the idempotency key
+    // spent so a frantically re-clicked Pay cannot mint a new order number each time.
+    expect(res.body.orderNumber).to.be.a("string").with.length.above(0);
+  });
+}

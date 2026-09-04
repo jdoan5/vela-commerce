@@ -1,0 +1,49 @@
+meta {
+  name: Buy it
+  type: http
+  seq: 5
+}
+
+post {
+  url: {{baseUrl}}/api/checkout
+  body: json
+  auth: none
+}
+
+headers {
+  Idempotency-Key: {{$randomUUID}}
+}
+
+body:json {
+  {
+    "paymentScenario": "Succeed",
+    "shippingAddress": {
+      "recipient": "Grace Hopper",
+      "line1": "1 Quay Street",
+      "city": "Bristol",
+      "postalCode": "BS1 4RN",
+      "countryCode": "GB"
+    }
+  }
+}
+
+assert {
+  res.status: eq 201
+  res.body.status: eq Paid
+}
+
+script:post-response {
+  bru.setVar("refundOrder", res.body.orderNumber);
+  bru.setVar("refundCaptured", res.body.captured.amount);
+  // Half, rounded down, so the partial refund and the remainder are both non-zero whatever
+  // the seeded catalog charges for this product.
+  bru.setVar("refundHalf", Math.floor(res.body.captured.amount / 2));
+  bru.setVar("refundRest", res.body.captured.amount - Math.floor(res.body.captured.amount / 2));
+}
+
+tests {
+  test("there is money on this order to give back", function() {
+    expect(res.body.captured.amount).to.be.above(1);
+    expect(res.body.refunded.amount).to.equal(0);
+  });
+}

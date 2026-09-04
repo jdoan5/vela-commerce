@@ -1,0 +1,30 @@
+meta {
+  name: Put one in the cart
+  type: http
+  seq: 4
+}
+
+post {
+  url: {{baseUrl}}/api/cart/items
+  body: json
+  auth: none
+}
+
+body:json {
+  {
+    "variantId": "{{buyVariantId}}",
+    "quantity": 1
+  }
+}
+
+assert {
+  res.status: eq 200
+  res.body.totalQuantity: eq 1
+  res.body.lines[0].variantId: eq {{buyVariantId}}
+}
+
+tests {
+  test("the cart priced it from the catalog", function() {
+    expect(res.body.lines[0].unitPrice.amount).to.equal(Number(bru.getVar("buyUnitAmount")));
+  });
+}

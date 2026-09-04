@@ -1,0 +1,27 @@
+meta {
+  name: Checkout
+  seq: 3
+}
+
+docs {
+  Turning a cart into an order, and the two ways that must not go wrong.
+
+  This folder is the money path. Everything before it reads; everything here writes
+  something that would cost real money to get wrong, so each request asserts the
+  commercial rule rather than the status code alone.
+
+  **The order is not incidental.** A cart is filled, checked out, the same idempotency key
+  is replayed, and the order is read back through its signed link. Requests 09 and 10 then
+  prove a refused card leaves the shopper's cart where they can fix it and try again.
+
+  **Why `paymentScenario` is named on every checkout.** With no hint the simulator picks a
+  path from the trailing cents of the order total, and the total moves whenever the seeded
+  catalog is regenerated — so a run would decline or defer roughly one checkout in twenty
+  for reasons that have nothing to do with checkout. The hint is visible in each body.
+
+  **Why nothing here waits for a webhook.** `Succeed` settles inside the request, so the
+  assertions are about state rather than about timing. The asynchronous paths — delayed,
+  duplicated and out-of-order delivery — are proved by `SettlementExactlyOnceTests` and
+  demonstrated in the Demo Lab, both of which can control a clock. A collection that slept
+  and hoped would be the flakiest thing in CI.
+}

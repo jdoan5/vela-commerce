@@ -1,0 +1,42 @@
+meta {
+  name: A signature header that cannot be parsed
+  type: http
+  seq: 3
+}
+
+post {
+  url: {{baseUrl}}/api/payments/webhook
+  body: json
+  auth: none
+}
+
+headers {
+  X-Vela-Signature: this-is-not-a-signature
+}
+
+body:json {
+  {
+    "eventId": "evt_collection_probe",
+    "eventType": "payment.succeeded",
+    "gatewayReference": "sim_collection_probe",
+    "orderReference": "VELA-0000000",
+    "settlementCorrelationId": "set_collection_probe",
+    "amount": 1000,
+    "currency": "USD",
+    "sequence": 1,
+    "occurredAt": "2026-09-04T12:00:00+00:00"
+  }
+}
+
+assert {
+  res.status: eq 400
+}
+
+tests {
+  test("400, because there was no credential to reject", function() {
+    // Three refusals, told apart: a wrong MAC is 401, a stale timestamp is 400 because the
+    // window closed first, and this is 400 because there was nothing to parse. A gateway
+    // operator can tell a clock-skew problem from a stale key without reading our logs.
+    expect(res.status).to.equal(400);
+  });
+}

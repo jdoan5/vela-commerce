@@ -1,0 +1,54 @@
+meta {
+  name: Replay the same idempotency key
+  type: http
+  seq: 6
+}
+
+post {
+  url: {{baseUrl}}/api/checkout
+  body: json
+  auth: none
+}
+
+headers {
+  Idempotency-Key: {{orderKey}}
+}
+
+body:json {
+  {
+    "paymentScenario": "Succeed",
+    "shippingAddress": {
+      "recipient": "Ada Lovelace",
+      "line1": "12 Marylebone Road",
+      "city": "London",
+      "postalCode": "NW1 5LA",
+      "countryCode": "GB"
+    }
+  }
+}
+
+assert {
+  res.status: eq 200
+  res.body.orderNumber: eq {{orderNumber}}
+}
+
+tests {
+  test("200, not 201: nothing was created this time", function() {
+    // THE SINGLE MOST IMPORTANT ASSERTION IN THIS FOLDER. A shopper whose connection drops
+    // and who presses Pay again must end up with one order and one charge. The status code
+    // is how a client tells which of the two requests did the work.
+    expect(res.status).to.equal(200);
+  });
+
+  test("the same order came back, not a second one", function() {
+    expect(res.body.orderNumber).to.equal(bru.getVar("orderNumber"));
+    expect(res.body.captured.amount).to.equal(Number(bru.getVar("orderTotal")));
+  });
+
+  test("the gateway was not asked a second time", function() {
+    // A replay answers from the order that already exists and never reaches the gateway, so
+    // there is no fresh payment result to report. A body carrying one would mean the second
+    // submit had authorized again.
+    expect(res.body.payment).to.equal(null);
+  });
+}

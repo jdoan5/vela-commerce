@@ -245,13 +245,13 @@ byte-identical between runs or CI fails:
 dotnet run --project tools/VelaCommerce.SeedGen
 ```
 
-Part of the HTTP surface has an executable description as a [Bruno collection](api-tests/README.md),
-plain-text `.bru` files that CI runs headless against a live API. **Part of it, and worth naming
-rather than rounding up:** the collection covers the catalog, the cart and the health probes — ten
-of the eighteen operations the API exposes. Checkout, order retrieval, refunds, cancellation, the
-settlement webhook, the demo reset and both Demo Lab routes are proved by the integration suite and
-by the Lab's own scenarios, not by the collection. Extending it to the money path is the next thing
-on this repo's list.
+The HTTP surface has an executable description as a [Bruno collection](api-tests/README.md):
+plain-text `.bru` files that CI runs headless against a live API, covering **all eighteen
+operations** in 54 requests and 98 tests. It is the closest thing here to a demo you can run —
+`dotnet run` in one terminal, `bru run -r --env local` in another, and about three seconds later
+you have watched a cart become an order, an idempotency key refuse to charge twice, a refund
+recorded once and refused twice, a settlement forgery turned away three different ways, and a
+race for the last unit sell exactly five of five.
 
 ## Phases
 

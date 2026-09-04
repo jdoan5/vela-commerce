@@ -1,0 +1,43 @@
+meta {
+  name: Refund the remainder
+  type: http
+  seq: 9
+}
+
+post {
+  url: {{baseUrl}}/api/orders/{{refundOrder}}/refunds
+  body: json
+  auth: none
+}
+
+headers {
+  Idempotency-Key: {{$randomUUID}}
+}
+
+body:json {
+  {
+    "amount": {{refundRest}}
+  }
+}
+
+assert {
+  res.status: eq 200
+  res.body.fullyRefunded: eq true
+}
+
+tests {
+  test("the refused attempt left nothing behind", function() {
+    // The 409 before this one must not have spent its key, written a row, or moved the
+    // total - so the remainder is still exactly what it was.
+    expect(res.body.refunds).to.have.length(2);
+  });
+
+  test("every cent is back and none more", function() {
+    expect(res.body.refunded.amount).to.equal(Number(bru.getVar("refundCaptured")));
+    expect(res.body.refundableRemaining.amount).to.equal(0);
+  });
+
+  test("still Paid: a fully refunded order is not a cancelled one", function() {
+    expect(res.body.status).to.equal("Paid");
+  });
+}

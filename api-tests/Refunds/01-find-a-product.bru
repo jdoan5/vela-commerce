@@ -1,0 +1,19 @@
+meta {
+  name: Find a product to buy
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{baseUrl}}/api/catalog/products?pageSize=1
+  body: none
+  auth: none
+}
+
+assert {
+  res.status: eq 200
+}
+
+script:post-response {
+  bru.setVar("refundSlug", res.body.items[0].slug);
+}

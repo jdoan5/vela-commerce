@@ -1,0 +1,24 @@
+meta {
+  name: Webhooks
+  seq: 5
+}
+
+docs {
+  The settlement receiver, approached the way an attacker would.
+
+  This is the only endpoint whose caller is authenticated by something other than a cookie,
+  and the only one reachable by anybody on the internet who knows the path. So what is worth
+  driving over HTTP is the refusals — the happy path needs a valid HMAC over exact bytes,
+  which `SettlementExactlyOnceTests` already exercises against real signatures and which a
+  collection cannot do without carrying the signing key.
+
+  **Three refusals, told apart on purpose.** A current signature whose MAC does not verify
+  is 401 with a `WWW-Authenticate` challenge: a credential was presented and it was wrong.
+  A signature outside the replay window is 400 — the timestamp is checked first, so a
+  captured delivery replayed later is refused before the MAC is even compared. A header that
+  cannot be parsed is 400 for a third reason: there was nothing to check. Folding them
+  together would tell an operator with clock skew the same thing as one with a stale key.
+
+  Neither request carries a real signature, so neither can be mistaken for a way to forge a
+  settlement — which is the point.
+}

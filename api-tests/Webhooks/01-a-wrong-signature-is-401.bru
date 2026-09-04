@@ -1,0 +1,55 @@
+meta {
+  name: A fresh signature that does not verify
+  type: http
+  seq: 1
+}
+
+script:pre-request {
+  // Inside the replay window on purpose. A stale timestamp is refused before the MAC is
+  // ever compared, so signing "now" is what makes this a test of verification rather than
+  // of expiry - which the next request covers separately.
+  bru.setVar("freshTimestamp", Math.floor(Date.now() / 1000));
+}
+
+post {
+  url: {{baseUrl}}/api/payments/webhook
+  body: json
+  auth: none
+}
+
+headers {
+  X-Vela-Signature: t={{freshTimestamp}},v1=0000000000000000000000000000000000000000000000000000000000000000
+}
+
+body:json {
+  {
+    "eventId": "evt_collection_probe",
+    "eventType": "payment.succeeded",
+    "gatewayReference": "sim_collection_probe",
+    "orderReference": "VELA-0000000",
+    "settlementCorrelationId": "set_collection_probe",
+    "amount": 1000,
+    "currency": "USD",
+    "sequence": 1,
+    "occurredAt": "2026-09-04T12:00:00+00:00"
+  }
+}
+
+assert {
+  res.status: eq 401
+}
+
+tests {
+  test("401 with a challenge: a credential was presented and was wrong", function() {
+    // The header is well formed and current - a timestamp inside the window and a v1 MAC of
+    // the right length - so the only thing wrong with it is the MAC itself.
+    expect(res.status).to.equal(401);
+    expect(res.headers["www-authenticate"]).to.contain("Vela-Signature");
+  });
+
+  test("the refusal says nothing about whether that order exists", function() {
+    // Verification happens before anything touches PostgreSQL, so an unsigned caller cannot
+    // use the difference between two responses to find out which order numbers are real.
+    expect(JSON.stringify(res.body)).to.not.contain("VELA-0000000");
+  });
+}

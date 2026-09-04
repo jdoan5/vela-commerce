@@ -1,0 +1,49 @@
+meta {
+  name: Read the scenario catalogue
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{baseUrl}}/api/demo/lab/scenarios
+  body: none
+  auth: none
+}
+
+assert {
+  res.status: eq 200
+}
+
+tests {
+  test("every scenario names the test that proves the same thing in CI", function() {
+    // The whole feature rests on this. A reviewer with ten minutes will not run the suite,
+    // so the lab shows them the invariant holding and then hands them the file where CI
+    // agrees. An entry without one would be a demonstration of nothing in particular.
+    expect(res.body.scenarios.length).to.be.above(0);
+
+    for (const scenario of res.body.scenarios) {
+      expect(scenario.provenBy, scenario.id).to.match(/^tests\/.+\.cs$/);
+      expect(scenario.provenByTest, scenario.id).to.be.a("string").with.length.above(0);
+    }
+  });
+
+  test("each one states its cost before you press it", function() {
+    // Participants and units are what a button press will actually create. Publishing them
+    // is what makes an unauthenticated, load-generating endpoint defensible.
+    for (const scenario of res.body.scenarios) {
+      expect(scenario.participants, scenario.id).to.be.a("number");
+      expect(scenario.creates, scenario.id).to.be.a("string").with.length.above(0);
+      expect(scenario.fidelity, scenario.id).to.be.a("string").with.length.above(0);
+    }
+  });
+
+  test("the limits it will refuse past are published too", function() {
+    expect(res.body.limits).to.be.an("object");
+    expect(res.body.stockPolicy).to.be.a("string").with.length.above(0);
+  });
+
+  test("oversell is there, since the next request runs it", function() {
+    const ids = res.body.scenarios.map(s => s.id);
+    expect(ids).to.include("oversell");
+  });
+}

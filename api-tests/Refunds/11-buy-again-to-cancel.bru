@@ -1,0 +1,23 @@
+meta {
+  name: Put two in the cart again
+  type: http
+  seq: 11
+}
+
+post {
+  url: {{baseUrl}}/api/cart/items
+  body: json
+  auth: none
+}
+
+body:json {
+  {
+    "variantId": "{{refundVariantId}}",
+    "quantity": 2
+  }
+}
+
+assert {
+  res.status: eq 200
+  res.body.totalQuantity: eq 2
+}

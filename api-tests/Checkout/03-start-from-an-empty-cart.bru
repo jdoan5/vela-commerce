@@ -1,0 +1,24 @@
+meta {
+  name: Start from an empty cart
+  type: http
+  seq: 3
+}
+
+delete {
+  url: {{baseUrl}}/api/cart
+  body: none
+  auth: none
+}
+
+assert {
+  res.status: eq 200
+  res.body.isEmpty: eq true
+}
+
+tests {
+  test("the folder is re-runnable rather than assuming a fresh visitor", function() {
+    // In the CLI the cookie jar is per-run so the cart would be empty anyway. In the GUI it
+    // persists, and a second run would check out a cart holding two of everything.
+    expect(res.body.totalQuantity).to.equal(0);
+  });
+}

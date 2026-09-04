@@ -1,0 +1,43 @@
+meta {
+  name: Header and body keys that disagree
+  type: http
+  seq: 7
+}
+
+post {
+  url: {{baseUrl}}/api/checkout
+  body: json
+  auth: none
+}
+
+headers {
+  Idempotency-Key: header-says-this
+}
+
+body:json {
+  {
+    "idempotencyKey": "body-says-something-else",
+    "paymentScenario": "Succeed",
+    "shippingAddress": {
+      "recipient": "Ada Lovelace",
+      "line1": "12 Marylebone Road",
+      "city": "London",
+      "postalCode": "NW1 5LA",
+      "countryCode": "GB"
+    }
+  }
+}
+
+assert {
+  res.status: eq 400
+}
+
+tests {
+  test("refused rather than one silently winning", function() {
+    // The API accepts the key in either place, and permits both when they agree. Two
+    // different keys in one request is a client bug, and picking one would hide it behind
+    // an order the client cannot recognise on a retry.
+    expect(res.status).to.equal(400);
+    expect(res.body.title).to.contain("idempotency key");
+  });
+}

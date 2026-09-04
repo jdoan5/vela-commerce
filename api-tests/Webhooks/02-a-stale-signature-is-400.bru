@@ -1,0 +1,43 @@
+meta {
+  name: A signature outside the replay window
+  type: http
+  seq: 2
+}
+
+post {
+  url: {{baseUrl}}/api/payments/webhook
+  body: json
+  auth: none
+}
+
+headers {
+  X-Vela-Signature: t=1757000000,v1=0000000000000000000000000000000000000000000000000000000000000000
+}
+
+body:json {
+  {
+    "eventId": "evt_collection_probe",
+    "eventType": "payment.succeeded",
+    "gatewayReference": "sim_collection_probe",
+    "orderReference": "VELA-0000000",
+    "settlementCorrelationId": "set_collection_probe",
+    "amount": 1000,
+    "currency": "USD",
+    "sequence": 1,
+    "occurredAt": "2026-09-04T12:00:00+00:00"
+  }
+}
+
+assert {
+  res.status: eq 400
+}
+
+tests {
+  test("400 and no challenge: the window closed before the MAC mattered", function() {
+    // The timestamp is checked first, so a captured-and-replayed notification is refused
+    // without the MAC ever being compared - which is what stops an old, genuinely signed
+    // delivery being replayed by whoever recorded it.
+    expect(res.status).to.equal(400);
+    expect(res.headers["www-authenticate"]).to.equal(undefined);
+  });
+}

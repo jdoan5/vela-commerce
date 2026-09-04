@@ -1,0 +1,40 @@
+meta {
+  name: Replay the same refund key
+  type: http
+  seq: 7
+}
+
+post {
+  url: {{baseUrl}}/api/orders/{{refundOrder}}/refunds
+  body: json
+  auth: none
+}
+
+headers {
+  Idempotency-Key: {{refundKey}}
+}
+
+body:json {
+  {
+    "amount": {{refundHalf}}
+  }
+}
+
+assert {
+  res.status: eq 200
+  res.body.replayed: eq true
+}
+
+tests {
+  test("told plainly that this is the first refund, not a second one", function() {
+    // A client that retried after a timeout needs to know whether it moved money. Answering
+    // 200 with no distinction would let a UI say "refunded" twice about two different
+    // events, which is how a shopper ends up believing they were paid back twice.
+    expect(res.body.replayed).to.equal(true);
+  });
+
+  test("the money did not move again", function() {
+    expect(res.body.refunded.amount).to.equal(Number(bru.getVar("refundHalf")));
+    expect(res.body.refunds).to.have.length(1);
+  });
+}

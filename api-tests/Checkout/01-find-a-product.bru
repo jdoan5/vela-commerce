@@ -1,0 +1,26 @@
+meta {
+  name: Find a product to buy
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{baseUrl}}/api/catalog/products?pageSize=1
+  body: none
+  auth: none
+}
+
+assert {
+  res.status: eq 200
+}
+
+script:post-response {
+  bru.setVar("buySlug", res.body.items[0].slug);
+}
+
+tests {
+  test("the catalog has something in it", function() {
+    // A seeded catalog that came up empty would make every assertion below vacuous.
+    expect(res.body.items.length).to.be.above(0);
+  });
+}

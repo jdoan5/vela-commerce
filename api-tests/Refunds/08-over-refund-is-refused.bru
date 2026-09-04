@@ -1,0 +1,34 @@
+meta {
+  name: Refunding more than is left
+  type: http
+  seq: 8
+}
+
+post {
+  url: {{baseUrl}}/api/orders/{{refundOrder}}/refunds
+  body: json
+  auth: none
+}
+
+headers {
+  Idempotency-Key: {{$randomUUID}}
+}
+
+body:json {
+  {
+    "amount": {{refundCaptured}}
+  }
+}
+
+assert {
+  res.status: eq 409
+}
+
+tests {
+  test("refused rather than clamped to what is left", function() {
+    // Quietly returning less than was asked for is how somebody ends up believing they were
+    // made whole when they were not. The caller is told the figure instead.
+    expect(res.status).to.equal(409);
+    expect(res.body.detail).to.contain("Nothing has been refunded");
+  });
+}

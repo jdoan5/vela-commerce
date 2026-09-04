@@ -1,0 +1,31 @@
+meta {
+  name: Fill the cart again
+  type: http
+  seq: 9
+}
+
+post {
+  url: {{baseUrl}}/api/cart/items
+  body: json
+  auth: none
+}
+
+body:json {
+  {
+    "variantId": "{{buyVariantId}}",
+    "quantity": 1
+  }
+}
+
+assert {
+  res.status: eq 200
+  res.body.totalQuantity: eq 1
+}
+
+tests {
+  test("the cart was emptied by the successful checkout", function() {
+    // A cart that still held the first order's line would make the next request's
+    // "the cart survived" assertion meaningless.
+    expect(res.body.totalQuantity).to.equal(1);
+  });
+}

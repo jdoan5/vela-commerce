@@ -1,0 +1,37 @@
+meta {
+  name: Reopen the order with its signed link
+  type: http
+  seq: 8
+}
+
+get {
+  url: {{baseUrl}}/api/orders/{{orderNumber}}?token={{orderToken}}
+  body: none
+  auth: none
+}
+
+assert {
+  res.status: eq 200
+  res.body.orderNumber: eq {{orderNumber}}
+  res.body.status: eq Paid
+}
+
+tests {
+  test("the token opens the order without depending on the session", function() {
+    // This is what makes a confirmation link forwardable and survivable across a cleared
+    // cookie. The token names one order and expires; it is not an identity.
+    expect(res.body.orderNumber).to.equal(bru.getVar("orderNumber"));
+  });
+
+  test("a fresh token every read, and the old one still works", function() {
+    // Data Protection ciphertext is randomised, so two reads return two different strings.
+    // A stable token would be a stable secret sitting in browser history.
+    expect(res.body.retrievalToken).to.not.equal(bru.getVar("orderToken"));
+  });
+
+  test("the gateway's answer is not replayed from storage", function() {
+    // Status, captured and paid-at are durable facts on the order. What the gateway said is
+    // reported once, on the response to the checkout that asked it, and persisted nowhere.
+    expect(res.body.payment).to.equal(null);
+  });
+}

@@ -1,10 +1,9 @@
 # Vela Commerce API collection
 
-An executable description of **part of** the HTTP surface: browse the catalog, drive a cart through
-its whole life, and check both health probes. The money path is not here — checkout, order
-retrieval, refunds, cancellation, the settlement webhook, the demo reset and the Demo Lab are proved
-by the integration suite and by the Lab's own scenarios instead. Ten of the API's eighteen
-operations are covered. It runs in the [Bruno](https://usebruno.com)
+An executable description of the HTTP surface: browse the catalog, drive a cart through its whole
+life, buy something, refund it, cancel an order, watch the settlement receiver refuse three
+different forgeries, run a Demo Lab scenario, and check both health probes. All eighteen of the
+API's operations are covered. It runs in the [Bruno](https://usebruno.com)
 desktop app for exploring, and headless in CI as a smoke test.
 
 ## Why Bruno and not Postman
@@ -104,6 +103,10 @@ PostgreSQL, where a second session is a second `DbContext` rather than a second 
 | --- | --- |
 | **Catalog** | The three read endpoints. Paging clamps instead of rejecting, price sorts run on minor units and not on formatted strings, an unknown slug is a problem document, and the category facet counts must sum to the catalog total — two different queries over the same soft-delete predicate, which diverge if either stops filtering. |
 | **Cart** | The lifecycle in order: discover a variant, start empty, read empty, add, merge a repeat add, set an absolute quantity, re-read, then the four refusals (over the 99 cap, zero quantity, unknown variant, missing line), remove, remove again idempotently, refill, clear. |
+| **Checkout** | The money path. Fill a cart, place the order, replay the same idempotency key and get the same order back with a `200` instead of a second `201`, send a header and body key that disagree and get a `400`, reopen the order through its signed link — then a refused card, and the cart still holding what the shopper was trying to buy. |
+| **Refunds** | Buys its own order so it runs alone. A partial refund moves the money and writes exactly one ledger row; the same key replayed returns the first refund rather than issuing a second; more than is left is refused rather than clamped; the remainder is then taken. Finally a cancellation, which refunds the whole balance and puts both units back on the shelf as one act. |
+| **Webhooks** | The only endpoint an attacker can reach, approached as one. Three refusals told apart: a current signature whose MAC is wrong is `401` with a challenge, one outside the replay window is `400` because the timestamp is checked first, and an unparseable header is `400` because there was nothing to check. No request carries a real signature, which is the point. |
+| **Demo Lab** | The lab's own contract — every scenario must name the test file that proves the same thing in CI, and must publish what a button press will create before you press it. Then one run of `oversell`, asserting every individual check rather than the roll-up, and that it touched no row belonging to anybody else. Ends with the demo reset. |
 | **Health** | Both probes, kept apart. Liveness must not touch the database — wiring a container's liveness probe to the readiness one is how a sleeping database gets the container restart-looped instead of merely reported unhealthy. |
 
 Assertions are split by what they are good at: the `assert` block for status codes and flat

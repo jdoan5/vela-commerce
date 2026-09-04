@@ -1,0 +1,16 @@
+meta {
+  name: Start from an empty cart
+  type: http
+  seq: 3
+}
+
+delete {
+  url: {{baseUrl}}/api/cart
+  body: none
+  auth: none
+}
+
+assert {
+  res.status: eq 200
+  res.body.isEmpty: eq true
+}

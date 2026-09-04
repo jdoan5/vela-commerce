@@ -1,0 +1,29 @@
+meta {
+  name: Put two in the cart
+  type: http
+  seq: 4
+}
+
+post {
+  url: {{baseUrl}}/api/cart/items
+  body: json
+  auth: none
+}
+
+body:json {
+  {
+    "variantId": "{{refundVariantId}}",
+    "quantity": 2
+  }
+}
+
+assert {
+  res.status: eq 200
+  res.body.totalQuantity: eq 2
+}
+
+tests {
+  test("two units, so a cancellation has something visible to restock", function() {
+    expect(res.body.totalQuantity).to.equal(2);
+  });
+}

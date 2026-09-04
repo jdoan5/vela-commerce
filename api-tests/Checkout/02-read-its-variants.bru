@@ -1,0 +1,33 @@
+meta {
+  name: Read that product's variants
+  type: http
+  seq: 2
+}
+
+get {
+  url: {{baseUrl}}/api/catalog/products/{{buySlug}}
+  body: none
+  auth: none
+}
+
+assert {
+  res.status: eq 200
+}
+
+script:post-response {
+  const variant = res.body.variants[0];
+
+  bru.setVar("buyVariantId", variant.id);
+  bru.setVar("buySku", variant.sku);
+  // Captured from the CATALOG so the order's totals can be checked against the price the
+  // shop advertises, rather than against the order's own arithmetic agreeing with itself.
+  bru.setVar("buyUnitAmount", variant.price.amount);
+  bru.setVar("buyCurrency", variant.price.currency);
+}
+
+tests {
+  test("captured a sellable variant and its catalog price", function() {
+    expect(res.body.variants.length).to.be.above(0);
+    expect(res.body.variants[0].price.amount).to.be.above(0);
+  });
+}
