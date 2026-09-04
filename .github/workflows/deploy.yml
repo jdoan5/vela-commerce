@@ -755,9 +755,11 @@ jobs:
 #   [ ] `az containerapp secret set` run by hand for vela-db-connection (Neon POOLED
 #       connection string) and payment-signing-secret. Not the committed dev default.
 #   [ ] GHCR package visibility set to Public after the first push.
-#   [ ] Data Protection actually wired in Program.cs - PersistKeysToAzureBlobStorage plus
-#       SetApplicationName("vela-commerce"), reading VELA_DATAPROTECTION_BLOB_URI. The blob
-#       exists in Terraform; nothing reads it yet. Until it does, every deploy silently
-#       empties every visitor's cart and 404s every order-retrieval link, and NOTHING in this
+#   [x] Data Protection wired in Program.cs - PersistKeysToAzureBlobStorage plus
+#       SetApplicationName("vela-commerce"), reading VELA_DATAPROTECTION_BLOB_URI. DONE. What
+#       remains is to set that variable on the container app: the code treats its absence as
+#       legitimate (a developer's machine and the build-time OpenAPI generator both run
+#       without it) and only logs a warning, so an unset variable deploys perfectly happily
+#       and silently empties every visitor's cart on the next revision. Nothing in this
 #       pipeline will tell you - the smoke test starts a fresh session every time.
 # =========================================================================================
