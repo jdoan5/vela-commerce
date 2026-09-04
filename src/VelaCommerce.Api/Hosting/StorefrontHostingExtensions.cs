@@ -24,8 +24,14 @@ public static class StorefrontHostingExtensions
     /// route that does not exist has to come back as a 404 the caller can act on, not as an HTML
     /// document that a fetch will then fail to parse as JSON — which is a far more confusing bug to
     /// be handed than a plain 404.
+    /// <para>
+    /// <c>/admin</c> is here for the server-rendered admin pages, and it is reserved BEFORE those
+    /// pages exist rather than alongside them. Without it the fallback answers <c>/admin</c> with
+    /// the storefront's shell: a reviewer following the link gets the shop again, with no error
+    /// anywhere and nothing in a log to explain it.
+    /// </para>
     /// </summary>
-    private static readonly string[] ReservedPrefixes = ["/api", "/health", "/alive", "/openapi", "/scalar"];
+    private static readonly string[] ReservedPrefixes = ["/api", "/admin", "/health", "/alive", "/openapi", "/scalar"];
 
     /// <summary>
     /// Content types the default provider does not know but the WebAssembly runtime needs. A file

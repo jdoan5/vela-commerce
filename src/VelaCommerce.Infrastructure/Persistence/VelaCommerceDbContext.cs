@@ -5,6 +5,8 @@ using VelaCommerce.Domain.Inventory;
 using VelaCommerce.Domain.Orders;
 using VelaCommerce.Infrastructure.Tenancy;
 
+using VelaCommerce.Infrastructure.Persistence.CatalogOverrides;
+
 namespace VelaCommerce.Infrastructure.Persistence;
 
 /// <summary>
@@ -21,8 +23,10 @@ namespace VelaCommerce.Infrastructure.Persistence;
 /// query code.
 /// </para>
 /// <para>
-/// Every ENTITY type carries a query filter named <c>SoftDelete</c> — the two message-log tables,
-/// outbox_messages and processed_webhook_events, carry none and say so. A caller that genuinely
+/// Every ENTITY type carries a query filter named <c>SoftDelete</c>. Three tables do not, and each
+/// says so in its own configuration: outbox_messages and processed_webhook_events are message logs
+/// rather than entities, and demo_catalog_price_overrides is a per-session overlay where deleting a
+/// row already means what soft-deleting it would. A caller that genuinely
 /// needs deleted rows — an admin audit view, a restore — asks for them explicitly with
 /// <c>IgnoreQueryFilters(["SoftDelete"])</c>, which leaves any filter added later (demo
 /// tenancy, for instance) still in force.
@@ -143,5 +147,13 @@ public sealed class VelaCommerceDbContext : DbContext
         modelBuilder.Entity<Order>().HasQueryFilter(
             DemoTenancyFilter,
             order => CurrentDemoSessionId != null && order.DemoSessionId == CurrentDemoSessionId);
+
+        // The price overlay. Its fail-closed direction is worth naming because it is the benign
+        // one: a caller with no session matches no override rows, so the resolution falls through
+        // to the shared seed price. A visitor without a session sees the shop's own prices — never
+        // somebody else's, and never a blank catalog.
+        modelBuilder.Entity<DemoCatalogPriceOverride>().HasQueryFilter(
+            DemoTenancyFilter,
+            over => CurrentDemoSessionId != null && over.DemoSessionId == CurrentDemoSessionId);
     }
 }

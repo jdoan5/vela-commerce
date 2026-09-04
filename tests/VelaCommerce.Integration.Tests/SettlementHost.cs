@@ -233,6 +233,9 @@ public sealed class SettlementHost : WebApplicationFactory<Program>
                     maxRetryDelay: TimeSpan.FromSeconds(5),
                     errorCodesToAdd: null)));
 
+            services.RemoveAll<IDataProtectionProvider>();
+            services.AddSingleton<IDataProtectionProvider>(new EphemeralDataProtectionProvider());
+
             // THE REAPER IS SILENCED IN EVERY TEST HOST, FOR THE REASON SettlementHost STATES
             // ABOUT THE OTHER TWO WORKERS: every sweep in this suite should be one a test asked
             // for. It is registered — so the composition stays the real one — and its timer loop
@@ -244,9 +247,6 @@ public sealed class SettlementHost : WebApplicationFactory<Program>
             // expires_at to make a reservation lapse was racing an uncontrolled third writer.
             services.RemoveAll<ReservationReaperOptions>();
             services.AddSingleton(new ReservationReaperOptions { Enabled = false });
-
-            services.RemoveAll<IDataProtectionProvider>();
-            services.AddSingleton<IDataProtectionProvider>(new EphemeralDataProtectionProvider());
 
             // The simulator's options, replaced rather than configured. See remark 2 on the class.
             // RemoveAll first because AddPaymentSimulator registers with TryAdd, so the host's

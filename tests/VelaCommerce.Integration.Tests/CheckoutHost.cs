@@ -165,6 +165,9 @@ public sealed class CheckoutHost : WebApplicationFactory<Program>
                     maxRetryDelay: TimeSpan.FromSeconds(5),
                     errorCodesToAdd: null)));
 
+            services.RemoveAll<IDataProtectionProvider>();
+            services.AddSingleton<IDataProtectionProvider>(new EphemeralDataProtectionProvider());
+
             // THE REAPER IS SILENCED IN EVERY TEST HOST, FOR THE REASON SettlementHost STATES
             // ABOUT THE OTHER TWO WORKERS: every sweep in this suite should be one a test asked
             // for. It is registered — so the composition stays the real one — and its timer loop
@@ -176,9 +179,6 @@ public sealed class CheckoutHost : WebApplicationFactory<Program>
             // expires_at to make a reservation lapse was racing an uncontrolled third writer.
             services.RemoveAll<ReservationReaperOptions>();
             services.AddSingleton(new ReservationReaperOptions { Enabled = false });
-
-            services.RemoveAll<IDataProtectionProvider>();
-            services.AddSingleton<IDataProtectionProvider>(new EphemeralDataProtectionProvider());
 
             ComposeMissingServices(services);
 
