@@ -1,6 +1,6 @@
 # .NET 10 E-commerce Portfolio Showcase — "Vela Commerce"
 
-**Target directory:** `/Users/jdoan/Documents/GitHub/dotnet/Project 1/E-commerce Web App/`
+**Target directory:** `/Users/jdoan/Documents/GitHub/dotnet/vela-commerce` (the plan was written against `Project 1/E-commerce Web App/`; the repository was renamed before the first commit)
 **Written:** 2026-09-02 · Solo dev, part-time, new to .NET · Must stay live cheaply for years
 
 > **Machine-state note (verified on disk 2026-09-02, correcting the original brief).** Two premises in the original brief are false and this plan is written against the machine's actual state:
@@ -226,7 +226,7 @@ flowchart LR
 | **Azure** (CLI 2.89.1, logged in) | **The primary cloud.** Container Apps environment + app (min replicas 0) runs the API and admin; four Container Apps Jobs run the nightly reset/reaper, the reconciler safety net, the one-shot migration bundle and the `pg_dump` backup; a managed certificate + `asuid` TXT validation bind the custom domain; a Storage Account holds Terraform `azurerm` state **and the backups**; an Entra federated identity credential gives GitHub Actions keyless OIDC deploys. `az containerapp secret set` in the deploy step is what keeps connection strings, the webhook signing key and the Grafana token **out of Terraform state** — that is the mechanism behind the security claim in §10, not a stray CLI call. Explicitly not used: ACR (GHCR is free), App Service F1 (unusable), Azure Database for PostgreSQL (no permanent free tier), Application Insights (metered — and the "5 GB free" figure is not in Microsoft's current cost docs). |
 | **AWS** (CLI 2.36.33, logged in) | **Not used to host anything the demo depends on.** One optional, **feature-flagged** Native AOT `dotnet10` Lambda (receipt renderer, `provided.al2023`, us-east-1 to match the Rider toolkit profile) with its own Terraform module and OIDC role, **built and unit-tested in CI but deployed on demand**, degrading silently to server-rendered HTML receipts. **Day-one action: check the account's creation date and plan type, then write the ADR against what is true for *this* account.** The post-2025-07-15 Free plan — which lasts up to six months after which AWS closes the account with a 90-day data grace — applies to **new** accounts, and existing customers are ineligible for it; this CLI is already authenticated, so the account may well predate the change and carry no closure risk at all. Set a $1 budget alert regardless. App Runner has no free tier and cannot truly scale to zero (~$10.22/mo idle memory at 1 vCPU/2 GB ≈ $123/yr); Fargate has no free tier. Lambda's 1M requests + 400,000 GB-s/month is the one permanent AWS free tier, and `dotnet10` on AL2023 is supported to 2028-11-14. |
 | **GCP** (gcloud 581.0.0, logged in) | **Not used at runtime, and the login is decorative — say so.** `infra/gcp/` holds a Cloud Run module deploying the identical GHCR image, kept honest by `terraform validate` and `terraform plan` in CI and documented as the one-command escape hatch with a named trigger (if Azure changes the Container Apps grant). Reason it loses: career fit and solo maintenance surface, not technology — Cloud Run's free tier is identical and its .NET cold-start behaviour is reportedly the best of the three. Deploying a prebuilt image also sidesteps the unverified question of whether `gcloud run deploy --source` buildpacks currently support .NET 10. |
-| **Bruno** (desktop 4.0.0 → **4.1.0**; `bru` CLI **not installed**) | **Used.** Full API collection committed as plain-text `.bru` under `api-tests/` with `local`/`preview`/`ci` environments holding only placeholders and `{{variables}}`; `.env` gitignored. `npm i -g @usebruno/cli` (Node 24.17.0 is fine). **Always invoked from the collection root with `-r`** (`cd api-tests && bru run -r --env local`) — `bru` resolves `bruno.json` from the working directory and does not recurse without `-r`. Run by `usebruno/bruno-cli-action v1.0.0` with `--reporter-junit` as the post-deploy smoke test against preview and production; secrets injected via `bru run -r --env ci --env-var token=$TOKEN`. A CI step diffs the collection's endpoint list against the committed `openapi.json` — "my docs cannot drift" rather than "I wrote docs". The **desktop app** is the reviewer-facing half: the RUNBOOK tells a cloner to open the same folder (File → Open Collection) and use the GUI's environment switcher to hit local, preview or production without touching a CLI. |
+| **Bruno** (desktop 4.0.0 → **4.1.0**; `bru` CLI was not installed when this was written — it is now, at 4.1.0) | **Used.** Full API collection committed as plain-text `.bru` under `api-tests/` with `local`/`preview`/`ci` environments holding only placeholders and `{{variables}}`; `.env` gitignored. `npm i -g @usebruno/cli` (Node 24.17.0 is fine). **Always invoked from the collection root with `-r`** (`cd api-tests && bru run -r --env local`) — `bru` resolves `bruno.json` from the working directory and does not recurse without `-r`. Run by `usebruno/bruno-cli-action v1.0.0` with `--reporter-junit` as the post-deploy smoke test against preview and production; secrets injected via `bru run -r --env ci --env-var token=$TOKEN`. A CI step diffs the collection's endpoint list against the committed `openapi.json` — "my docs cannot drift" rather than "I wrote docs". The **desktop app** is the reviewer-facing half: the RUNBOOK tells a cloner to open the same folder (File → Open Collection) and use the GUI's environment switcher to hit local, preview or production without touching a CLI. |
 | **PostgreSQL 18** | **Used in four places**, same major version everywhere: Postgres.app 18 for ad-hoc/Rider work **and as the `pg_dump` client** (its binaries at `/Applications/Postgres.app/Contents/Versions/18/bin` are the only PG18 client on this Mac, and are also the fallback database when the Docker daemon is down), a pinned `postgres:18` container under the Aspire AppHost, `postgres:18` in Testcontainers, Neon (18.6, **pinned via `pg_version = 18` in Terraform**) in production. Used as more than a table store: uuidv7 keys generated in .NET via `Guid.CreateVersion7()`, jsonb complex types for product attributes, named query filters for soft-delete **and demo-session tenancy**, `ExecuteUpdateAsync` for the overlay repricing and expiry sweeps, CHECK constraints backing domain invariants, **unique indexes doing the idempotency and webhook-dedupe work**, stored-generated `tsvector` + GIN + `pg_trgm` search, `xmin` on Order, pgvector 0.8.0 as a stretch. Two connection strings: pooled `-pooler` for the app with `No Reset On Close=true`, direct for migrations and `pg_dump`. |
 | **Docker Desktop 29.7.2** (installed, **daemon NOT running**) | **Used for local development and for the first cold-start measurement.** The Aspire AppHost's `postgres:18` container and Testcontainers integration tests both hard-require the daemon; so does **running the published production image locally to measure cold start before paying for a cloud measurement** — which is the one thing Docker is uniquely good at here. **Not used to build images**: `dotnet publish /t:PublishContainer` produces and pushes OCI images with no daemon at all, and `-p ContainerArchiveOutputPath=./artifacts/api.tar.gz` writes a tarball when it is down. The only Dockerfile in the repo is `Dockerfile.vercel` on the preview/spike branch. `make test` preflights the daemon and fails with "Start Docker Desktop" rather than a 90-second timeout. CI uses `ubuntu-latest` (Docker present); macOS runners have none and are billed even on public repos. |
 | **Terraform 1.16.0** | **Used for everything.** `infra/modules/{aca-app, aca-job, dns, custom-domain, neon-project, grafana-stack, uptime, github-oidc-azure, github-oidc-aws, cloudrun}` consumed by two thin roots (`envs/production`, `envs/preview`) differing only by a tfvars file. `azurerm` blob backend (locking via blob leases — one resource is the whole state infrastructure). Providers pinned, `.terraform.lock.hcl` committed. `terraform plan` posted as a PR comment; `apply` gated on the `production` GitHub Environment with a required reviewer. `demo_profile = warm\|cold` is a variable that flips min replicas 0↔1, making interview mode a reviewable, reversible IaC input. **The `neon-project` module sets `pg_version = 18` explicitly** — the provider documents it as Optional with no default and Neon's own create-project example still shows `17`, and the major version cannot be changed later by editing the setting. The community **`kislerdm/neon` 0.6.1** provider is pinned with its unofficial status stated in `infra/README.md`, and Neon resources live in their own root so a provider break cannot block an app deploy. |
@@ -355,7 +355,7 @@ E-commerce Web App/
 │   ├── workflows/                       # claims, ci, preview, deploy, codeql, nightly — actions pinned by SHA
 │   └── dependabot.yml                   # nuget + npm + github-actions
 │
-├── .idea/                               # (exists) committed run configurations: aspire run, dotnet ef, playwright, bru
+├── .idea/                               # NOT committed — .gitignore excludes it; these run configurations were planned, never added
 │
 ├── docs/
 │   ├── demo.gif                         # committed by CI on every merge — the README hero
@@ -554,7 +554,13 @@ Print a **"verified on `<date>`"** line beside every figure in the README. The $
 
 ## 11. Day-1 checklist
 
-> **This is a reconciliation checklist, not a scaffold.** The directory already contains a git repo with one commit (`b370e30`), `VelaCommerce.slnx`, `global.json`, a 484-line `.gitignore`, an 18 KB `.editorconfig`, and five `VelaCommerce.*` projects. Run these from `/Users/jdoan/Documents/GitHub/dotnet/Project 1/E-commerce Web App/`. The directory name contains spaces — quote paths.
+> **Every statement about this machine in this section was read on 2026-09-02 and is not
+> maintained.** Tool versions, login state, whether a daemon is running and what is installed all
+> drift; the reasoning around them does not. Treat the facts as dated observations and re-check them
+> rather than trusting them — several were already wrong by the time the checklist was worked
+> through. Paths, by contrast, ARE maintained here, because the blocks below are meant to be pasted.
+
+> **This is a reconciliation checklist, not a scaffold.** The directory already contains a git repo with one commit (`b370e30`), `VelaCommerce.slnx`, `global.json`, a 484-line `.gitignore`, an 18 KB `.editorconfig`, and five `VelaCommerce.*` projects. Run these from `/Users/jdoan/Documents/GitHub/dotnet/vela-commerce`.
 
 **1. Confirm the existing SDK — do NOT install a second one.**
 
@@ -578,13 +584,13 @@ Only on a machine with **no** SDK would you run `brew install --cask dotnet-sdk`
 **2. Tighten the existing `global.json` pin.**
 
 ```bash
-cd "/Users/jdoan/Documents/GitHub/dotnet/Project 1/E-commerce Web App"
+cd /Users/jdoan/Documents/GitHub/dotnet/vela-commerce
 cat global.json   # exists: sdk 10.0.400, rollForward: latestFeature
 ```
 
 Edit `rollForward` from `latestFeature` to **`latestPatch`** — the stricter, more defensible pin for a repo that claims reproducibility. Do **not** run `dotnet new globaljson`; the file already exists and the command will fail.
 
-**3. Start Docker Desktop — the daemon is NOT running** (the socket at `~/.docker/run/docker.sock` does not exist). Aspire orchestration, Testcontainers and the local cold-start measurement all hard-require it.
+**3. Start Docker Desktop — the daemon was NOT running when this was written** (the socket at `~/.docker/run/docker.sock` does not exist). Aspire orchestration, Testcontainers and the local cold-start measurement all hard-require it.
 
 ```bash
 open -a "Docker"
@@ -632,7 +638,7 @@ vercel --version     # expect 54.14.2 (already installed)
 `VelaCommerce.slnx` and five projects already exist. Do **not** run `dotnet new sln` — a second solution file next to the `.slnx` makes `dotnet sln add` fail with "found more than one solution file".
 
 ```bash
-cd "/Users/jdoan/Documents/GitHub/dotnet/Project 1/E-commerce Web App"
+cd /Users/jdoan/Documents/GitHub/dotnet/vela-commerce
 
 # Aspire orchestration (13.5.x — verify the short name from `dotnet new list aspire`)
 dotnet new aspire-empty -o src/VelaCommerce.AppHost -n VelaCommerce.AppHost
@@ -678,7 +684,7 @@ dotnet build VelaCommerce.slnx
 The repo already exists (`git rev-parse --is-inside-work-tree` → true, one commit `b370e30`) and `.gitignore` is already 484 lines. Do not run `git init` or `dotnet new gitignore`.
 
 ```bash
-cd "/Users/jdoan/Documents/GitHub/dotnet/Project 1/E-commerce Web App"
+cd /Users/jdoan/Documents/GitHub/dotnet/vela-commerce
 git switch -c phase-0-toolchain
 
 cat >> .gitignore <<'EOF'
@@ -722,7 +728,7 @@ psql --version && pg_dump --version   # expect 18.x
 **9. Create the first Bruno collection — and run `bru` from the collection root.**
 
 ```bash
-cd "/Users/jdoan/Documents/GitHub/dotnet/Project 1/E-commerce Web App"
+cd /Users/jdoan/Documents/GitHub/dotnet/vela-commerce
 mkdir -p api-tests/environments
 
 cat > api-tests/bruno.json <<'EOF'

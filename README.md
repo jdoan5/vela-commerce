@@ -20,7 +20,7 @@ background service moving real rows in real PostgreSQL on a demo clock — 20 se
 40 more to Shipped — and the page stops polling by itself once the order reaches a terminal state,
 which is the "no longer checking" the last frames show.
 
-**Status.** Phases 0–4 and 6 of 10 are done — domain, seeded catalog, storefront, cart, tenancy,
+**Status.** Phases 1–4 and 6 of 10 are done, and Phase 0 all but its deployment — domain, seeded catalog, storefront, cart, tenancy,
 checkout, payments, transactional outbox, the order timeline, the Demo Lab and refunds — on **356
 passing tests** (191 domain, 8 architecture, 157 integration against a real PostgreSQL 18 in
 Testcontainers). Phases 5, 7, 8 and 9 are not started: nightly reset and backups, an admin UI,
@@ -28,7 +28,9 @@ preview environments, the ADRs. **There is no hosted demo, deliberately.** The A
 2026-09-04, and upgrading to Pay-As-You-Go permanently removes the spending limit that currently
 makes the subscription unable to bill at all — so the app gets finished first and deployed once,
 rather than half-deployed onto a subscription that can start charging. The GIF above is what a
-clone of this repo does today with `dotnet run`.
+clone of this repo does today, after `dotnet build` and `dotnet run --project src/VelaCommerce.Api`
+against a local PostgreSQL. Both steps matter: the API project does not reference the storefront, so
+the solution build is what puts the shop's files where the host serves them from.
 
 ---
 
@@ -44,15 +46,20 @@ without reading the bodies.
   is to let *both* inserts race a unique index instead of `SELECT`ing first; and why the gateway
   call sits *between* two transactions rather than inside one.
 - **[`src/VelaCommerce.Api/Endpoints/WebhookEndpoints.cs`](src/VelaCommerce.Api/Endpoints/WebhookEndpoints.cs)**
-  — the only endpoint reachable without a session. Four numbered rules: verify the HMAC over the
+  — the only endpoint whose caller is authenticated by something other than a cookie. No endpoint
+  here needs a pre-existing session, since the middleware mints one for anybody; this is the one
+  where that would prove nothing, because the caller is a payment gateway. Four numbered rules:
+  verify the HMAC over the
   bytes that arrived (never a re-serialization), make exactly-once the database's job, refuse
   out-of-order arrivals by construction, and keep everything before verification off PostgreSQL.
 - **[`src/VelaCommerce.Api/Endpoints/RefundEndpoints.cs`](src/VelaCommerce.Api/Endpoints/RefundEndpoints.cs)**
   — giving money back, in the one order that survives a gateway saying no: ask first, record
-  second. Read the note on why the order row is locked *across* the gateway call, and why the
-  `refunded <= captured` CHECK constraint cannot catch a concurrent over-refund on its own —
-  every racing handler writes the same absolute figure, so the column ends up correct above a
-  ledger with twelve rows in it. The lock is the only thing load-bearing.
+  second. Read the note on why the order row is locked *across* the gateway call — normally the
+  wrong shape, and the lesser evil here. The companion argument, for why the
+  `refunded <= captured` CHECK constraint cannot catch a concurrent over-refund on its own, is in
+  [`DemoLabEndpoints.cs`](src/VelaCommerce.Api/Endpoints/DemoLabEndpoints.cs) beside the scenario
+  that demonstrates it: every racing handler writes the same absolute figure, so the column ends up
+  correct above a ledger with twelve rows in it. The lock is the only thing load-bearing.
 - **[`src/VelaCommerce.Domain/Orders/OrderStateMachine.cs`](src/VelaCommerce.Domain/Orders/OrderStateMachine.cs)**
   — 34 lines, five legal edges, written as a table so a test can assert the whole set. Look for
   the absent self-transitions: `Paid -> Paid` is missing on purpose, which is what turns a
@@ -170,7 +177,8 @@ above shows four stages and the table shows `Pending`.
 cart shows the captured price beside the live one and checkout refuses with a 409 rather than
 charging either. A withdrawn variant is refused through the same path.
 
-**Architecture is a test, not a convention.** Eight ArchUnitNET rules run over the compiled IL: the
+**Architecture is a test, not a convention.** Eight rules run against the built assemblies — some
+through ArchUnitNET, some walking IL directly with Mono.Cecil, one over reflected metadata: the
 domain depends on nothing, dependencies point inward, the `DbContext` does not escape persistence,
 entities stay sealed and keep the constructor EF needs, and no type reads the ambient clock. That
 last rule failed on its first run and was right to — `Order` set `PlacedAt` from
@@ -193,7 +201,8 @@ constraints fire by bypassing the domain and writing the illegal row deliberatel
 
 ## Running it
 
-Requires the .NET 10 SDK (`global.json` pins 10.0.400) and PostgreSQL 18. Docker is needed only for
+Requires the .NET 10 SDK, 10.0.400 or later (`global.json` sets that as a floor and rolls forward
+across feature bands), and PostgreSQL 18. Docker is needed only for
 the integration tests.
 
 ```bash
@@ -282,5 +291,7 @@ docs/PLAN.md                      The full build plan, 10 phases.
 
 ## Licence
 
-MIT. Catalog imagery is generated client-side rather than committed; see the attribution manifest in
-`seed/catalog.seed.json`.
+MIT. Catalog imagery is drawn client-side from the product's own attributes rather than committed,
+so there is no third-party artwork in this repository to attribute. The image block in
+`seed/catalog.seed.json` records filenames and a placeholder licence field against the day real
+photography is sourced; it attributes nothing today, and says so.
