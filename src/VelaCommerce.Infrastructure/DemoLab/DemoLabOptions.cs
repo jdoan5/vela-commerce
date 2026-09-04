@@ -166,6 +166,12 @@ public sealed record DemoLabOptions
             RunTimeout = ReadTimeSpan(section, nameof(RunTimeout), defaults.RunTimeout),
             RequestTimeout = ReadTimeSpan(section, nameof(RequestTimeout), defaults.RequestTimeout),
             MaxBodyCharacters = ReadInt32(section, nameof(MaxBodyCharacters), defaults.MaxBodyCharacters),
+
+            // Added with the global run budget and omitted here, so the deployment-wide throttle -
+            // the one that is not keyed on a session and therefore cannot be farmed - was the only
+            // bound a host could not turn down.
+            MaxRunsPerWindow = ReadInt32(section, nameof(MaxRunsPerWindow), defaults.MaxRunsPerWindow),
+            GlobalWindow = ReadTimeSpan(section, nameof(GlobalWindow), defaults.GlobalWindow),
         };
     }
 

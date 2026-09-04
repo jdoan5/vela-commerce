@@ -57,7 +57,6 @@ public sealed class DemoLabLoopback : IDisposable
 
     private readonly DemoLabOptions _options;
     private readonly HttpClient _http;
-    private readonly bool _ownsHandler;
 
     /// <summary>Builds the client.</summary>
     /// <param name="options">Bounds; only the per-request timeout and body cap are read here.</param>
@@ -70,7 +69,6 @@ public sealed class DemoLabLoopback : IDisposable
         ArgumentNullException.ThrowIfNull(options);
 
         _options = options;
-        _ownsHandler = handler is null;
 
         // UseCookies = false, and it is the single most important line in this class.
         //
@@ -274,14 +272,17 @@ public sealed class DemoLabLoopback : IDisposable
             : text[.._options.MaxBodyCharacters]
               + $"... [truncated: {text.Length - _options.MaxBodyCharacters} more characters]";
 
-    /// <summary>Disposes the client, and the handler if this instance created it.</summary>
-    public void Dispose()
-    {
-        if (_ownsHandler)
-        {
-            _http.Dispose();
-        }
-    }
+    /// <summary>
+    /// Disposes the client, and the handler with it only if this instance created it.
+    /// <para>
+    /// The client is disposed unconditionally, and the ownership question is already answered by the
+    /// <c>disposeHandler</c> flag passed to its constructor — <c>true</c> when this class made the
+    /// handler, <c>false</c> when one was injected. Guarding this call on ownership instead, as it
+    /// used to, meant the injected path disposed nothing at all and leaked the client while
+    /// carefully not touching a handler the caller owns anyway.
+    /// </para>
+    /// </summary>
+    public void Dispose() => _http.Dispose();
 }
 
 /// <summary>One request the lab is about to make, as the transcript will describe it.</summary>

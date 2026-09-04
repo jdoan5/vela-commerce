@@ -97,7 +97,7 @@ public sealed record PaymentSimulatorOptions
     /// Whether the trailing cents of the amount may select a scenario when no explicit hint is
     /// given. See <see cref="PaymentScenarioCatalog"/> for the mapping.
     /// <para>
-    /// Default on, and the tradeoff is real: an order whose total genuinely ends in <c>.03</c>
+    /// Default OFF in code and switched on by appsettings.Development.json, and the tradeoff is real: an order whose total genuinely ends in <c>.03</c>
     /// will duplicate its webhook. That is acceptable for a demo whose stated purpose is showing
     /// duplicate webhooks being handled correctly, and it is why the flag exists — a deployment
     /// that wants scenarios driven only by an explicit hint turns it off here rather than by

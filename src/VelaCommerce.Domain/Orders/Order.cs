@@ -70,7 +70,7 @@ public sealed class Order : Entity
     public IReadOnlyList<OrderLine> Lines => _lines;
 
     /// <summary>
-    /// Every refund on this order, oldest first once loaded. <see cref="Refunded"/> is the fold of
+    /// Every refund on this order, in whatever order the database returned them — nothing configures an ordering on the navigation, so callers that care sort at the point of use, as the API's Describe does. <see cref="Refunded"/> is the fold of
     /// their amounts, kept as a column because the CHECK constraint that stops an over-refund has
     /// to compare against something the database can see without summing a child table.
     /// </summary>

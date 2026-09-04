@@ -12,8 +12,10 @@ namespace VelaCommerce.Domain.Payments;
 /// the bug a webhook-driven gateway exists to create.
 /// </para>
 /// <para>
-/// Values are explicit because these are persisted alongside the order and read back by the
-/// admin timeline; reordering the enum must not repaint history.
+/// Values are explicit as a habit for an enum crossing a serialization boundary. It is NOT
+/// persisted today — no column holds it, and the order carries the durable facts instead — so a
+/// reorder would repaint nothing yet. Keep them explicit anyway: the day it is stored, a reorder
+/// becomes silent and irreversible.
 /// </para>
 /// </summary>
 public enum PaymentOutcome

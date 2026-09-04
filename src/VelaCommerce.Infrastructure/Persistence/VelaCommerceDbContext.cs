@@ -21,7 +21,8 @@ namespace VelaCommerce.Infrastructure.Persistence;
 /// query code.
 /// </para>
 /// <para>
-/// Every mapped type carries a query filter named <c>SoftDelete</c>. A caller that genuinely
+/// Every ENTITY type carries a query filter named <c>SoftDelete</c> — the two message-log tables,
+/// outbox_messages and processed_webhook_events, carry none and say so. A caller that genuinely
 /// needs deleted rows — an admin audit view, a restore — asks for them explicitly with
 /// <c>IgnoreQueryFilters(["SoftDelete"])</c>, which leaves any filter added later (demo
 /// tenancy, for instance) still in force.

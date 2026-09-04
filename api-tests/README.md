@@ -1,7 +1,10 @@
 # Vela Commerce API collection
 
-An executable description of the HTTP surface: browse the catalog, drive a cart through its
-whole life, and check both health probes. It runs in the [Bruno](https://usebruno.com)
+An executable description of **part of** the HTTP surface: browse the catalog, drive a cart through
+its whole life, and check both health probes. The money path is not here — checkout, order
+retrieval, refunds, cancellation, the settlement webhook, the demo reset and the Demo Lab are proved
+by the integration suite and by the Lab's own scenarios instead. Ten of the API's eighteen
+operations are covered. It runs in the [Bruno](https://usebruno.com)
 desktop app for exploring, and headless in CI as a smoke test.
 
 ## Why Bruno and not Postman
@@ -117,7 +120,8 @@ to handle, and they are the ones that rot quietly.
 ## In CI
 
 `.github/workflows/ci.yml` runs this collection against a real API and a real PostgreSQL on
-every push. See the `api-collection` job for how the API is started and why a service
+every push to `main` and every pull request against `main` — a push to a feature branch with no
+open PR runs nothing. See the `api-collection` job for how the API is started and why a service
 container is used instead of Testcontainers.
 
 The `baseUrl` in `environments/local.bru` is `http://localhost:5008`, matching
