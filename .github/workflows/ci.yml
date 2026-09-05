@@ -197,6 +197,27 @@ jobs:
       - name: Restore the local tools
         run: dotnet tool restore --tool-manifest dotnet-tools.json
 
+      # `dotnet tool restore` restores the TOOLS. It does not restore the PROJECT, and this job
+      # used to go straight from there to dotnet-ef, on a runner whose checkout has no obj/ at
+      # all. dotnet-ef tried to build, hit
+      #
+      #   error NETSDK1004: Assets file '.../obj/project.assets.json' not found.
+      #   Unable to retrieve project metadata. Ensure it's an SDK-style project.
+      #
+      # and exited non-zero - which the `if !` below then reported as "the EF model has changed
+      # with no migration to match". The gate was red on every run since it was added, always
+      # naming a cause that was never true, and it had therefore never once checked the model it
+      # exists to check. A gate that cannot tell "I could not run" from "I found a problem" is
+      # worse than no gate: it trains you to ignore it.
+      #
+      # Building here rather than letting dotnet-ef do it is what separates the two. A broken
+      # build now fails THIS step, with the compiler's own message; the check that follows runs
+      # --no-build, so the only thing left that can fail it is genuine drift.
+      - name: Build the model's project
+        run: |
+          dotnet restore src/VelaCommerce.Infrastructure
+          dotnet build --no-restore --configuration Release src/VelaCommerce.Infrastructure
+
       # A model edited without a migration is invisible until deployment, where it becomes a
       # revision meeting a schema it cannot read. The command exits non-zero when the model
       # has drifted, which is exactly the gate wanted here.
@@ -208,6 +229,7 @@ jobs:
       - name: Check for a model without a migration
         run: |
           if ! dotnet tool run dotnet-ef migrations has-pending-model-changes \
+                 --no-build --configuration Release \
                  --project src/VelaCommerce.Infrastructure \
                  --startup-project src/VelaCommerce.Infrastructure; then
             echo "::error::The EF model has changed with no migration to match. Run:"

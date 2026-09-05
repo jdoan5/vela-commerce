@@ -218,6 +218,52 @@ public sealed class AdminConsoleTests : IDisposable
         Assert.Null(await OverrideAmountAsync(porthole.VariantId));
     }
 
+    /// <summary>
+    /// Sign-out answers the redirect it builds, and takes the cookie back.
+    /// <para>
+    /// This route had no test at all until the handler was found returning a blank 200: its only
+    /// parameter is <see cref="HttpContext"/>, which makes it match <c>RequestDelegate</c>, and that
+    /// overload discards the <see cref="IResult"/>. The cookie was cleared and the redirect was
+    /// thrown away, so the button worked and went nowhere. Only the compiler noticed, and only on a
+    /// full Release compile.
+    /// </para>
+    /// <para>
+    /// Note what is deliberately NOT asserted: that the old ticket stops working. Cookie
+    /// authentication has no server-side session to invalidate — signing out deletes the cookie
+    /// from the browser, and a ticket someone had already copied stays valid until it expires on
+    /// its own. Asserting revocation here would be asserting a property this scheme does not have.
+    /// What stops a copied ticket is the session binding, which
+    /// <see cref="An_admin_cookie_from_one_session_is_inert_in_another"/> covers.
+    /// </para>
+    /// </summary>
+    [Fact]
+    public async Task Signing_out_redirects_to_the_console_and_takes_the_cookie_back()
+    {
+        var admin = await FreshAdminCookiesAsync();
+
+        using var raw = _shop.Host.NewCookieWatchingClient();
+
+        var carried = $"{admin.Session}; {admin.Admin}";
+        var (antiforgeryCookie, token) = await AntiforgeryPairAsync(raw, carried);
+
+        using var request = new HttpRequestMessage(HttpMethod.Post, "/api/admin/sign-out");
+        request.Headers.Add("Cookie", $"{carried}; {antiforgeryCookie}");
+        request.Content = new FormUrlEncodedContent(new Dictionary<string, string>
+        {
+            ["__RequestVerificationToken"] = token,
+        });
+
+        using var response = await raw.SendAsync(request);
+
+        // The status and the destination, separately: a 303 to nowhere would still fail the click.
+        Assert.Equal(HttpStatusCode.SeeOther, response.StatusCode);
+        Assert.Equal("/admin", response.Headers.Location?.ToString());
+
+        // And the cookie is actually taken back rather than merely being redirected away from.
+        var cleared = SetCookie(response, DemoAdminAuthentication.CookieName);
+        Assert.Equal($"{DemoAdminAuthentication.CookieName}=", cleared);
+    }
+
     /// <summary>A demo visitor's two cookies: the session they were given, and the ticket they earned.</summary>
     private sealed record AdminBrowser(string Session, string Admin);
 

@@ -45,7 +45,15 @@ public static class AdminEndpoints
         // Sign-in and sign-out are the two routes that cannot require the policy: one exists to
         // obtain the credential and the other to discard it.
         open.MapPost("/sign-in", SignInAsync);
-        open.MapPost("/sign-out", SignOutAsync);
+
+        // The cast is load-bearing, and its absence is silent. SignOutAsync's only parameter is
+        // HttpContext, which makes it match RequestDelegate, and MapPost prefers that overload over
+        // the route-handler one. RequestDelegate returns Task, so the IResult this method builds is
+        // constructed and dropped: the cookie is still cleared - the await runs - but the caller
+        // gets a blank 200 instead of the 303 that sends them back to /admin. It compiles, it half
+        // works, and only ASP0016 under -warnaserror says so. SignInAsync escapes it by accident,
+        // by taking a second parameter.
+        open.MapPost("/sign-out", (Delegate)SignOutAsync);
 
         var guarded = app.MapGroup("/api/admin")
             .WithTags("Admin")
