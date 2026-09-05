@@ -13,6 +13,7 @@ using Microsoft.Extensions.Hosting;
 using VelaCommerce.Api.Endpoints;
 using VelaCommerce.Domain.Payments;
 using VelaCommerce.Infrastructure.Checkout;
+using VelaCommerce.Infrastructure.Fulfilment;
 using VelaCommerce.Infrastructure.Payments;
 using VelaCommerce.Infrastructure.Persistence;
 
@@ -194,6 +195,19 @@ public sealed class CheckoutHost : WebApplicationFactory<Program>
             // expires_at to make a reservation lapse was racing an uncontrolled third writer.
             services.RemoveAll<ReservationReaperOptions>();
             services.AddSingleton(new ReservationReaperOptions { Enabled = false });
+
+            // AND THE TIMELINE WORKER, for the same reason and one more. The comment above said
+            // "every sweep in this suite should be one a test asked for" and then silenced exactly
+            // one of the two sweepers: OrderTimelineWorker ran live in every CheckoutHost-based
+            // test, moving Paid -> Packed -> Shipped on the system clock against the shared
+            // container. It was usually harmless because PaidDwell is 20 seconds and the suite
+            // finishes inside that, which is luck rather than isolation - and luck that runs out
+            // the moment a test backdates PaidAt, or a slow CI runner takes 20 seconds.
+            //
+            // It is also the third writer to orders.status, which is what the admin's pack races.
+            // A race test cannot be written against a worker that might also be running.
+            services.RemoveAll<OrderTimelineOptions>();
+            services.AddSingleton(new OrderTimelineOptions { Enabled = false });
 
             ComposeMissingServices(services);
 

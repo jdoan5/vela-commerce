@@ -154,28 +154,99 @@ public static class AdminEndpoints
         // No WHERE on the session: the DemoTenancy filter supplies it, so another visitor's order is
         // not found rather than forbidden. The difference matters - a 403 would confirm the order
         // exists, and this endpoint must not be usable to discover order numbers.
-        var order = await db.Orders
-            .FirstOrDefaultAsync(entity => entity.OrderNumber == normalized, cancellationToken);
+            //
+        // This read answers "whose order is this", and nothing else. It deliberately does not
+        // decide whether the order may be packed, because by the time that decision was acted on it
+        // would be a decision about a row nobody was holding.
+        var owned = await db.Orders
+            .AsNoTracking()
+            .Where(entity => entity.OrderNumber == normalized)
+            .Select(entity => (Guid?)entity.Id)
+            .FirstOrDefaultAsync(cancellationToken);
 
-        if (order is null)
+        if (owned is not { } orderId)
         {
             return NoSuchOrder();
         }
 
-        if (order.Status is not OrderStatus.Paid)
+        // The admin is the SECOND writer to orders.status. OrderTimelineWorker is the first, and it
+        // states the rule this used to break: the status has to be part of the claim rather than
+        // checked afterwards in C#, because checking it BEFORE the lock - which is the natural
+        // thing to write, and what was written here - is not the same thing at all.
+        //
+        // WHAT THE MISSING CLAIM ACTUALLY COST, since the first version of this comment guessed and
+        // guessed wrong. It was not silent corruption. An admin request that read Paid and then
+        // paused while the worker took the order Paid -> Packed -> Shipped comes back to call
+        // MarkPacked on a Shipped order, and OrderStateMachine has no Shipped -> Packed edge, so it
+        // throws: an unhandled exception and a 500, on every stale path, including the far more
+        // ordinary one where the worker merely packed it first. Measured by deleting the predicate
+        // and watching the test - the answer is 500, not a reverted order.
+        //
+        // That is the absent self-transitions earning their keep, and it is worth being precise
+        // about: the state machine is what makes this loud, and the claim below is what makes it
+        // CORRECT. There is no concurrency token on Order to fall back on - xmin appears in this
+        // repository only as evidence in the Demo Lab, never as a mapped row version - so without
+        // the claim there is nothing between a stale read and a stack trace.
+        // Wrapped in the execution strategy, which is not optional: Npgsql is configured to retry
+        // on transient faults, and a retrying strategy refuses a transaction it did not open -
+        // "does not support user-initiated transactions", as a 500 rather than a compile error.
+        // ChangeTracker.Clear() is inside the lambda for the same reason it is in the refund path:
+        // a retry that inherits entities tracked by the attempt that failed is a retry of something
+        // other than what was asked for.
+        var strategy = db.Database.CreateExecutionStrategy();
+
+        return await strategy.ExecuteAsync(async Task<IResult> (CancellationToken token) =>
         {
-            return TypedResults.Problem(
-                title: "That order cannot be packed",
-                detail: $"The order is {order.Status}. Only a Paid order can be packed, and the "
-                        + "timeline worker packs orders on its own schedule too - so this is the "
-                        + "ordinary answer when it got there first.",
-                statusCode: StatusCodes.Status409Conflict);
-        }
+            db.ChangeTracker.Clear();
 
-        order.MarkPacked();
-        await db.SaveChangesAsync(cancellationToken);
+            await using var transaction = await db.Database.BeginTransactionAsync(token);
 
-        return SeeOther("/admin/orders");
+            var paid = (int)OrderStatus.Paid;
+
+            // FOR UPDATE, and deliberately NOT the worker's SKIP LOCKED. A worker that skips a locked
+            // row loses nothing - it sweeps again in a second. A person who clicked a button wants an
+            // answer about their order, so this one waits for the lock and then reports what it found:
+            // either it packs, or the status has moved on and the 409 below is true rather than a guess
+            // about who is holding the row.
+        //
+            // IgnoreQueryFilters() with no arguments, for the reason OrderTimelineWorker.ClaimAsync
+            // spells out: leave the filters on and EF wraps the statement in a subquery, which buries
+            // the locking clause and makes the claim stop being a claim. Dropping tenancy here is safe
+            // precisely because the query above already established the order is this caller's - the id
+            // came through the filter, and an id is not a capability anyone else can guess.
+            var claimed = await db.Orders
+                .FromSql(
+                    $"""
+                     SELECT *
+                     FROM orders
+                     WHERE id = {orderId}
+                       AND status = {paid}
+                       AND deleted_at IS NULL
+                     FOR UPDATE
+                     """)
+                .IgnoreQueryFilters()
+                .ToListAsync(token);
+
+            if (claimed.Count == 0)
+            {
+                return TypedResults.Problem(
+                    title: "That order cannot be packed",
+                    detail: "Only a Paid order can be packed, and the timeline worker packs orders "
+                            + "on its own schedule too - so this is the ordinary answer when it got "
+                            + "there first. Reload the console to see where the order actually is.",
+                    statusCode: StatusCodes.Status409Conflict);
+            }
+
+            // Through the state machine, never an UPDATE on the column. OrderStateMachine has no
+            // self-transitions on purpose, so a second pack throws instead of silently succeeding, and
+            // writing the column in SQL would throw that alarm away - the same argument the worker
+            // makes for itself, and it applies to a button at least as much as to a sweep.
+            claimed[0].MarkPacked();
+            await db.SaveChangesAsync(token);
+            await transaction.CommitAsync(token);
+
+            return SeeOther("/admin/orders");
+        }, cancellationToken);
     }
 
     private static async Task<IResult> RepriceAsync(

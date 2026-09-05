@@ -3,6 +3,7 @@ using System.Net.Http.Json;
 using System.Text.RegularExpressions;
 using Microsoft.EntityFrameworkCore;
 using VelaCommerce.Api.Admin;
+using VelaCommerce.Domain.Orders;
 using VelaCommerce.Api.Tenancy;
 using VelaCommerce.Infrastructure.Persistence;
 using VelaCommerce.Infrastructure.Persistence.CatalogOverrides;
@@ -84,10 +85,18 @@ public sealed class AdminConsoleTests : IDisposable
             $"{route} answered {(int)response.StatusCode}, which is neither the 303 it sends nor "
             + "the 200 a redirect-following client would land on.");
 
-    /// <summary>Opens a browser and signs it in as the demo admin for its own session.</summary>
-    private async Task<HttpClient> AdminAsync()
+    /// <summary>
+    /// Signs a browser in as the demo admin for its own session.
+    /// <para>
+    /// Takes an existing client when the caller needs the admin and the orders to belong to the
+    /// same visitor — the console is session-scoped, so an admin minted in a fresh browser can
+    /// never see an order placed in another one. That is the tenancy working, and it makes a
+    /// happy-path pack test impossible to write without this parameter.
+    /// </para>
+    /// </summary>
+    private async Task<HttpClient> AdminAsync(HttpClient? existing = null)
     {
-        var client = _shop.Host.NewBrowser();
+        var client = existing ?? _shop.Host.NewBrowser();
 
         // Establishes the demo session first: the ticket is issued for whoever is asking, so there
         // has to be somebody asking.
@@ -262,6 +271,177 @@ public sealed class AdminConsoleTests : IDisposable
         // And the cookie is actually taken back rather than merely being redirected away from.
         var cleared = SetCookie(response, DemoAdminAuthentication.CookieName);
         Assert.Equal($"{DemoAdminAuthentication.CookieName}=", cleared);
+    }
+
+    /// <summary>
+    /// The console's own banner must not believe a lifted cookie.
+    /// <para>
+    /// <c>/admin</c> is the one admin page without the policy attribute — it has to render for a
+    /// visitor who has not signed in, since it is where they sign in. So it decided what to show
+    /// from <c>User.Identity.IsAuthenticated</c>, and authentication is the half that a lifted
+    /// ticket passes: the ticket is genuine, it is only issued for somebody else. The page then
+    /// told an attacker "Signed in." and, in the same box, that the cookie "is checked against that
+    /// session on every request. Copied into another browser it is inert" — which was true of every
+    /// page except the one saying it.
+    /// </para>
+    /// <para>
+    /// This needs its own test rather than a strengthened existing one:
+    /// <see cref="AntiforgeryPairAsync"/> performs exactly this GET and asserts only that it is 200
+    /// with a token in it, and both branches of the page render a form with a token.
+    /// </para>
+    /// </summary>
+    [Fact]
+    public async Task The_console_shows_a_lifted_cookie_the_sign_in_form_not_a_welcome()
+    {
+        var alice = await FreshAdminCookiesAsync();
+        var bob = await FreshAdminCookiesAsync();
+
+        using var lifted = _shop.Host.NewCookieWatchingClient();
+
+        using var request = new HttpRequestMessage(HttpMethod.Get, "/admin");
+        request.Headers.Add("Cookie", $"{bob.Session}; {alice.Admin}");
+
+        using var response = await lifted.SendAsync(request);
+        var html = await response.Content.ReadAsStringAsync();
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+
+        // Both halves, because either alone is satisfiable by a page that renders nothing useful.
+        Assert.DoesNotContain("Signed in.", html, StringComparison.Ordinal);
+        Assert.Contains("Sign in as demo admin", html, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// The one thing the console leads with, which had no test at all.
+    /// <para>
+    /// Every pack assertion in this file was about a refusal — another session's order is a 404, a
+    /// caller with no cookie is a 401. <c>PackAsync</c> could have stopped writing entirely and all
+    /// 378 tests would have stayed green, while the README and ADR 0004 both describe packing as
+    /// the admin's one order mutation.
+    /// </para>
+    /// <para>
+    /// The stock assertion is the second half and not decoration: ADR 0004's whole argument for
+    /// allowing pack is that it is the transition which touches no shared row. That is a claim
+    /// about the ledger, so the ledger is what gets read.
+    /// </para>
+    /// </summary>
+    [Fact]
+    public async Task Packing_your_own_paid_order_moves_it_and_leaves_the_shared_ledger_alone()
+    {
+        var lantern = await _shop.StockAsync("Anchor lantern", onHand: 6);
+
+        var shopper = await _shop.NewShopperAsync();
+        await shopper.AddToCartAsync(lantern);
+
+        using var placed = await shopper.CheckoutAsync($"pack-{Guid.CreateVersion7():N}");
+        var order = await ResponseReader.OrderAsync(placed);
+
+        var before = await LedgerAsync(lantern.VariantId);
+
+        using var admin = await AdminAsync(shopper.Client);
+
+        using var packed = await PostFormAsync(
+            admin, "/admin", $"/api/admin/orders/{order.OrderNumber}/pack");
+
+        AssertAccepted(packed, "pack");
+
+        Assert.Equal(OrderStatus.Packed, await StatusAsync(order.OrderNumber));
+        Assert.Equal(before, await LedgerAsync(lantern.VariantId));
+    }
+
+    /// <summary>
+    /// The stale write the claim exists to turn into an answer.
+    /// <para>
+    /// An admin reads Paid, the timeline worker takes the order Paid → Packed → Shipped, and the
+    /// admin's write lands afterwards. Deleting the status predicate from the claim was measured
+    /// rather than assumed, and the result is a <b>500, not a reverted order</b>:
+    /// <c>OrderStateMachine</c> has no <c>Shipped → Packed</c> edge, so <c>MarkPacked</c> throws.
+    /// The absent self-transitions are the backstop. What the claim adds is the difference between
+    /// a stack trace and a 409 that tells the truth — and it covers the far more ordinary case too,
+    /// where the worker merely packed the order a second earlier.
+    /// </para>
+    /// <para>
+    /// So this test asserts the status code, not just "not success". A 500 here would mean the
+    /// guard is gone and only the domain is catching it, which is precisely the state the endpoint
+    /// was in before.
+    /// </para>
+    /// <para>
+    /// The move to Shipped is made directly rather than by waiting on the worker, which this host
+    /// now silences: a race test whose other party is a live background service on a 20-second
+    /// dwell is a test that passes because nothing happened.
+    /// </para>
+    /// </summary>
+    [Fact]
+    public async Task Packing_an_order_that_moved_on_is_refused_rather_than_reverting_it()
+    {
+        var cleat = await _shop.StockAsync("Bow shackle", onHand: 4);
+
+        var shopper = await _shop.NewShopperAsync();
+        await shopper.AddToCartAsync(cleat);
+
+        using var placed = await shopper.CheckoutAsync($"revert-{Guid.CreateVersion7():N}");
+        var order = await ResponseReader.OrderAsync(placed);
+
+        using var admin = await AdminAsync(shopper.Client);
+
+        // The token is fetched while the order is still Paid, exactly as a browser would have it:
+        // the admin's page was rendered before the worker moved anything.
+        var token = await TokenFromAsync(admin, "/admin");
+
+        await AdvanceToShippedAsync(order.OrderNumber);
+
+        using var attempt = await admin.PostAsync(
+            $"/api/admin/orders/{order.OrderNumber}/pack",
+            new FormUrlEncodedContent(new Dictionary<string, string>
+            {
+                ["__RequestVerificationToken"] = token,
+            }));
+
+        Assert.Equal(HttpStatusCode.Conflict, attempt.StatusCode);
+
+        // The refusal is the visible half; this is the half that matters.
+        Assert.Equal(OrderStatus.Shipped, await StatusAsync(order.OrderNumber));
+    }
+
+    /// <summary>Drives one order through the state machine out of band, the way the worker would.</summary>
+    private async Task AdvanceToShippedAsync(string orderNumber)
+    {
+        await using var db = _fixture.CreateContext();
+
+        var order = await db.Orders
+            .IgnoreQueryFilters()
+            .Include(entity => entity.Lines)
+            .SingleAsync(entity => entity.OrderNumber == orderNumber);
+
+        order.MarkPacked();
+        order.MarkShipped();
+
+        await db.SaveChangesAsync();
+    }
+
+    private async Task<OrderStatus> StatusAsync(string orderNumber)
+    {
+        await using var db = _fixture.CreateContext();
+
+        return await db.Orders
+            .IgnoreQueryFilters()
+            .Where(entity => entity.OrderNumber == orderNumber)
+            .Select(entity => entity.Status)
+            .SingleAsync();
+    }
+
+    /// <summary>The shared stock row as a pair, so a change to either half fails the comparison.</summary>
+    private async Task<(int OnHand, int Reserved)> LedgerAsync(Guid variantId)
+    {
+        await using var db = _fixture.CreateContext();
+
+        var row = await db.StockItems
+            .IgnoreQueryFilters()
+            .Where(item => item.VariantId == variantId)
+            .Select(item => new { item.OnHand, item.Reserved })
+            .SingleAsync();
+
+        return (row.OnHand, row.Reserved);
     }
 
     /// <summary>A demo visitor's two cookies: the session they were given, and the ticket they earned.</summary>

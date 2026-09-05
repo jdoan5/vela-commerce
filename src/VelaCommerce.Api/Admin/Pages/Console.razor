@@ -1,5 +1,7 @@
 @page "/admin"
+@using Microsoft.AspNetCore.Authorization
 @using Microsoft.AspNetCore.Http
+@inject IAuthorizationService Authorization
 
 <h1>Demo admin</h1>
 
@@ -64,5 +66,28 @@ else
     [CascadingParameter]
     private HttpContext? HttpContext { get; set; }
 
-    private bool SignedIn => HttpContext?.User.Identity?.IsAuthenticated == true;
+    private bool SignedIn { get; set; }
+
+    /// <summary>
+    /// Evaluates the policy rather than reading IsAuthenticated, which is the distinction the
+    /// banner above is about.
+    /// <para>
+    /// This is the only admin page without an [Authorize] attribute, because it is where a visitor
+    /// signs in and therefore has to render for someone who has not. That made IsAuthenticated the
+    /// obvious test, and it is the wrong one: authentication asks "is this ticket genuine", and a
+    /// ticket lifted out of another browser is genuine. Only the policy asks the question the page
+    /// claims to be asking — is this ticket genuine AND issued for the session in front of me —
+    /// because that is where BoundToTheCallersSessionHandler runs. Until this evaluated it, /admin
+    /// greeted a stolen cookie with "Signed in." while every guarded page correctly refused it.
+    /// </para>
+    /// <para>
+    /// The other admin pages need nothing like this: [Authorize] means the framework has already
+    /// run the same policy before the component is constructed.
+    /// </para>
+    /// </summary>
+    protected override async Task OnInitializedAsync()
+    {
+        SignedIn = HttpContext is not null
+            && (await Authorization.AuthorizeAsync(HttpContext.User, DemoAdminAuthentication.Policy)).Succeeded;
+    }
 }
