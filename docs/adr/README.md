@@ -12,6 +12,6 @@ which record replaced it.
 | # | Decision | Status |
 |---|---|---|
 | [0001](0001-a-demo-admin-with-no-password.md) | A demo admin with no password | Accepted |
-| [0002](0002-a-per-session-price-overlay.md) | A per-session price overlay, never a write to the catalog | Accepted |
+| [0002](0002-a-per-session-price-overlay.md) | A per-session price overlay, never a write to the catalog | Accepted · addendum 2026-09-05 |
 | [0003](0003-static-ssr-beside-a-webassembly-shop.md) | Static SSR for the admin, beside a WebAssembly shop | Accepted |
 | [0004](0004-the-admin-cannot-ship-or-restock.md) | The admin cannot ship an order or adjust stock | Accepted |

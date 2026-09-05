@@ -5,10 +5,14 @@ namespace VelaCommerce.Infrastructure.Persistence.CatalogOverrides;
 /// <summary>
 /// What a variant costs <em>this</em> visitor: the shared seed price, unless they have overridden it.
 /// <para>
-/// <b>This is the only place in the solution that names <see cref="DemoCatalogPriceOverride"/>.</b>
-/// That is a deliberate convention rather than an accident of layering, and an architecture test
-/// keeps it: price resolution appearing in two places is price resolution that will differ in two
-/// places, and the way it differs is that one of them forgets. A cart that captures the seed price
+/// <b>This is the only place in the three production assemblies that reads or writes
+/// <see cref="DemoCatalogPriceOverride"/>.</b> The type is <c>internal</c>, so outside
+/// Infrastructure that is the compiler's rule rather than a convention; inside it,
+/// <c>CatalogOverlayRules</c> in the architecture suite admits exactly four names — this class, the
+/// entity, its EF configuration, and the <c>DbContext</c> that applies the tenancy filter to it.
+/// Both were added after this sentence was first written as an unenforced claim and the admin
+/// console immediately falsified it. Price resolution appearing in two places is price resolution
+/// that will differ in two places, and the way it differs is that one of them forgets. A cart that captures the seed price
 /// and a checkout that compares against the overlay produces an order that can never be placed —
 /// the guard fires, the storefront tells the shopper to remove and re-add the line, and re-adding
 /// captures the seed price again and re-arms it.
@@ -208,6 +212,88 @@ public static class EffectiveCatalogPrices
     }
 
     /// <summary>
+    /// Every variant this visitor has moved the price of, each beside the shared price it covers.
+    /// <para>
+    /// It lives here rather than in the admin page's own reader for one reason: that reader used to
+    /// query the overlay directly, which made the "only place" claim above false the day the admin
+    /// console shipped. Nothing about the query needed the entity to be public — the caller wants
+    /// eight scalars — so the read moved and the type went <c>internal</c>.
+    /// </para>
+    /// <para>
+    /// <b>Two queries and an in-memory join, deliberately.</b> Expressed as a single LINQ
+    /// <c>Join</c> across the overlay and the catalog it does not translate: the projection reaches
+    /// a navigation on the joined side and EF gives up at runtime, which is a 500 on the page
+    /// rather than a compile error. The set being joined is one visitor's own overrides, so the
+    /// cost of doing it here is a few rows; the cost of the clever version was a page that worked
+    /// in a unit test and broke in a browser.
+    /// </para>
+    /// <para>
+    /// Ordering is the caller's business, not this method's — it returns what the overlay holds.
+    /// </para>
+    /// </summary>
+    public static async Task<IReadOnlyList<OverriddenVariant>> OverriddenVariantsAsync(
+        this VelaCommerceDbContext db,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(db);
+
+        // Filtered to the caller by DemoTenancy, with no predicate written here.
+        var overrides = await db.Set<DemoCatalogPriceOverride>()
+            .AsNoTracking()
+            .Select(over => new { over.VariantId, over.PriceAmount })
+            .ToListAsync(cancellationToken);
+
+        if (overrides.Count == 0)
+        {
+            return [];
+        }
+
+        var variantIds = overrides.Select(over => over.VariantId).ToArray();
+
+        // The Product navigation is required rather than decorative, exactly as in
+        // EffectiveVariantAsync: EF inner-joins it, so the product's own soft-delete filter hides
+        // variants of a withdrawn product. Dropping it would list overrides on rows the shop will
+        // not sell.
+        var variants = await db.ProductVariants
+            .AsNoTracking()
+            .Where(variant => variantIds.Contains(variant.Id) && variant.DeletedAt == null)
+            .Select(variant => new
+            {
+                variant.Id,
+                variant.Sku,
+                VariantName = variant.Name,
+                ProductName = variant.Product!.Name,
+                variant.Product.Category,
+                SeedAmount = variant.Price.Amount,
+                Currency = variant.Price.Currency,
+            })
+            .ToDictionaryAsync(row => row.Id, cancellationToken);
+
+        // An override whose variant the catalog no longer offers is dropped rather than indexed:
+        // the dictionary lookup would throw, which is a 500 on a page whose whole job is to list
+        // rows the visitor can act on.
+        return
+        [
+            .. overrides
+                .Where(over => variants.ContainsKey(over.VariantId))
+                .Select(over =>
+                {
+                    var variant = variants[over.VariantId];
+
+                    return new OverriddenVariant(
+                        variant.Id,
+                        variant.Sku,
+                        variant.ProductName,
+                        variant.VariantName,
+                        variant.Category,
+                        variant.SeedAmount,
+                        over.PriceAmount,
+                        variant.Currency);
+                })
+        ];
+    }
+
+    /// <summary>
     /// Drops this session's overrides, restoring the shared prices. Used by the admin's clear
     /// button and by the demo reset, which must leave a visitor looking like a new one.
     /// </summary>
@@ -220,6 +306,23 @@ public static class EffectiveCatalogPrices
         return db.Set<DemoCatalogPriceOverride>().ExecuteDeleteAsync(cancellationToken);
     }
 }
+
+/// <summary>
+/// A variant whose price this visitor has moved, beside the price everybody else still sees.
+/// <para>
+/// Carries no session id. It describes one row of one visitor's overlay, and the only visitor it
+/// could describe is the one the query filter already narrowed to.
+/// </para>
+/// </summary>
+public sealed record OverriddenVariant(
+    Guid VariantId,
+    string Sku,
+    string ProductName,
+    string VariantName,
+    string Category,
+    long SeedAmount,
+    long YourAmount,
+    string Currency);
 
 /// <summary>
 /// A variant as the cart needs it, priced for the caller.

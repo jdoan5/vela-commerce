@@ -25,7 +25,11 @@ namespace VelaCommerce.Infrastructure.Persistence.CatalogOverrides;
 /// the only place in the schema that disagreed.
 /// </para>
 /// </summary>
-public sealed class DemoCatalogPriceOverride
+// internal, and load-bearing. EffectiveCatalogPrices claims to be the only place that reads or
+// writes this table; the claim was prose for one day, the admin console's page reader broke it, and
+// the fix was not to write the sentence more firmly. Outside Infrastructure the compiler now says
+// no. Inside it, CatalogOverlayRules does.
+internal sealed class DemoCatalogPriceOverride
 {
     private DemoCatalogPriceOverride() { } // EF
 

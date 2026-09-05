@@ -43,65 +43,26 @@ public sealed class AdminPageData(VelaCommerceDbContext db)
     /// The price overrides this visitor holds, each beside the shared price it covers, so the page
     /// can show the delta rather than asking the reader to hold two numbers in their head.
     /// <para>
-    /// <b>Two queries and an in-memory join, deliberately.</b> Expressed as a single LINQ
-    /// <c>Join</c> across the overlay and the catalog it does not translate — the projection
-    /// reaches a navigation on the joined side and EF gives up at runtime, which is a 500 on the
-    /// page rather than a compile error. The set being joined is one visitor's own overrides, so
-    /// the cost of doing it here is a few rows; the cost of the clever version was a page that
-    /// worked in a unit test and broke in a browser.
+    /// The query is <c>EffectiveCatalogPrices</c>'s, not this class's. That file claims to be the
+    /// only place that reads the overlay, and this reader is what made the claim false for a day:
+    /// it named the entity directly to dodge a LINQ translation failure. The read moved there, the
+    /// entity went <c>internal</c>, and <c>CatalogOverlayRules</c> now fails if either comes back.
+    /// All that is left here is the shaping and the order, which is what a page reader is for.
     /// </para>
     /// </summary>
-    public async Task<IReadOnlyList<AdminOverrideRow>> OverridesAsync(CancellationToken cancellationToken = default)
-    {
-        // Filtered to the caller by DemoTenancy, with no predicate written here.
-        var overrides = await db.Set<DemoCatalogPriceOverride>()
-            .AsNoTracking()
-            .Select(over => new { over.VariantId, over.PriceAmount })
-            .ToListAsync(cancellationToken);
-
-        if (overrides.Count == 0)
-        {
-            return [];
-        }
-
-        var variantIds = overrides.Select(over => over.VariantId).ToArray();
-
-        var variants = await db.ProductVariants
-            .AsNoTracking()
-            .Where(variant => variantIds.Contains(variant.Id) && variant.DeletedAt == null)
-            .Select(variant => new
-            {
-                variant.Id,
-                variant.Sku,
-                VariantName = variant.Name,
-                ProductName = variant.Product!.Name,
-                variant.Product.Category,
-                SeedAmount = variant.Price.Amount,
-                Currency = variant.Price.Currency,
-            })
-            .ToDictionaryAsync(row => row.Id, cancellationToken);
-
-        return
-        [
-            .. overrides
-                .Where(over => variants.ContainsKey(over.VariantId))
-                .Select(over =>
-                {
-                    var variant = variants[over.VariantId];
-
-                    return new AdminOverrideRow(
-                        variant.Id,
-                        variant.Sku,
-                        variant.ProductName,
-                        variant.VariantName,
-                        variant.Category,
-                        variant.SeedAmount,
-                        over.PriceAmount,
-                        variant.Currency);
-                })
-                .OrderBy(row => row.Sku, StringComparer.Ordinal)
-        ];
-    }
+    public async Task<IReadOnlyList<AdminOverrideRow>> OverridesAsync(CancellationToken cancellationToken = default) =>
+        [.. (await db.OverriddenVariantsAsync(cancellationToken))
+            .Select(moved => new AdminOverrideRow(
+                moved.VariantId,
+                moved.Sku,
+                moved.ProductName,
+                moved.VariantName,
+                moved.Category,
+                moved.SeedAmount,
+                moved.YourAmount,
+                moved.Currency))
+            // Ordinal, so the SKU order a reviewer sees is the same on every machine.
+            .OrderBy(row => row.Sku, StringComparer.Ordinal)];
 
     /// <summary>The categories a bulk reprice may name, read from the catalog rather than hardcoded.</summary>
     public async Task<IReadOnlyList<string>> CategoriesAsync(CancellationToken cancellationToken = default) =>

@@ -20,4 +20,14 @@
     <Nullable>enable</Nullable>
   </PropertyGroup>
 
+  <ItemGroup>
+    <!--
+      The integration suite asserts against the overlay table directly - reading a row back with
+      IgnoreQueryFilters is how it proves an override belongs to one session and not another, and a
+      test that can only see what the gateway chooses to return cannot prove that. This is the
+      narrow exception to the entity being internal, and it points at exactly one assembly.
+    -->
+    <InternalsVisibleTo Include="VelaCommerce.Integration.Tests" />
+  </ItemGroup>
+
 </Project>

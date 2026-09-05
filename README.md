@@ -79,9 +79,14 @@ without reading the bodies.
 
 One more, if the admin is what caught your eye:
 **[`EffectiveCatalogPrices`](src/VelaCommerce.Infrastructure/Persistence/CatalogOverrides/EffectiveCatalogPrices.cs)**
-— the only file outside the EF configuration that names the price overlay, which is what stops any
-read path from quietly bypassing it. The reasoning behind the overlay, the passwordless sign-in and
-the two render modes is in [`docs/adr/`](docs/adr/).
+— the one expression that decides whether a visitor pays the shared price or their own. Eight call
+sites go through it and none can bypass it: the overlay entity is `internal`, so outside
+Infrastructure the compiler refuses, and inside it
+[`CatalogOverlayRules`](tests/VelaCommerce.Architecture.Tests/CatalogOverlayRules.cs) walks the IL
+and admits four names. Worth reading for why it is enforced twice — the comment there was an
+unenforced claim for exactly one day before the admin console's own page reader falsified it. The
+reasoning behind the overlay, the passwordless sign-in and the two render modes is in
+[`docs/adr/`](docs/adr/).
 
 Two more worth the detour:
 [`OutboxDispatcher`](src/VelaCommerce.Infrastructure/Messaging/OutboxDispatcher.cs) claims each

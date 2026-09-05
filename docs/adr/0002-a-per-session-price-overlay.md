@@ -30,10 +30,10 @@ The table is deliberately unlike every other table here:
 - **No currency column.** A price in a currency the variant does not use is not a price, so the
   currency is read from the variant and cannot drift out of step with it.
 - **One resolution point.** [`EffectiveCatalogPrices`](../../src/VelaCommerce.Infrastructure/Persistence/CatalogOverrides/EffectiveCatalogPrices.cs)
-  is the only file outside the EF configuration that names the entity. Three call sites read
-  through it — the cart's capture site, the cart's live-price re-read, and checkout's
-  price-change check — and none of them can be written to bypass the overlay without naming a type
-  they cannot see.
+  is the only place that reads or writes the overlay. Eight call sites go through it — four reads
+  (the cart's capture site, the cart's live-price re-read, checkout's price-change check, the admin
+  console's list) and four writes (bulk reprice, single override, and the clear that the admin
+  button and the demo reset each call). None can bypass it without naming a type they cannot see.
 
 ## Consequences
 
@@ -61,3 +61,38 @@ server-side. That is a real seam, and pretending otherwise would be the worse ch
 names it and points at where the price *does* apply, which is the cart's capture and checkout's
 charge. Filling a cart, repricing, and checking out produces a `409` naming the line rather than a
 quiet charge at either price.
+
+---
+
+## Addendum, 2026-09-05: the claim above was prose, and prose lost
+
+**The record stands; this corrects what it asserted about enforcement.**
+
+As first written, this ADR said the resolution point could not be bypassed "without naming a type
+they cannot see". That was not true when the sentence was written. `DemoCatalogPriceOverride` was
+`public`, no test mentioned it, and the only thing keeping the convention was three comments saying
+it was kept. It survived less than a day: the admin console's own page reader queried the table
+directly — a LINQ `Join` across the overlay and the catalog would not translate, the fix was two
+queries, and the second one named the entity. Three documents went on asserting uniqueness while a
+fourth read path sat in the API project.
+
+The original bullet also miscounted: three call sites, when there were six at the time and eight
+now. A number nobody could check is a number that drifts.
+
+Both halves are now mechanical, because the failure mode of the first version was that the claim
+and the code had no connection:
+
+- The entity is `internal`, with `InternalsVisibleTo` for the integration suite alone. Outside
+  Infrastructure the compiler refuses — reverting the page reader gives `CS0122` before a test runs.
+- Inside Infrastructure, where `internal` protects nothing,
+  [`CatalogOverlayRules`](../../tests/VelaCommerce.Architecture.Tests/CatalogOverlayRules.cs) walks
+  the compiled IL and admits four names: the gateway, the entity, its EF mapping, and the
+  `DbContext` that attaches the tenancy filter. It reads IL rather than source so a read hidden in a
+  lambda or a Razor component's closure is still attributed to the type that wrote it — verified by
+  adding one and watching the rule name it.
+
+The rule carries the same `namers > 0` sanity assertion as `PersistenceBoundaryRules`, so a walk
+that stops seeing IL fails loudly instead of ticking green over nothing.
+
+**The decision has not changed.** What changed is that it is now checked by something other than
+whoever last read the comment.
