@@ -426,6 +426,13 @@ jobs:
       # ContainerFamily=noble-chiseled-extra: chiseled Ubuntu, the -extra variant. Plain
       # chiseled, alpine and distroless all require InvariantGlobalization=true, which
       # silently breaks currency formatting in a shop. -extra keeps ICU and tzdata.
+      # ContainerArchiveOutputPath is resolved relative to the PROJECT directory, not the
+      # working directory, so a relative path here writes to
+      # src/VelaCommerce.Api/artifacts/image/ and the load step below looks in
+      # ./artifacts/image/ and finds nothing. That is what the first run of this job did: it
+      # died on `docker load` under `set -e`, before any ::error:: could print, and reported
+      # "Process completed with exit code 1" and not one word more. github.workspace makes it
+      # absolute and the question does not arise.
       - name: Build the container image
         run: >-
           dotnet publish src/VelaCommerce.Api/VelaCommerce.Api.csproj
@@ -438,7 +445,7 @@ jobs:
           -p:ContainerRepository=vela-commerce
           -p:ContainerImageTag=build
           /t:PublishContainer
-          -p:ContainerArchiveOutputPath=artifacts/image/vela-commerce.tar.gz
+          -p:ContainerArchiveOutputPath=${{ github.workspace }}/artifacts/image/vela-commerce.tar.gz
 
       # -----------------------------------------------------------------------------------
       # Load it, check what it actually weighs, and check it actually contains a shop.
@@ -455,8 +462,19 @@ jobs:
         run: |
           set -euo pipefail
 
-          loaded="$(docker load --input artifacts/image/vela-commerce.tar.gz \
-                    | sed -n 's/^Loaded image: //p' | head -n1)"
+          # Every stage echoes what it is about to do. The first version of this step failed
+          # with a bare "Process completed with exit code 1" and no annotation, which is the
+          # least useful thing a gate can say, and it said it because the failure was a
+          # command dying under `set -e` rather than one of the explicit ::error:: exits.
+          echo "::group::Loading the archive"
+          load_output="$(docker load --input artifacts/image/vela-commerce.tar.gz)"
+          echo "$load_output"
+          echo "::endgroup::"
+
+          # tail, not head. `head -n1` closes the pipe on the first match, which sends SIGPIPE
+          # to sed, which pipefail then turns into a failed pipeline - invisibly, and only
+          # when the producer is still writing.
+          loaded="$(printf '%s\n' "$load_output" | sed -n 's/^Loaded image: //p' | tail -n1)"
           if [ -z "$loaded" ]; then
             echo "::error::docker load did not report an image name. The archive is missing or malformed."
             exit 1
@@ -472,18 +490,32 @@ jobs:
             exit 1
           fi
 
-          # The two assets that arrive by copy rather than by reference, and so are the two
-          # that can silently go missing. Checked inside the image, because checking the
-          # publish directory checks the wrong filesystem.
-          docker create --name inspect "$loaded" > /dev/null
-          docker export inspect | tar -tf - > /tmp/image-contents.txt
-          docker rm inspect > /dev/null
+          # ---------------------------------------------------------------------------------
+          # The two assets that arrive by COPY rather than by project reference, and so are
+          # the two that can silently go missing. Checked inside the image, because checking
+          # the publish directory checks the wrong filesystem.
+          #
+          # `docker cp` on the exact paths, not `docker export | tar -tf -`. The export streams
+          # the entire filesystem - hundreds of megabytes - and tar stops reading at the
+          # end-of-archive marker while docker is still writing, so docker takes SIGPIPE and
+          # `set -o pipefail` turns a successful listing into a failed step. `docker cp`
+          # already exits non-zero when the path is absent, which is the whole question, and
+          # it copies two files instead of streaming the world to answer it.
+          # ---------------------------------------------------------------------------------
+          echo "::group::Checking the image contains a shop and a catalog"
+          docker create --name image-contents "$loaded" > /dev/null
+          trap 'docker rm -f image-contents > /dev/null 2>&1 || true' EXIT
 
-          for required in app/wwwroot/index.html app/seed/catalog.seed.json; do
-            grep -qx "$required" /tmp/image-contents.txt \
-              || { echo "::error::${required} is not in the image. It would boot without one."; exit 1; }
-            echo "Found ${required}."
+          for required in /app/wwwroot/index.html /app/seed/catalog.seed.json; do
+            if docker cp "image-contents:${required}" /tmp/check-asset > /dev/null 2>&1; then
+              echo "Found ${required} ($(wc -c < /tmp/check-asset) bytes)."
+              rm -f /tmp/check-asset
+            else
+              echo "::error::${required} is not in the image. It would boot without one, and say nothing."
+              exit 1
+            fi
           done
+          echo "::endgroup::"
 
           echo "| | |" >> "$GITHUB_STEP_SUMMARY"
           echo "|---|---|" >> "$GITHUB_STEP_SUMMARY"

@@ -269,7 +269,7 @@ jobs:
           -p:ContainerRepository=vela-commerce
           -p:ContainerImageTag=build
           /t:PublishContainer
-          -p:ContainerArchiveOutputPath=artifacts/image/vela-commerce.tar.gz
+          -p:ContainerArchiveOutputPath=${{ github.workspace }}/artifacts/image/vela-commerce.tar.gz
 
       - name: Log in to GHCR
         uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4
