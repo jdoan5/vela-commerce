@@ -477,6 +477,47 @@ jobs:
           path: artifacts/stryker/reports
           retention-days: 7
 
+  # =======================================================================================
+  # Link checking.
+  #
+  # On push rather than on a schedule, for the reason PLAN.md already documents: GitHub
+  # silently disables scheduled workflows in a public repository after 60 days without
+  # activity, which is exactly when a quiet portfolio gets clicked.
+  #
+  # continue-on-error, and this is the one gate in this file that is deliberately advisory.
+  # Every other check fails on something this repository controls. A link fails on something
+  # a third party did - Microsoft reorganising a docs path, a vendor 429ing a shared runner
+  # IP - and a red build for that teaches people to ignore red builds. The result is in the
+  # job summary and the run is marked, which is enough to act on.
+  #
+  # lychee.toml is where the reasoning lives: every exclusion in it was verified against this
+  # repository, not copied from a template.
+  # =======================================================================================
+  links:
+    name: Links resolve
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    continue-on-error: true
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: lychee
+        uses: lycheeverse/lychee-action@e7477775783ea5526144ba13e8db5eec57747ce8 # v2.9.0
+        with:
+          args: --config lychee.toml --no-progress .
+          output: lychee-report.md
+          fail: true
+        env:
+          # Resolves github.com URLs through the API instead of scraping HTML anonymously,
+          # which is what stops a shared runner IP from turning into an intermittent 429 on
+          # the two workflow links that are worth checking for real.
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Report
+        if: always()
+        run: cat lychee-report.md >> "$GITHUB_STEP_SUMMARY" 2>/dev/null || echo "No lychee report produced." >> "$GITHUB_STEP_SUMMARY"
+
   image:
     name: Container image
     runs-on: ubuntu-latest

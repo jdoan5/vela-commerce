@@ -20,7 +20,9 @@ background service moving real rows in real PostgreSQL on a demo clock — 20 se
 40 more to Shipped — and the page stops polling by itself once the order reaches a terminal state,
 which is the "no longer checking" the last frames show.
 
-**Status.** Phases 1–4 and 6 of 10 are done, Phase 0 all but its deployment, and Phase 7's admin
+## Status
+
+Phases 1–4 and 6 of 10 are done, Phase 0 all but its deployment, and Phase 7's admin
 half — domain, seeded catalog, storefront, cart, tenancy, checkout, payments, transactional outbox,
 the order timeline, the Demo Lab, refunds and a session-scoped admin console — on **398 passing
 tests** (202 domain, 9 architecture, 187 integration against a real PostgreSQL 18 in

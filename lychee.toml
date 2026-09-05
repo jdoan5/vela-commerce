@@ -1,0 +1,105 @@
+# Link checking, configured from an inventory of what is actually in this repository rather
+# than from defaults. Every exclusion below was verified before being written: a checker that
+# cries wolf gets switched off within a week, and one that is permissive proves nothing.
+#
+#   lychee --config lychee.toml .
+#
+# It found five genuinely broken links on its first pass. Four are fixed; see the notes.
+
+# ---------------------------------------------------------------------------------------
+# GET, never HEAD. All six nuget.org package pages answer HEAD 404 and GET 200 - verified
+# individually. lychee already defaults to GET, so this is belt and braces rather than a fix;
+# it is stated because the finding is real for any checker that probes with HEAD first, and
+# the natural response to six false failures is to allow-list nuget.org, which stops checking
+# them for real.
+# ---------------------------------------------------------------------------------------
+method = "get"
+
+# Follow redirects and judge the final status. usebruno.com 301s to www, several
+# learn.microsoft.com pages redirect cross-host, and vercel.com and grafana.com both 30x.
+# All of them work in a browser, so a no-redirect policy would fail six working links.
+accept = [200, 204, 206, 301, 302, 307, 308, 429]
+max_redirects = 5
+
+# Shared CI egress IPs mean github.com and learn.microsoft.com occasionally 429. 429 is in
+# the accepted set above rather than excluded, so a rate limit never reds the build, and
+# retries give a transient failure room to resolve.
+max_retries = 3
+retry_wait_time = 10
+timeout = 20
+max_concurrency = 8
+
+# Anchors are checked. Two dead ones were the whole reason to add this: README's
+# `[Status](#status)` pointed at bold body text, which GitHub gives no anchor, and
+# docs/measurements/cold-start.md repeated it across files. Both silently did nothing.
+include_fragments = "full"
+
+# exclude_path values are REGULAR EXPRESSIONS, not globs. `**/bin/**` fails to compile with
+# "repetition operator missing expression", which is a confusing way to learn it.
+exclude_path = [
+  # Build output and dependencies.
+  "/bin/", "/obj/", "node_modules", "\\.git/", "^artifacts/",
+
+  # Developer-machine bindings. Every address in these is unreachable from CI by definition
+  # and they differ per developer, so checking them can only ever be noise.
+  "Properties/launchSettings\\.json$",
+  "\\.http$",
+
+  # Test fixture addresses - WebApplicationFactory's https://localhost/ and friends.
+  "^tests/",
+
+  # The storefront shell. Its only link is Blazor's mandatory `<base href="/" />`, which is
+  # root-relative and resolves against the DEPLOYED site root - a directory that does not
+  # exist on disk, so lychee reports "Cannot resolve root-relative link". Pointing --root-dir
+  # at wwwroot would fix it and would have to be an absolute path in a committed config,
+  # which is machine-specific. The one real URL in this file, the Google Fonts stylesheet, is
+  # pinned by code review rather than by a network call in CI.
+  "Storefront/wwwroot/index\\.html$",
+]
+
+exclude = [
+  # -------------------------------------------------------------------------------------
+  # Loopback. Correct documentation in every case; nothing listens on these ports in CI.
+  # -------------------------------------------------------------------------------------
+  '^https?://(localhost|127\.0\.0\.1|0\.0\.0\.0|\[::1\])(:|/|$)',
+
+  # Kestrel wildcard bindings quoted in comments: http://*:8080, http://+:8080,
+  # http://[::]:8080. Not URLs at all - a checker reports these as parse errors, which is a
+  # failure with no fixable cause, and that is exactly what teaches a team to ignore it.
+  '^https?://(\*|\+|\[?::)',
+
+  # Interpolation, not addresses: shell ${fqdn} in deploy.yml, Terraform
+  # ${azurerm_container_app...} in outputs.tf, and C# {port} in an XML doc comment.
+  '[${]|\{\{',
+
+  # A bare scheme inside prose in a code span - "so it survives plain `http://`". The prose
+  # is correct; a regex extractor grabs the scheme and reports an empty host.
+  '^https?://$',
+
+  # RFC 2606 reserved illustration domains. Never resolvable, by design.
+  '^https?://([^/]+\.)?example\.(com|net|org|invalid|test)(/|$)',
+
+  # XML namespace IDENTIFIERS, not pages. w3.org serves these but they are identity, not
+  # content, and an http->https upgrade rule would silently change SVG semantics.
+  '^https?://www\.w3\.org/\d{4}/',
+
+  # Placeholders in the plan, excluded by their exact shape so that substituting a real URL
+  # starts being checked immediately.
+  '^https://live-demo-url$',
+  '^https://github\.com/user-attachments/',
+
+  # Workflow status badges. They return 200 whether the build passes, fails, or has never
+  # run, so checking them proves nothing while spending an unauthenticated github.com
+  # request. The link that WRAPS each badge is still checked, and that one means something.
+  'badge\.svg$',
+
+  # api.github.com with <owner>/<repo> placeholders in documentation, plus the host needs
+  # auth for anything useful. Excluded at host level so a later addition is covered too.
+  '^https://api\.github\.com/',
+
+  # The GitHub OIDC issuer identifier. It is a claim value, not a browsable page.
+  '^https://token\.actions\.githubusercontent\.com',
+
+  # Google Fonts preconnect origins - bare hosts that are never meant to be fetched.
+  '^https://fonts\.(googleapis|gstatic)\.com$',
+]
