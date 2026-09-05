@@ -1,0 +1,12 @@
+{
+  "$schema": "https://raw.githubusercontent.com/stryker-mutator/stryker-net/master/src/Stryker.Core/Stryker.Core/Schemas/stryker-config.json",
+  "stryker-config": {
+    "project": "VelaCommerce.Domain.csproj",
+    "test-projects": ["tests/VelaCommerce.Domain.Tests/VelaCommerce.Domain.Tests.csproj"],
+    "reporters": ["progress", "json", "cleartext"],
+    "mutate": ["**/*.cs", "!**/Migrations/**"],
+    "ignore-mutations": ["string"],
+    "thresholds": { "high": 85, "low": 75, "break": 70 },
+    "concurrency": 4
+  }
+}

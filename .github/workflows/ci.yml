@@ -435,6 +435,48 @@ jobs:
   # that the whole thing starts. Publishing it is what makes `docker compose up` in the
   # README something a stranger can run.
   # =======================================================================================
+  # =======================================================================================
+  # Mutation testing over the domain.
+  #
+  # Its own job because it takes about three minutes and nothing else waits on it. Not a
+  # nightly schedule, deliberately: GitHub silently disables scheduled workflows in a public
+  # repository after 60 days without activity, which is exactly when a quiet portfolio gets
+  # clicked - so anything that must keep working runs on push.
+  #
+  # What it is for is not the number. Its first run found that `checked` could be deleted from
+  # every Money operator with all 387 tests still green - nothing had ever forced an overflow,
+  # and an overflowing long of minor units wraps to a negative rather than throwing, which in a
+  # shop is a total that pays the customer. See docs/measurements/mutation-testing.md.
+  # =======================================================================================
+  mutation-score:
+    name: Mutation score
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6
+        with:
+          global-json-file: global.json
+
+      - name: Restore the local tools
+        run: dotnet tool restore --tool-manifest dotnet-tools.json
+
+      # The break threshold lives in stryker-config.json, so the tool exits non-zero on its own
+      # when the score falls below it. No parsing of a report here: a gate that re-derives its
+      # own pass condition is a second place for it to be wrong.
+      - name: Stryker
+        run: dotnet tool run dotnet-stryker --output artifacts/stryker
+
+      - name: Publish the report
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: mutation-report
+          path: artifacts/stryker/reports
+          retention-days: 7
+
   image:
     name: Container image
     runs-on: ubuntu-latest
