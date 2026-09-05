@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.DataProtection;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
 using Scalar.AspNetCore;
+using VelaCommerce.Api.Admin;
 using VelaCommerce.Api.Endpoints;
 using VelaCommerce.Api.Hosting;
 using VelaCommerce.Api.Tenancy;
@@ -81,6 +82,20 @@ builder.Services.AddDemoSessionTenancy();
 // Rate limits, per-session row caps and security headers. A public demo left unattended needs
 // all three: one visitor must not be able to fill the database or spend the whole request budget.
 builder.Services.AddDemoSafety(builder.Configuration);
+
+// The demo admin: a second cookie asserting a binding to the caller's own demo session, and an
+// authorization policy that checks the binding on every admin route. It gates the console, not the
+// data — every admin query runs through the same tenancy-filtered sets the shop does.
+builder.Services.AddDemoAdmin(requireSecureCookie: !builder.Environment.IsDevelopment());
+
+// Static SSR only — no AddInteractiveServerComponents, and no render mode anywhere in the admin
+// area. An interactive component needs a live SignalR circuit, and this host is meant to scale to
+// zero: a console whose buttons stopped working once the container slept would be worse than one
+// that reloads a page. It also keeps the CSP as it is, because nothing here executes script.
+builder.Services.AddRazorComponents();
+
+// Read-side projections for the admin pages, so no Razor component ever holds a DbContext.
+builder.Services.AddScoped<AdminPageData>();
 
 // The Demo Lab: a reviewer presses a button and watches an invariant hold, against the same
 // code paths a real purchase uses. Public and unauthenticated, so it seeds its own private
@@ -172,12 +187,28 @@ app.UseDemoSession();
 // session is bound and before anything it protects.
 app.UseDemoSafety();
 
+// AFTER UseDemoSession, and that ordering is the policy's precondition rather than a preference:
+// BoundToTheCallersSessionHandler compares the admin ticket against ICurrentDemoSession, so the
+// session must already be bound when authorization runs. Before it, every admin request would be
+// refused for want of a session the middleware had not got to yet.
+app.UseAuthentication();
+app.UseAuthorization();
+
 // Scalar is Development-only, per Microsoft's guidance for the built-in OpenAPI document.
 if (app.Environment.IsDevelopment())
 {
     app.MapOpenApi();
     app.MapScalarApiReference();
 }
+
+// BEFORE the API groups is fine and before MapStorefront is essential: the storefront installs an
+// SPA fallback that would otherwise answer /admin with the shop's shell.
+//
+// UseAntiforgery is not optional once this is mapped. MapRazorComponents stamps antiforgery
+// metadata on every endpoint it creates, and the endpoint middleware throws at request time — a 500
+// on the very first GET /admin — if the middleware that consumes that metadata was never added.
+app.UseAntiforgery();
+app.MapRazorComponents<VelaCommerce.Api.Admin.App>();
 
 app.MapCatalogEndpoints();
 app.MapCartEndpoints();
@@ -191,6 +222,10 @@ app.MapRefundEndpoints();
 app.MapWebhookEndpoints();
 app.MapDemoEndpoints();
 app.MapDemoLabEndpoints();
+
+// The admin console's writes. Mounted under /api so the demo rate limiter, which partitions on
+// that prefix, covers them by construction rather than by a second list of routes.
+app.MapAdminEndpoints();
 
 // Two separate probes: liveness must never touch the database, or a sleeping
 // database would get the container killed rather than merely reported unhealthy.

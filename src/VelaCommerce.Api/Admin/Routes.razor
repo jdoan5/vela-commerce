@@ -1,0 +1,19 @@
+@*
+    Routing for the admin area only. AppAssembly is this assembly, so the router finds the
+    components under Admin/Pages and nothing else — the storefront is a separate WebAssembly
+    application with its own router, served as static files by MapStorefront.
+*@
+<Router AppAssembly="@typeof(Program).Assembly">
+    <Found Context="routeData">
+        <RouteView RouteData="@routeData" DefaultLayout="@typeof(AdminLayout)" />
+    </Found>
+    <NotFound>
+        @* Unreachable in practice: MapRazorComponents only matches routes a component declares,
+           so an unknown /admin path 404s in routing before it ever reaches here. Present because
+           a Router without it renders nothing at all rather than failing loudly. *@
+        <AdminLayout>
+            <h1>No such page</h1>
+            <p class="lede">That admin route does not exist. <a href="/admin">Back to the console</a>.</p>
+        </AdminLayout>
+    </NotFound>
+</Router>

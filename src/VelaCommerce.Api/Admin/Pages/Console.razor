@@ -1,0 +1,61 @@
+@page "/admin"
+@using Microsoft.AspNetCore.Http
+@inject IHttpContextAccessor Http
+
+<h1>Demo admin</h1>
+
+<p class="lede">
+    A console scoped to <em>your</em> demo session. It shows your orders and lets you move prices —
+    and everything it writes belongs to you alone, which is the part worth looking at.
+</p>
+
+@if (SignedIn)
+{
+    <div class="banner">
+        <strong>Signed in.</strong> This admin cookie was issued for the demo session you are already
+        carrying, and it is checked against that session on every request. Copied into another
+        browser it is inert.
+    </div>
+
+    <p><a href="/admin/orders">Your orders</a> · <a href="/admin/catalog">Your prices</a></p>
+
+    <form class="inline" method="post" action="/api/admin/sign-out">
+        <AntiforgeryToken />
+        <button type="submit">Sign out</button>
+    </form>
+}
+else
+{
+    <form method="post" action="/api/admin/sign-in">
+        <AntiforgeryToken />
+        <button class="primary" type="submit">Sign in as demo admin</button>
+    </form>
+
+    <p class="note">
+        No password, because there is no account. The button issues a cookie bound to your own demo
+        session — it takes no input, so there is no field naming a session and nothing to tamper
+        with. A sign-in that accepted a session id would be an impersonation endpoint with a
+        friendly name.
+    </p>
+}
+
+<h2>What this admin deliberately cannot do</h2>
+
+<p class="note">
+    It cannot change the shop. Prices you set here land in a per-session overlay and the seeded
+    catalog rows are never written — asserted in CI against PostgreSQL's own row-version column
+    across products, variants and stock. It cannot adjust stock, because stock is the one ledger
+    shared with every other visitor. And it cannot mark an order shipped, because shipping is what
+    moves that ledger.
+</p>
+
+<p class="note">
+    The cookie gates this console, not the data. Every query behind it runs through the same tenancy
+    filter the shop uses, so removing the credential would lose the front door and change nothing
+    about what a caller can reach.
+</p>
+
+@code {
+    private bool SignedIn =>
+        Http.HttpContext?.User.Identity?.IsAuthenticated == true;
+}

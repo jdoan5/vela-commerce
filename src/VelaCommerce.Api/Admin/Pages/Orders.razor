@@ -1,0 +1,82 @@
+@page "/admin/orders"
+@using VelaCommerce.Api.Endpoints
+@attribute [Authorize(Policy = DemoAdminAuthentication.Policy)]
+@using Microsoft.AspNetCore.Authorization
+@inject AdminPageData Data
+
+<h1>Your orders</h1>
+
+<p class="lede">
+    Every order placed by this demo session. Another visitor's orders are not hidden from this
+    page — they are not reachable by it, because the query carries no session predicate of its own
+    and the model supplies one.
+</p>
+
+@if (_orders is null)
+{
+    <p class="empty">Loading…</p>
+}
+else if (_orders.Count == 0)
+{
+    <p class="empty">
+        Nothing here yet. <a href="/">Buy something in the shop</a> and it will appear.
+    </p>
+}
+else
+{
+    <table>
+        <thead>
+            <tr>
+                <th>Order</th>
+                <th>Status</th>
+                <th class="num">Units</th>
+                <th class="num">Captured</th>
+                <th class="num">Refunded</th>
+                <th>Placed</th>
+                <th></th>
+            </tr>
+        </thead>
+        <tbody>
+            @foreach (var order in _orders)
+            {
+                <tr>
+                    <td>@order.OrderNumber</td>
+                    <td>@order.Status</td>
+                    <td class="num">@order.Units</td>
+                    <td class="num">@Money(order.CapturedAmount, order.Currency)</td>
+                    <td class="num">@(order.RefundedAmount == 0 ? "—" : Money(order.RefundedAmount, order.Currency))</td>
+                    <td>@order.PlacedAt.ToLocalTime().ToString("d MMM, HH:mm")</td>
+                    <td>
+                        @if (order.CanPack)
+                        {
+                            <form class="inline" method="post" action="@($"/api/admin/orders/{order.OrderNumber}/pack")">
+                                <AntiforgeryToken />
+                                <button type="submit">Mark packed</button>
+                            </form>
+                        }
+                    </td>
+                </tr>
+            }
+        </tbody>
+    </table>
+
+    <p class="note">
+        Packing is the only order action here, and Paid is the only status it accepts. The timeline
+        worker packs orders on its own schedule too, so a 409 saying the order is already Packed is
+        the ordinary answer when it got there first — not an error to chase.
+    </p>
+
+    <p class="note">
+        There is no "mark shipped". Shipping moves units out of the shared stock ledger, and an
+        admin that never writes a shared row is worth more than a second button.
+    </p>
+}
+
+@code {
+    private IReadOnlyList<AdminOrderRow>? _orders;
+
+    protected override async Task OnInitializedAsync() => _orders = await Data.OrdersAsync();
+
+    private static string Money(long minorUnits, string currency) =>
+        string.Create(System.Globalization.CultureInfo.InvariantCulture, $"{minorUnits / 100m:0.00} {currency}");
+}

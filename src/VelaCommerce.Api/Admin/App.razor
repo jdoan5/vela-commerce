@@ -1,0 +1,50 @@
+@*
+    The admin document root.
+
+    STATIC SSR, AND NOTHING ELSE. There is no render mode anywhere in this area, no
+    blazor.web.js, and no interactivity — every action is a form post that returns a redirect.
+    That is not minimalism for its own sake: an Interactive Server component needs a live
+    SignalR circuit, and this host runs at min-replicas-0 where a circuit's other end can
+    disappear mid-session. A console whose buttons stop working after the container sleeps
+    would be worse than one that reloads a page.
+
+    It also means the strict CSP needs no new allowance: nothing here executes script.
+*@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="robots" content="noindex, nofollow" />
+    <title>Admin · Vela Commerce</title>
+    <HeadOutlet />
+    <style>
+        :root { color-scheme: light dark; --line: color-mix(in oklab, currentColor 18%, transparent); }
+        body { margin: 0; font: 15px/1.55 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif; }
+        .wrap { max-width: 68rem; margin: 0 auto; padding: 1.5rem 1.25rem 4rem; }
+        a { color: inherit; }
+        h1 { font-size: 1.35rem; margin: 0 0 .25rem; letter-spacing: -.01em; }
+        h2 { font-size: 1rem; margin: 2rem 0 .5rem; letter-spacing: -.01em; }
+        .lede { opacity: .72; margin: 0 0 1.5rem; max-width: 46rem; }
+        .note { opacity: .72; font-size: .875rem; max-width: 46rem; }
+        nav.bar { display: flex; gap: 1rem; align-items: baseline; border-bottom: 1px solid var(--line); padding-bottom: .75rem; margin-bottom: 1.5rem; flex-wrap: wrap; }
+        nav.bar .grow { margin-left: auto; }
+        table { border-collapse: collapse; width: 100%; font-variant-numeric: tabular-nums; }
+        th, td { text-align: left; padding: .5rem .6rem; border-bottom: 1px solid var(--line); }
+        th { font-weight: 600; font-size: .8rem; text-transform: uppercase; letter-spacing: .04em; opacity: .65; }
+        td.num, th.num { text-align: right; }
+        form.inline { display: inline; }
+        button { font: inherit; padding: .35rem .7rem; border: 1px solid var(--line); border-radius: .4rem; background: transparent; cursor: pointer; }
+        button.primary { border-color: currentColor; font-weight: 600; }
+        input, select { font: inherit; padding: .35rem .5rem; border: 1px solid var(--line); border-radius: .4rem; background: transparent; color: inherit; }
+        .row { display: flex; gap: .5rem; align-items: end; flex-wrap: wrap; margin: .75rem 0; }
+        .field { display: flex; flex-direction: column; gap: .25rem; }
+        .field label { font-size: .78rem; opacity: .7; }
+        .banner { border: 1px solid var(--line); border-left-width: 3px; border-radius: .4rem; padding: .75rem .9rem; margin: 1rem 0; }
+        .empty { opacity: .7; padding: 1.5rem 0; }
+    </style>
+</head>
+<body>
+    <Routes />
+</body>
+</html>
