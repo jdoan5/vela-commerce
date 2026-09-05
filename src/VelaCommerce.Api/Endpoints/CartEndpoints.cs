@@ -18,6 +18,7 @@ using VelaCommerce.Api.Contracts;
 using VelaCommerce.Domain.Carts;
 using VelaCommerce.Domain.Common;
 using VelaCommerce.Infrastructure.Persistence;
+using VelaCommerce.Infrastructure.Persistence.CatalogOverrides;
 using VelaCommerce.Infrastructure.Tenancy;
 
 namespace VelaCommerce.Api.Endpoints;
@@ -168,19 +169,14 @@ public static class CartEndpoints
         // line will cost. The Product join is not decoration: it is required, so EF inner-joins it,
         // and Product's own soft-delete filter therefore hides variants of a withdrawn product -
         // which is the behaviour we want, since those must not be addable either.
-        var variant = await db.ProductVariants
-            .AsNoTracking()
-            .Where(v => v.Id == request.VariantId && v.DeletedAt == null)
-            .Select(v => new
-            {
-                v.Id,
-                v.Sku,
-                VariantName = v.Name,
-                ProductName = v.Product!.Name,
-                PriceAmount = v.Price.Amount,
-                PriceCurrency = v.Price.Currency,
-            })
-            .FirstOrDefaultAsync(cancellationToken);
+        // THE CAPTURE SITE, AND THE ONE IT WOULD BE EASIEST TO LEAVE OUT.
+        //
+        // Resolving the session's price override here — not only where prices are later compared —
+        // is what keeps a marked-down variant buyable. Capture the seed price while checkout
+        // compares against the overlay and every such line is a permanent 409: the storefront tells
+        // the shopper to remove and re-add it to accept the current price, re-adding captures the
+        // seed price again, and the guard re-arms. Only a demo reset would clear it.
+        var variant = await db.EffectiveVariantAsync(request.VariantId, cancellationToken);
 
         if (variant is null)
         {
@@ -399,11 +395,7 @@ public static class CartEndpoints
 
         var variantIds = cart.Lines.Select(line => line.VariantId).Distinct().ToArray();
 
-        var livePrices = await db.ProductVariants
-            .AsNoTracking()
-            .Where(variant => variantIds.Contains(variant.Id) && variant.DeletedAt == null)
-            .Select(variant => new { variant.Id, Amount = variant.Price.Amount })
-            .ToDictionaryAsync(row => row.Id, row => row.Amount, cancellationToken);
+        var livePrices = await db.EffectivePriceAmountsAsync(variantIds, cancellationToken);
 
         var lines = cart.Lines
             .Select(line => new CartLineResponse(

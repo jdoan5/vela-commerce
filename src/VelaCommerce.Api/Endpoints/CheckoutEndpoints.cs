@@ -59,6 +59,7 @@ using VelaCommerce.Infrastructure.Checkout;
 using VelaCommerce.Infrastructure.Messaging;
 using VelaCommerce.Infrastructure.Payments;
 using VelaCommerce.Infrastructure.Persistence;
+using VelaCommerce.Infrastructure.Persistence.CatalogOverrides;
 using VelaCommerce.Infrastructure.Tenancy;
 
 namespace VelaCommerce.Api.Endpoints;
@@ -837,11 +838,10 @@ public static class CheckoutEndpoints
     {
         var variantIds = cart.Lines.Select(line => line.VariantId).Distinct().ToArray();
 
-        var live = await db.ProductVariants
-            .AsNoTracking()
-            .Where(variant => variantIds.Contains(variant.Id) && variant.DeletedAt == null)
-            .Select(variant => new { variant.Id, Amount = variant.Price.Amount })
-            .ToDictionaryAsync(row => row.Id, row => row.Amount, cancellationToken);
+        // Resolved through this visitor's overlay, which is what turns an admin's bulk reprice into
+        // the price-changed guard firing on a cart that was filled before it. That demonstration is
+        // the whole reason the overlay exists.
+        var live = await db.EffectivePriceAmountsAsync(variantIds, cancellationToken);
 
         var changes = new List<CheckoutPriceChange>();
 

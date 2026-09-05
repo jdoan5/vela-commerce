@@ -40,6 +40,7 @@ using VelaCommerce.Api.Hosting;
 using VelaCommerce.Domain.Inventory;
 using VelaCommerce.Domain.Orders;
 using VelaCommerce.Infrastructure.Persistence;
+using VelaCommerce.Infrastructure.Persistence.CatalogOverrides;
 using VelaCommerce.Infrastructure.Tenancy;
 
 namespace VelaCommerce.Api.Endpoints;
@@ -254,6 +255,12 @@ public static class DemoEndpoints
             .ToListAsync(cancellationToken);
 
         var cartsRemoved = await db.Carts.ExecuteDeleteAsync(cancellationToken);
+
+        // The admin's price overrides are this visitor's too, and a reset that left them behind
+        // would hand somebody a "fresh" shop still quietly marked down. Not counted on the response:
+        // DemoResetResponse is a fixed contract the committed OpenAPI document and the Bruno
+        // collection both assert against, and this is not worth widening it for.
+        await db.ClearOverridesAsync(cancellationToken);
 
         return new DemoResetResponse(
             CartsRemoved: cartsRemoved,
