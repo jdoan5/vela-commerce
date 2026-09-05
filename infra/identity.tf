@@ -57,9 +57,8 @@ resource "azurerm_user_assigned_identity" "deploy" {
 # protected environment. That is the control that stops a drive-by PR against a public
 # repository from minting a token that can touch this subscription.
 resource "azurerm_federated_identity_credential" "github_environment" {
-  name                = "github-${var.github_deploy_environment}"
-  resource_group_name = azurerm_resource_group.vela.name
-  parent_id           = azurerm_user_assigned_identity.deploy.id
+  name      = "github-${var.github_deploy_environment}"
+  parent_id = azurerm_user_assigned_identity.deploy.id
 
   # Fixed for github.com. A GitHub Enterprise Server installation issues from its own host.
   issuer = local.github_oidc_issuer
@@ -88,12 +87,11 @@ resource "azurerm_federated_identity_credential" "github_environment" {
 resource "azurerm_federated_identity_credential" "github_main_branch" {
   count = var.create_branch_scoped_federated_credential ? 1 : 0
 
-  name                = "github-main-branch"
-  resource_group_name = azurerm_resource_group.vela.name
-  parent_id           = azurerm_user_assigned_identity.deploy.id
-  issuer              = local.github_oidc_issuer
-  audience            = [local.azure_oidc_audience]
-  subject             = local.github_subject_main_branch
+  name      = "github-main-branch"
+  parent_id = azurerm_user_assigned_identity.deploy.id
+  issuer    = local.github_oidc_issuer
+  audience  = [local.azure_oidc_audience]
+  subject   = local.github_subject_main_branch
 }
 
 # =========================================================================================

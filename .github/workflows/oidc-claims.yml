@@ -17,6 +17,15 @@ on:
         description: "Token audience to request"
         required: false
         default: "api://AzureADTokenExchange"
+      environment:
+        description: >-
+          GitHub Environment to run inside. Leave EMPTY for the branch-scoped subject
+          (repo:...:ref:refs/heads/main). Set to "production" to read the ENVIRONMENT-scoped
+          subject, which is the one infra/identity.tf actually trusts and the one nobody has
+          ever read off a real token. A deploy trusting an unverified subject fails at token
+          exchange with an error that never mentions the subject.
+        required: false
+        default: ""
 
 permissions:
   # The only two this needs. id-token lets the job mint an OIDC token; nothing here
@@ -26,6 +35,10 @@ permissions:
 
 jobs:
   claims:
+    # Dynamic, so one probe can read both subjects. An empty string means "no environment",
+    # which is how the branch-scoped subject is read; "production" gates the run on that
+    # environment's protection rules and changes the subject GitHub mints.
+    environment: ${{ inputs.environment }}
     name: Print OIDC subject and claims
     runs-on: ubuntu-latest
     timeout-minutes: 5
