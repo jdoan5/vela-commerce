@@ -134,31 +134,25 @@ jobs:
           echo "Bundle built from \`${{ github.sha }}\`." >> "$GITHUB_STEP_SUMMARY"
 
       # -----------------------------------------------------------------------------------
-      # THIS WORKFLOW DOES NOT SEED, AND NOTHING ELSE CAN EITHER YET.
+      # Then the catalog, which is not schema and so is not the bundle's job.
       #
-      # A draft of this file had a "Seed the catalog" step calling
-      # `dotnet run --project tools/VelaCommerce.SeedGen -- --apply`. That flag does not
-      # exist. SeedGen takes two optional file paths, references only VelaCommerce.Domain,
-      # and writes the seed file and the client snapshot - it has never been able to reach a
-      # database and was never meant to.
+      # `--seed` is a switch on the API host itself rather than a separate tool, because
+      # seeding needs the DbContext, the connection-string resolution, the configuration and
+      # CatalogSeedFile's layout probing - all four of which already exist there and are
+      # exercised on every request. It writes the catalog and exits without serving.
       #
-      # The only thing that writes the catalog into PostgreSQL is CatalogSeeder, in
-      # Infrastructure, and its single caller is the Development-only block in Program.cs. So
-      # a Production database ends up correctly migrated and completely empty, and the shop
-      # serves a catalog of nothing.
+      # It refuses if any migration is unapplied, so the ordering of these two steps is
+      # enforced by the program rather than by this file. Seeding is idempotent, so re-running
+      # the whole workflow is the intended recovery from a partial failure.
       #
-      # Closing it needs a deliberate entry point - a seed switch on the API host that seeds
-      # and exits, or a small console tool that references Infrastructure - and that is a code
-      # change with a decision in it, not a line in a workflow. It is named here rather than
-      # papered over, because a migration job that quietly leaves an empty shop is worse than
-      # one that says what it did not do.
+      # This step exists because a draft of this workflow called
+      # `SeedGen -- --apply`, a flag that has never existed - SeedGen writes files and
+      # references only Domain. The gap that uncovered was real: CatalogSeeder's only caller
+      # was a Development-only block, so a deployed shop had no way to be filled at all.
       # -----------------------------------------------------------------------------------
-      - name: State what remains
-        run: |
-          {
-            echo ""
-            echo "**The schema is applied. The catalog is not.** Nothing in this repository can"
-            echo "seed a Production database yet - CatalogSeeder's only caller is the"
-            echo "Development-only block in Program.cs. The shop will serve an empty catalog"
-            echo "until that entry point exists."
-          } >> "$GITHUB_STEP_SUMMARY"
+      - name: Seed the catalog
+        env:
+          ConnectionStrings__Vela: ${{ secrets.VELA_DB_MIGRATION_CONNECTION }}
+          ASPNETCORE_ENVIRONMENT: Production
+        run: >-
+          dotnet run --project src/VelaCommerce.Api --configuration Release -- --seed

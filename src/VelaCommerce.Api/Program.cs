@@ -164,6 +164,58 @@ if (keyRingIsEphemeral)
         + "invalidate every session cookie and every order-retrieval link. See infra/dataprotection.tf.");
 }
 
+// -------------------------------------------------------------------------------------------
+// `--seed`: write the catalog into whatever database this host is configured for, then exit
+// without serving anything.
+//
+// It exists because a Production database ended up correctly migrated and completely empty.
+// CatalogSeeder had exactly one caller - the Development-only block below - so there was no way
+// to fill a deployed shop at all, and the first symptom was a catalog of nothing.
+//
+// A switch on this host rather than a separate console tool, deliberately: seeding needs the
+// DbContext, the connection string resolution, the configuration and CatalogSeedFile's layout
+// probing, and all four already exist here and are exercised on every request. A second entry
+// point would be a second place for any of them to be configured differently, and the version
+// that runs once a quarter is the one nobody would notice drifting.
+//
+// It does NOT migrate. Migrations are the bundle's job in .github/workflows/migrate.yml, run
+// deliberately and separately, and a seed switch that quietly applied schema changes would be
+// exactly the surprise that separation exists to prevent. It refuses instead, with the command
+// to run - because seeding an unmigrated database fails deep inside EF with an error about a
+// missing relation, which is a long way from "run the migration job first".
+// -------------------------------------------------------------------------------------------
+if (args.Contains("--seed", StringComparer.Ordinal))
+{
+    await using var seedScope = app.Services.CreateAsyncScope();
+    var seedDb = seedScope.ServiceProvider.GetRequiredService<VelaCommerceDbContext>();
+
+    var pending = (await seedDb.Database.GetPendingMigrationsAsync()).ToArray();
+
+    if (pending.Length > 0)
+    {
+        app.Logger.LogError(
+            "Refusing to seed: {Count} migration(s) have not been applied ({Pending}). Run the "
+            + "Migrate workflow against this database first - seeding an unmigrated schema fails "
+            + "inside EF with a missing-relation error that does not name this as the cause.",
+            pending.Length,
+            string.Join(", ", pending));
+
+        return 1;
+    }
+
+    if (CatalogSeedFile.Locate(app.Environment, app.Configuration, app.Logger) is not { } file)
+    {
+        // Locate has already logged every path it probed, which is the actionable half.
+        return 1;
+    }
+
+    await seedScope.ServiceProvider.GetRequiredService<CatalogSeeder>().SeedAsync(file);
+
+    app.Logger.LogInformation("Catalog seeded from {SeedFile}. Not serving; --seed exits here.", file);
+
+    return 0;
+}
+
 // Development convenience only: migrate and seed so a fresh clone is browsable in one
 // command. Production applies migrations as a separate one-shot job, never at startup,
 // so a slow migration cannot fail the container's health probe.
@@ -259,6 +311,10 @@ app.MapGet("/health", async (VelaCommerceDbContext db, CancellationToken ct) =>
 app.MapStorefront();
 
 app.Run();
+
+// Reached only when the host shuts down normally. Present because `--seed` returns an exit code
+// above, which makes this entry point int-returning and obliges every path to say so.
+return 0;
 
 /// <summary>Exposed so the integration test project can drive the host with WebApplicationFactory.</summary>
 public partial class Program;
