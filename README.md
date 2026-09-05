@@ -285,7 +285,11 @@ race for the last unit sell exactly five of five.
 
 ## Phases
 
-Ten phases, tracked in [`docs/PLAN.md`](docs/PLAN.md).
+Ten phases. **This table is the status**; [`docs/PLAN.md`](docs/PLAN.md) is the plan as written on
+2026-09-02, before any of it existed, and is kept unedited rather than revised to agree with the
+outcome. A check of all 992 of its lines against the repository on 2026-09-05 found 124 divergences,
+so it is a record of a forecast and not a description of the present — its own header says so, and
+lists where the two part company.
 
 | # | Phase | Status |
 |---|---|---|
@@ -319,7 +323,7 @@ src/VelaCommerce.Storefront       Blazor WebAssembly shop and its catalog snapsh
 tests/                            Domain, architecture and Testcontainers integration tests.
 tools/VelaCommerce.SeedGen        Deterministic catalog generator.
 api-tests/                        Bruno collection, run headless in CI.
-docs/PLAN.md                      The full build plan, 10 phases.
+docs/PLAN.md                      The original build plan, unedited. Not the status.
 docs/adr/                         Decisions a reviewer is likely to read as a mistake.
 docs/measurements/                Numbers, with the method that produced them.
 docker-compose.yml                The whole shop in one command, against the published image.

@@ -11,6 +11,55 @@
 
 ---
 
+# ⚠ This is the plan, not the status
+
+**Read this before you read anything below it.**
+
+This document was written on **2026-09-02, before a line of the application existed**. It is kept
+here unedited, as a record of what was intended and why. It is **not** a description of what was
+built, and it has not been revised to match — deliberately, because a plan quietly rewritten to
+agree with the outcome stops being evidence of anything.
+
+Roughly a third of it is now wrong. On **2026-09-05** every claim in these 992 lines was checked
+against the repository: **124 divergences survived verification** (81 places where the plan asserts
+something that does not exist or differs, 43 where the build deliberately took another route), with
+11 further candidates thrown out as unfair readings. It found no section without one.
+
+**For what actually exists, read [`README.md`](../README.md)** — its phase table is the single
+source of truth for status, and every claim in it is required to have a test that fails when the
+claim stops being true. This file's roadmap table is a record of a forecast; the README's is a
+record of the present.
+
+## Where the plan and the build diverge
+
+The differences are not scattered — they cluster, and the clusters are more useful than a list of
+124 lines would be. Each row was verified by opening the repository, not by reading further in this
+document.
+
+| The plan says | What was built | Where |
+|---|---|---|
+| **Vercel Hobby** serves the storefront from a CDN behind a custom domain, `vercel.json` rewrites `/api/*` and `/admin/*` to Container Apps, and browse works "while the API and the database are both asleep" | One container serves everything. No CDN, no static host, no custom domain, no `vercel.json`, and `infra/` creates none — so the shell itself pays the cold start. The README states this plainly rather than inheriting the claim | §2, §3, §9 |
+| **Aspire AppHost** is the single local entry point; `aspire run` starts everything; a `Makefile` wraps it | No Aspire anywhere, and no `Makefile`. Local development is `dotnet run`; the one-command path is `docker compose up`, which the plan never imagined | §2, §4, §11 |
+| Four production projects: Domain → **Application** → Infrastructure → Api, with a **`VelaCommerce.Shared`** holding DTOs for both sides | Three: Domain, Infrastructure, Api. Contracts live in `Api/Contracts` and the storefront keeps its own, because a shared DTO project is how a wire contract and a storage model quietly become the same type | §3, §7 |
+| **xUnit v3** on Microsoft Testing Platform, **Playwright** E2E publishing `trace.zip`, a **Lighthouse** budget failing PRs, **Stryker** in the tool manifest | xUnit **2.9.3**. No browser test of any kind exists, so the CSP assertion, the hydration visual check and the performance budget the plan leans on were never written. Mutation testing is done by hand, one claim at a time | §2, §4, §6 |
+| Central Package Management, `Directory.Build.props`, `.config/dotnet-tools.json`, `rollForward: latestPatch` | None adopted. The tool manifest is at the repository root and holds `dotnet-ef` alone; `global.json` still says `latestFeature` | §2, §7, §11 |
+| `infra/modules/{aca-app, aca-job, dns, custom-domain, neon-project, grafana-stack, uptime, github-oidc}` consumed by two thin roots, with `pg_version = 18` pinned and a `demo_profile` variable | `infra/` is flat, declares `azurerm` only, and deliberately creates no database — so nothing pins the Postgres major version in IaC. There is no `demo_profile` variable and `min_replicas` is hardcoded | §3, §4, §10 |
+| **OpenTelemetry** via Aspire ServiceDefaults exporting OTLP to **Grafana Cloud**, listed as a completed phase-3 deliverable | No OpenTelemetry package is referenced anywhere in `src/` | §2, §3 |
+| The README hero is a **GIF committed by CI on every merge**, so it "can never be older than the last merge" | `docs/demo.gif` was committed by hand, once (`a722f76`). No workflow mentions a GIF, records anything, or pushes a commit | §1, §8, §10 |
+| A build-time **prerendered `index.html`** rendered from the same Razor components via `HtmlRenderer` in `SeedGen` | A hand-written skeleton shell — the fallback the plan named and argued against. `SeedGen` references only Domain and cannot render components | §2, §3, §6 |
+| Committed **idempotent SQL** beside each migration; a **migration bundle as its own image** | Zero `.sql` files in the repository. One image, not two | §2, §6, §9 |
+| `xmin` optimistic concurrency **on the Order aggregate** | `xmin` appears only as *evidence* in the Demo Lab and in tests, never as a mapped concurrency token. Concurrency is held by row locks and conditional `UPDATE`s instead | §3 |
+| An admin with **QuickGrid, server-side paging, inline-SVG revenue panels, stock adjustment and mark-shipped** | Static SSR with plain tables and no SVG. It deliberately cannot ship an order or adjust stock — [ADR 0004](adr/0004-the-admin-cannot-ship-or-restock.md) records why | §5, §6 |
+
+**And things the plan never imagined**, which is the other half of the honest picture: the
+per-session price overlay and the architecture rule that enforces it, the `ArchUnitNET` suite over
+compiled IL, the Demo Lab's nine scenarios, `docker-compose.yml`, the ADR series in
+[`adr/`](adr/), and [`measurements/`](measurements/).
+
+**Everything else below stands as written on 2026-09-02.**
+
+---
+
 ## 1. The pitch
 
 Build **Vela Commerce**, a working storefront on .NET 10 LTS where a reviewer can browse a few hundred products, add to cart, pay with a prefilled test card, and watch an order advance Pending → Paid → Packed → Shipped on a demo-accelerated clock — then open a **Demo Lab** page and personally trigger the three failures every e-commerce interview eventually reaches: two tabs racing for the last unit in stock, a double-submitted checkout, and a duplicated payment webhook. The story it tells about the developer is not "I can model a Product" — it is "I decided where the cold start goes, I enforced invariants in the database rather than in hopeful `if` statements, and I wrote down the decisions that went against the more impressive-sounding option."
