@@ -250,8 +250,17 @@ jobs:
       # PublishReadyToRunComposite, re-run against the same harness - and it should be made
       # because a measurement asked for it, not because it sounds like it should help.
       #
-      # Image size, measured on x64 at the time: 85.9 MB to 92.2 MB, comfortably inside the
-      # ~140 MB budget in docs/PLAN.md. The equivalent arm64 delta is 88.1 -> 88.4 MB.
+      # ON IMAGE SIZE, and the trap that produced the numbers this comment used to carry.
+      # It said 85.9 MB -> 92.2 MB "comfortably inside the ~140 MB budget". Both figures came
+      # from `docker image inspect --format {{.Size}}` on a Mac, against an image built for
+      # linux/amd64 - and Docker Desktop UNDER-REPORTS the size of a foreign-platform image
+      # by more than half. The same archive that reports 94 MB there is 206 MB on an x64
+      # runner, and extracting the filesystem and counting bytes gives 214 MB. The real
+      # composition is 157 MB of runtime and ICU plus 56 MB of /app, 22 MB of that being the
+      # storefront.
+      #
+      # ci.yml's image job measures it on a native runner, which is the only place the number
+      # means anything, and gates at 240 MB with that composition written down.
       #
       # PublishRepositoryUrl=true: emits the OCI source label, which is what makes GHCR link
       # the package back to this repository instead of orphaning it in the account's package

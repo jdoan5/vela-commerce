@@ -451,14 +451,30 @@ jobs:
       # Load it, check what it actually weighs, and check it actually contains a shop.
       #
       # THE SIZE IS READ FROM THE LOADED IMAGE, never from the archive on disk. The archive
-      # is gzipped and lands around a third of the image, so a 140 MB budget applied to
-      # `stat` on the tarball stays comfortably green while the image itself doubles. That
-      # is a gate that reports success for the wrong measurement, which is worse than none.
+      # is gzipped and lands around a third of the image, so a budget applied to `stat` on
+      # the tarball stays comfortably green while the image itself doubles. That is a gate
+      # that reports success for the wrong measurement, which is worse than none.
+      #
+      # 240 MB, and the number is measured rather than chosen. The first version of this gate
+      # used the ~140 MB in docs/PLAN.md and failed at 206 MB - correctly. That budget had
+      # been written for an API-only image, and this one also carries the entire Blazor shop.
+      # Extracting the filesystem and counting bytes:
+      #
+      #   /usr   157 MB   the .NET runtime and ICU. noble-chiseled-extra keeps ICU on
+      #                   purpose: every smaller base (plain chiseled, alpine, distroless)
+      #                   requires InvariantGlobalization=true, which silently breaks
+      #                   currency formatting in a shop.
+      #   /app    56 MB   of which 22 MB is the storefront's wwwroot and 0.4 MB the catalog
+      #                   seed; the rest is the app and its dependencies.
+      #
+      # So 157 MB is the floor before a single line of this project's code is added, and the
+      # old budget was never reachable. 240 MB leaves room to grow and still catches the
+      # thing worth catching: a dependency or an asset arriving by accident.
       # -----------------------------------------------------------------------------------
       - name: Load, measure and inspect
         id: load
         env:
-          MAX_IMAGE_MB: "140"
+          MAX_IMAGE_MB: "240"
         run: |
           set -euo pipefail
 

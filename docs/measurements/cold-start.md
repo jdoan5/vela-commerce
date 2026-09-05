@@ -50,9 +50,16 @@ where a startup and a first catalog query actually spend their time — were sti
 both arms. The null result is not surprising once the images are opened; it is exactly what this
 configuration should produce.
 
-The image cost is correspondingly small here: **88.4 MB against 88.1 MB**, about +1 MB across
-`/app`, essentially all of it in that one assembly. `deploy.yml` records +6.3 MB for the x64 build,
-which is a different architecture measured at a different time and is not contradicted by this.
+The image cost is correspondingly small: about **+1 MB across `/app`** (56 MB against 55 MB by
+extraction), essentially all of it in that one assembly.
+
+**A caution about how that was measured, because it caught me.** `docker image inspect --format
+'{{.Size}}'` under-reports a foreign-platform image on Docker Desktop by more than half: the x64
+image reads 94 MB on this Mac, 206 MB on an x64 GitHub runner, and 214 MB by extracting the
+filesystem and counting bytes. The `/app` figures above are extraction-derived and therefore sound;
+any whole-image number taken from `inspect` on a non-native platform is not. `deploy.yml` carried
+85.9 → 92.2 MB from that same broken method for months, and CI's own gate is what found it, by
+failing against a budget that turned out to be the thing that was wrong.
 
 ## What this does and does not license
 
