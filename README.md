@@ -24,7 +24,9 @@ which is the "no longer checking" the last frames show.
 half — domain, seeded catalog, storefront, cart, tenancy, checkout, payments, transactional outbox,
 the order timeline, the Demo Lab, refunds and a session-scoped admin console — on **387 passing
 tests** (191 domain, 9 architecture, 187 integration against a real PostgreSQL 18 in
-Testcontainers). Phases 5, 8 and 9 are not started, and Phase 7's other half is not either: nightly
+Testcontainers), at **68.1% line coverage** over the three production assemblies — a floor CI
+enforces rather than a badge it decorates, and [`coverage.runsettings`](coverage.runsettings) says
+what is counted and why. Phases 5, 8 and 9 are not started, and Phase 7's other half is not either: nightly
 reset and backups, preview environments, the measured cold start. **There is no hosted demo, deliberately.** The Azure free-trial credit expired
 2026-09-04 and was allowed to lapse. The subscription still carries its spending limit, so it is
 disabled rather than billing; deploying now would mean upgrading to Pay-As-You-Go, which removes
@@ -298,7 +300,7 @@ lists where the two part company.
 | 2 | The 60-second storefront | Done — Blazor WebAssembly, browsing and search entirely client-side from a static snapshot |
 | 3 | Cart, tenancy | Done — demo-session cookie sealed with Data Protection, DbContext-level tenancy filter that fails closed |
 | 4 | Checkout, payments, order timeline | Done — payment port and signing simulator, atomic reservation, idempotent checkout, transactional outbox, signed webhook receiver, accelerated timeline |
-| 5 | Anti-rot hardening | Not started — nightly reset, backups, uptime monitoring |
+| 5 | Anti-rot hardening | Started — coverage floor enforced in CI; nightly reset, backups and uptime monitoring need a deployment |
 | 6 | Demo Lab + refunds | Done — nine lab scenarios with per-scenario permalinks and verdicts; refunds and cancellation with a ledger, a row lock that serialises concurrent refunds, and restock on cancellation |
 | 7 | Admin + preview environments | Half done — session-scoped admin console with a per-session price overlay that never writes the shared catalog; preview environments not started |
 | 8 | Make it legible | Started — four ADRs in [`docs/adr/`](docs/adr/), [cold start measured locally](docs/measurements/cold-start.md); the ACA number and the `/platform` page need a deployment |

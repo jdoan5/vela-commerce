@@ -37,16 +37,29 @@ jobs:
       - name: Build
         run: dotnet build --no-restore --configuration Release -warnaserror
 
+      # --settings coverage.runsettings is what makes the number below mean anything: without
+      # it coverlet instruments all 36 assemblies in the output directory, framework included,
+      # and reports 5.1% - a measure of how much of Microsoft's code these tests happen to run.
+      # Read that file before quoting any coverage figure from this repository.
       - name: Domain tests
         run: >-
           dotnet test tests/VelaCommerce.Domain.Tests
           --no-build --configuration Release
+          --settings coverage.runsettings
+          --collect:"XPlat Code Coverage"
           --logger "trx;LogFileName=domain.trx"
           --results-directory artifacts/test-results
 
       # Testcontainers starts a real PostgreSQL 18. The ubuntu-latest runner ships
       # a working Docker daemon, so no service container is declared here; letting
       # Testcontainers own the lifecycle keeps this identical to a local run.
+      # No coverage collection here, and not only because the number would be meaningless for a
+      # suite that asserts structure rather than behaviour. Coverlet REWRITES the assembly on
+      # disk, injecting Coverlet.Core.Instrumentation.Tracker.<Assembly>_<guid> - whose
+      # WriteHits and WriteLog read DateTime.UtcNow. ClockRules walks that same IL and was
+      # entirely right to report it. The rule now skips instrumentation-injected types so the
+      # suite survives if someone adds --collect here anyway, but the suite that reads compiled
+      # IL should not be handed rewritten IL to read.
       - name: Architecture tests
         run: >-
           dotnet test tests/VelaCommerce.Architecture.Tests
@@ -58,8 +71,51 @@ jobs:
         run: >-
           dotnet test tests/VelaCommerce.Integration.Tests
           --no-build --configuration Release
+          --settings coverage.runsettings
+          --collect:"XPlat Code Coverage"
           --logger "trx;LogFileName=integration.trx"
           --results-directory artifacts/test-results
+
+      # -----------------------------------------------------------------------------------
+      # A floor, not a badge.
+      #
+      # A badge is a picture of a number, and keeping one honest needs a mechanism to update
+      # it - which is exactly how this repository ended up with a README GIF described as
+      # "committed by CI on every merge" that was committed by hand, once. A floor needs no
+      # mechanism: it is checked on every push and it fails when it is breached.
+      #
+      # 65% against a measured 68.1% at the time of writing. Set just under, so a real
+      # regression fails and ordinary movement does not - and low enough to be raised
+      # deliberately rather than lowered quietly.
+      # -----------------------------------------------------------------------------------
+      - name: Coverage floor
+        env:
+          MIN_LINE_COVERAGE: "65"
+        run: |
+          set -euo pipefail
+
+          dotnet tool restore --tool-manifest dotnet-tools.json
+
+          dotnet tool run reportgenerator \
+            -reports:"artifacts/test-results/**/coverage.cobertura.xml" \
+            -targetdir:artifacts/coverage \
+            -reporttypes:"TextSummary;MarkdownSummaryGithub"
+
+          summary="artifacts/coverage/Summary.txt"
+          test -f "$summary" || { echo "::error::ReportGenerator produced no summary; the collector wrote no cobertura files."; exit 1; }
+
+          line="$(sed -n 's/^ *Line coverage: \([0-9.]*\)%.*/\1/p' "$summary" | head -n1)"
+          test -n "$line" || { echo "::error::Could not read a line-coverage figure out of $summary."; cat "$summary"; exit 1; }
+
+          echo "Line coverage: ${line}% (floor ${MIN_LINE_COVERAGE}%)"
+          cat artifacts/coverage/SummaryGithub.md >> "$GITHUB_STEP_SUMMARY" 2>/dev/null || true
+
+          # Integer comparison, because the shell has no floats and a fractional point either
+          # side of the floor is not a signal worth failing a build over.
+          if [ "${line%%.*}" -lt "$MIN_LINE_COVERAGE" ]; then
+            echo "::error::Line coverage is ${line}%, below the ${MIN_LINE_COVERAGE}% floor. Either the change needs tests, or the floor needs a deliberate, argued change - not a quiet one."
+            exit 1
+          fi
 
       - name: Upload test results
         if: always()

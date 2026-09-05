@@ -63,6 +63,19 @@ public sealed class ClockRules
             {
                 var authored = IlFacts.AuthoredType(type);
 
+                // Not an exemption, and the distinction matters because this rule's whole boast is
+                // that its exemption list is empty. A coverage run rewrites the assembly on disk
+                // and injects Coverlet.Core.Instrumentation.Tracker.<AssemblyName>_<guid>, whose
+                // WriteHits and WriteLog both read DateTime.UtcNow - so `dotnet test --collect`
+                // fails this rule with two offenders nobody in this repository wrote, in a type
+                // that does not exist in the committed source. Skipping code that was injected into
+                // the assembly after it was compiled is a correction to what "authored" means, not
+                // a licence granted to any project code.
+                if (IsInstrumentation(authored))
+                {
+                    continue;
+                }
+
                 if (MayReadTheAmbientClock.Contains(authored.FullName, StringComparer.Ordinal))
                 {
                     continue;
@@ -83,6 +96,8 @@ public sealed class ClockRules
         }
 
         // A scan that reads no calls would report no violations, and report them very convincingly.
+        // This also guards the instrumentation filter above: were it ever to match project code,
+        // the call count would collapse rather than the rule quietly passing.
         Assert.True(
             callsInspected > 0,
             "Inspected no method calls at all across the three production assemblies. "
@@ -98,6 +113,16 @@ public sealed class ClockRules
                 offenders));
         }
     }
+
+    /// <summary>
+    /// Whether a type was injected by a coverage instrumenter rather than written here.
+    /// <para>
+    /// Matched on the namespace coverlet emits, not on a name fragment: "Tracker" or "Coverlet"
+    /// alone would also match a type this project might legitimately call either.
+    /// </para>
+    /// </summary>
+    private static bool IsInstrumentation(TypeDefinition type) =>
+        type.Namespace.StartsWith("Coverlet.Core.Instrumentation", StringComparison.Ordinal);
 
     private static bool IsAmbientClockRead(MethodReference called) =>
         AmbientClockReads.Any(read =>

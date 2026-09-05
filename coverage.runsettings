@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  What "coverage" is allowed to mean in this repository.
+
+  Without this file coverlet instruments every assembly in the test output directory - 36 of
+  them, EF Core and Npgsql and the whole framework included - and reports 5.1%. That number is
+  not wrong so much as meaningless: it is measuring how much of Microsoft's code this project's
+  tests happen to execute. Any figure quoted anywhere must come from this configuration, or it
+  is not comparable to itself between runs.
+
+  Included: the three production assemblies, and only those.
+  The storefront is deliberately absent. It is a Blazor WebAssembly client whose behaviour is
+  browser behaviour; these suites never load it, so including it would report a real 0% for a
+  real assembly and drag a number that means something into meaning nothing. When browser tests
+  exist, they can measure it - and until they do, the honest statement is that it is unmeasured
+  rather than uncovered.
+-->
+<RunSettings>
+  <DataCollectionRunSettings>
+    <DataCollectors>
+      <DataCollector friendlyName="XPlat code coverage">
+        <Configuration>
+          <Format>cobertura</Format>
+
+          <Include>[VelaCommerce.Domain]*,[VelaCommerce.Infrastructure]*,[VelaCommerce.Api]*</Include>
+
+          <!--
+            EF Core migrations are generated: a migration's Up/Down is asserted by the
+            model-matches-migrations gate in CI and by every Testcontainers test that runs
+            against the schema, neither of which shows up as line coverage. Counting them
+            would let a large generated file move the number without anyone writing a test.
+          -->
+          <Exclude>[VelaCommerce.Infrastructure]VelaCommerce.Infrastructure.Persistence.Migrations.*</Exclude>
+
+          <ExcludeByAttribute>Obsolete,GeneratedCodeAttribute,CompilerGeneratedAttribute</ExcludeByAttribute>
+          <SingleHit>false</SingleHit>
+          <UseSourceLink>true</UseSourceLink>
+        </Configuration>
+      </DataCollector>
+    </DataCollectors>
+  </DataCollectionRunSettings>
+</RunSettings>
