@@ -79,7 +79,10 @@ public static class DemoLabScenarioCatalog
                        + "= reserved + q WHERE variant_id = v AND deleted_at IS NULL AND on_hand - "
                        + "reserved >= q. The row count is the answer - 1 won, 0 lost. Nothing loads a "
                        + "StockItem and asks it, because two requests holding two copies of one row "
-                       + "both get told yes. ck_stock_items_reserved_within_on_hand is the backstop.",
+                       + "both get told yes - and the ck_stock_items_reserved_within_on_hand "
+                       + "constraint would NOT catch that, because both write a value they already "
+                       + "believed was legal and the row ends up correct above an oversold unit. The "
+                       + "statement is the whole defence.",
             ProvenBy: StockRaceTests,
             ProvenByTest: "Fifty_shoppers_racing_for_five_units_sell_exactly_five",
             Participants: 50,

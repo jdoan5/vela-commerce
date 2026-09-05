@@ -8,8 +8,15 @@
 //    and reads the ROW COUNT: 1 means this shopper won, 0 means they lost. The database evaluates
 //    the guard and the increment in one statement against one locked row, which is the only place
 //    that comparison can be made truthfully. DatabaseInvariantTests proves exactly this statement
-//    against real PostgreSQL, and the ck_stock_items_reserved_within_on_hand constraint is the
-//    backstop if anybody ever writes the racy version anyway.
+//    against real PostgreSQL.
+//
+//    ck_stock_items_reserved_within_on_hand IS NOT A BACKSTOP FOR THIS, and this comment used to
+//    say it was. Work it through: on_hand 5, reserved 4, two requests each taking one. Both read
+//    reserved = 4, both compute one unit available, both write reserved = 5. The final row is
+//    reserved 5, on_hand 5 - the constraint holds perfectly while a unit has been oversold. A lost
+//    update cannot violate `reserved <= on_hand` because every writer writes a value it already
+//    believed was legal. The constraint catches a different bug entirely: hand-written SQL that
+//    adds without a guard. The conditional UPDATE is the whole defence for the race.
 //
 // 2. A DOUBLE-SUBMITTED CHECKOUT CREATES ONE ORDER.
 //    Not by SELECTing for an existing key first — two simultaneous submits both find nothing and

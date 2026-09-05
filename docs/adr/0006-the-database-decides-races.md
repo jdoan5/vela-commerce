@@ -48,9 +48,13 @@ rollback.
 **Two claims in the code are stronger than what backs them**, found while writing this record and
 worth stating rather than tidying away:
 
-- The CHECK constraint is described as "the backstop if anybody writes the racy version" in three
-  places. It is not, for the failure mode named: the racy version writes a value that satisfies the
-  constraint. The conditional `UPDATE` is the whole defence.
+- The CHECK constraint was described as "the backstop if anybody writes the racy version" in two
+  places. It is not, for the failure mode named. Work it through: `on_hand` 5, `reserved` 4, two
+  requests each taking one — both read 4, both write 5, and the row ends up at `reserved = 5,
+  on_hand = 5` with the constraint satisfied and a unit oversold. A lost update cannot violate
+  `reserved <= on_hand`, because every writer writes a value it already believed was legal. The
+  constraint catches hand-written SQL that adds without a guard, which is a different bug. Both
+  comments now say so; the conditional `UPDATE` is the whole defence.
 - "Returns the winner's order with a 200" is stale in three places, including the OpenAPI
   description. The losing double-submit can legitimately answer 202 — it re-reads between the order
   commit and the settlement commit, so both answers are truthful. The behaviour is right; the

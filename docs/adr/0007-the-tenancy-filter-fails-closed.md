@@ -45,10 +45,19 @@ Seventeen tests cover it, all verified present, including
 `Suppressing_soft_delete_leaves_tenancy_in_force`.
 
 The cost is opt-outs. Legitimate cross-session work — the webhook receiver, the reaper, the Demo Lab
-— must say so explicitly, and there are seven named `IgnoreQueryFilters(["DemoTenancy"])` call sites
-plus **twenty-four bare `IgnoreQueryFilters()`** in `src/`. A bare call suppresses *every* filter,
-including soft delete, which is a wider hole than any of those sites needs. That is the honest cost
-of the design and the obvious next hardening.
+— must say so explicitly: twelve named `IgnoreQueryFilters([...])` call sites and twenty-four bare
+`IgnoreQueryFilters()` ones in `src/`.
+
+**An earlier draft of this record called those twenty-four "a wider hole than any of those sites
+needs" and named it the obvious next hardening. That was wrong, and auditing them is what showed
+it.** Six are raw `FromSql` queries taking `FOR UPDATE` locks, which EF cannot compose a filter onto
+at all — each restates `AND deleted_at IS NULL` in the SQL by hand. Seventeen are the Demo Lab's
+teardown and diagnostic reads, which must see soft-deleted rows precisely because cleanup that
+cannot see debris cannot remove it. The last suppresses only soft delete, on an entity that carries
+no session id and therefore has no tenancy filter to suppress.
+
+There was no hole. The correction is left in rather than deleted, because a record that quietly
+drops a claim it got wrong is less useful than one that shows the claim being tested.
 
 **What is not enforced**, checked rather than assumed:
 
