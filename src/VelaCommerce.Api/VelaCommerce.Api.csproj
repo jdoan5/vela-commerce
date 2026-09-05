@@ -68,4 +68,19 @@
     <InternalsVisibleTo Include="VelaCommerce.Integration.Tests" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!--
+      The generated catalog, published beside the assembly so a container has one.
+      Link is what makes the destination predictable: without it the file lands at the image
+      root by its own filename, and CatalogSeedFile probes seed/catalog.seed.json - the same
+      relative path it has in the repository, so one string describes both layouts.
+      CopyToOutputDirectory covers `dotnet run` from a clone as well, which means the
+      development probe below it is a fallback rather than the only thing that works.
+    -->
+    <Content Include="..\..\seed\catalog.seed.json"
+             Link="seed\catalog.seed.json"
+             CopyToOutputDirectory="PreserveNewest"
+             CopyToPublishDirectory="PreserveNewest" />
+  </ItemGroup>
+
 </Project>

@@ -504,3 +504,14 @@ $RECYCLE.BIN/
 # ---------------------------------------------------------------------------------------
 * [2-9].*
 * 1[0-9].*
+
+# ---------------------------------------------------------------------------------------
+# The storefront staged into the API host.
+#
+# The API project does not reference the storefront - that absence is the architecture, and
+# an architecture test enforces it - so the shop's files are COPIED here at publish time by
+# the pipeline rather than arriving through a project reference. Anyone reproducing the
+# container build locally runs the same copy, and 164 untracked files then appear inside a
+# source directory, in a client's changes list, looking like something they did.
+# ---------------------------------------------------------------------------------------
+src/VelaCommerce.Api/wwwroot/

@@ -229,11 +229,29 @@ jobs:
       # Plain chiseled, alpine and distroless all require InvariantGlobalization=true, which
       # silently breaks currency formatting in a shop. `-extra` keeps ICU and tzdata.
       #
-      # PublishReadyToRun=true: precompiled native code, which is the cheapest available
-      # win on the cold start that min_replicas = 0 guarantees every idle visitor will pay.
-      # Measured cost on this repository: the image goes from 85.9 MB to 92.2 MB, +6.3 MB,
-      # comfortably inside the ~140 MB budget in docs/PLAN.md. Cross-compiled linux-x64 from
-      # an arm64 Mac and run under Docker to confirm it starts.
+      # PublishReadyToRun=true: precompiled native code. This used to say it was "the
+      # cheapest available win on the cold start that min_replicas = 0 guarantees every idle
+      # visitor will pay". The cost had been measured; the win never had. It has been now,
+      # and there is no win to speak of - see docs/measurements/cold-start.md.
+      #
+      # Three measurements, twelve runs each, arm64: 250 vs 248 ms to Kestrel listening, 368
+      # vs 370 ms to the first /alive, 408 vs 410 ms to the first real catalog page. A 2 ms
+      # median difference that changes sign is noise.
+      #
+      # The reason is visible once the image is opened: this setting compiled exactly ONE
+      # assembly. VelaCommerce.Api.dll goes 565 KB -> 1473 KB, while Domain, Infrastructure,
+      # EF Core and Npgsql come out byte-identical to the non-R2R build. The layers where a
+      # startup and a first query actually spend their time were never touched.
+      #
+      # It stays on, for two honest reasons rather than the old confident one: it costs about
+      # 1 MB, and ACA runs x64 on a shared vCPU where JIT costs more absolute time than it
+      # does on the laptop this was measured on. That is a hypothesis, not a result. The
+      # experiment that would settle it is PublishReadyToRun across every project plus
+      # PublishReadyToRunComposite, re-run against the same harness - and it should be made
+      # because a measurement asked for it, not because it sounds like it should help.
+      #
+      # Image size, measured on x64 at the time: 85.9 MB to 92.2 MB, comfortably inside the
+      # ~140 MB budget in docs/PLAN.md. The equivalent arm64 delta is 88.1 -> 88.4 MB.
       #
       # PublishRepositoryUrl=true: emits the OCI source label, which is what makes GHCR link
       # the package back to this repository instead of orphaning it in the account's package
@@ -282,9 +300,15 @@ jobs:
       # A `sha-<commit>` tag is pushed alongside, and it is immutable by construction: one
       # commit, one tag, never moved. It exists so a human can navigate GHCR's UI and so the
       # first `terraform apply` has a real image reference to seed `container_image` with.
-      # `latest` and `main` are deliberately NOT pushed. A mutable tag is precisely the thing
-      # a digest deploy exists to avoid, and a rollback that means "re-point a tag" is not a
-      # rollback.
+      #
+      # This comment used to say `latest` and `main` are deliberately NOT pushed, because a
+      # mutable tag is what a digest deploy exists to avoid. The reasoning holds; the rule it
+      # produced was too broad. The thing to forbid is a mutable tag REACHING A DEPLOY, not a
+      # mutable tag existing - and this job deploys by digest, so it forbids it by
+      # construction rather than by abstinence. ci.yml's `image` job does publish a `main`
+      # tag, for exactly one reader: someone running `docker compose up` from the README, who
+      # wants the current shop and has no interest in commit hashes. Nothing in this workflow
+      # may reference it.
       # -----------------------------------------------------------------------------------
       - name: Push and capture the digest
         id: push

@@ -10,7 +10,7 @@ constraint rather than by C# that merely happens to run first.
 
 ![Browsing the catalog, searching, opening a product, adding to the cart, checking out, and the order timeline advancing from Placed to Shipped](docs/demo.gif)
 
-> The clip is sampled, not real time: the run took about ninety seconds and plays in nine. **It is a recording — nothing is deployed yet. See [Status](#status) below.**
+> The clip is sampled, not real time: the run took about ninety seconds and plays in nine. **It is a recording — nothing is deployed yet.** You do not have to take a recording's word for it, though: `docker compose up` runs the real thing in one command. See [Status](#status) below.
 
 Recorded by driving the running shop, not assembled from mock-ups: catalog, search, a product
 page, add to cart, the cart drawer, checkout with a sample address, then order `VELA-PPTNK4G`
@@ -215,9 +215,24 @@ constraints fire by bypassing the domain and writing the illegal row deliberatel
 
 ## Running it
 
-Requires the .NET 10 SDK, 10.0.400 or later (`global.json` sets that as a floor and rolls forward
-across feature bands), and PostgreSQL 18. Docker is needed only for
-the integration tests.
+**With Docker, and nothing else:**
+
+```bash
+docker compose up
+```
+
+Then open <http://localhost:5008>. That is the whole shop — a real PostgreSQL 18, the API, the
+Blazor storefront, the Demo Lab and the admin console — with no .NET SDK, no database to create and
+no connection string to set. The image is built and published by CI on every push to `main`; the
+container migrates and seeds itself, so the catalog is the same 288 products the tests run against.
+
+It is the actual system rather than a recording, which is the point: the last unit really is sold to
+exactly one of fifty simultaneous shoppers, because it is really PostgreSQL deciding. Read
+[`docker-compose.yml`](docker-compose.yml) for the two settings that are not the defaults and why.
+
+**From source**, if you want to change something. Requires the .NET 10 SDK, 10.0.400 or later
+(`global.json` sets that as a floor and rolls forward across feature bands), and PostgreSQL 18.
+Docker is needed only for the integration tests.
 
 ```bash
 dotnet build                       # builds the storefront too; the API serves its files
@@ -282,7 +297,7 @@ Ten phases, tracked in [`docs/PLAN.md`](docs/PLAN.md).
 | 5 | Anti-rot hardening | Not started — nightly reset, backups, uptime monitoring |
 | 6 | Demo Lab + refunds | Done — nine lab scenarios with per-scenario permalinks and verdicts; refunds and cancellation with a ledger, a row lock that serialises concurrent refunds, and restock on cancellation |
 | 7 | Admin + preview environments | Half done — session-scoped admin console with a per-session price overlay that never writes the shared catalog; preview environments not started |
-| 8 | Make it legible | Started — four ADRs in [`docs/adr/`](docs/adr/); measured cold start and the `/platform` page not begun |
+| 8 | Make it legible | Started — four ADRs in [`docs/adr/`](docs/adr/), [cold start measured locally](docs/measurements/cold-start.md); the ACA number and the `/platform` page need a deployment |
 | 9 | Optional differentiators | Not started — pgvector, passkeys, multi-cloud |
 
 Also not built, and not hidden: no preview environments, and no real payment processor. Search
@@ -306,6 +321,8 @@ tools/VelaCommerce.SeedGen        Deterministic catalog generator.
 api-tests/                        Bruno collection, run headless in CI.
 docs/PLAN.md                      The full build plan, 10 phases.
 docs/adr/                         Decisions a reviewer is likely to read as a mistake.
+docs/measurements/                Numbers, with the method that produced them.
+docker-compose.yml                The whole shop in one command, against the published image.
 ```
 
 (`Pending` is the stored status; the order page labels it *Placed*.)

@@ -170,8 +170,14 @@ if (app.Environment.IsDevelopment())
     var db = scope.ServiceProvider.GetRequiredService<VelaCommerceDbContext>();
     await db.Database.MigrateAsync();
 
-    var seedFile = Path.Combine(app.Environment.ContentRootPath, "..", "..", "seed", "catalog.seed.json");
-    await scope.ServiceProvider.GetRequiredService<CatalogSeeder>().SeedAsync(Path.GetFullPath(seedFile));
+    // Located rather than computed: the repository path this used to hard-code resolves to
+    // nothing inside a container, where the file sits beside the assembly instead. A host that
+    // seeds itself has to work in both layouts, so CatalogSeedFile probes them in order and says
+    // what it looked at when it finds neither.
+    if (CatalogSeedFile.Locate(app.Environment, app.Configuration, app.Logger) is { } seedFile)
+    {
+        await scope.ServiceProvider.GetRequiredService<CatalogSeeder>().SeedAsync(seedFile);
+    }
 }
 
 app.UseExceptionHandler();

@@ -1,0 +1,125 @@
+# =========================================================================================
+#  The whole shop, in one command.
+#
+#      docker compose up
+#
+#  Then open http://localhost:5008. A real PostgreSQL 18, the real API, the real Blazor
+#  storefront, the Demo Lab and the admin console — no .NET SDK, no database to create, no
+#  connection string to set. This is the closest thing to a live demo that exists while the
+#  hosted deployment is deliberately not happening, and unlike a recording it is the actual
+#  system: the last unit really is sold to exactly one of fifty simultaneous shoppers,
+#  because it is really PostgreSQL deciding.
+#
+#  The image is built by CI and published to GHCR on every push to main. To run against a
+#  locally built one instead, see the `build` note on the api service below.
+# =========================================================================================
+
+name: vela-commerce
+
+services:
+  db:
+    # Pinned to the same major version as everything else: Testcontainers uses
+    # postgres:18-alpine, CI uses postgres:18, and Neon is pinned to 18 in Terraform. One
+    # major version everywhere removes a whole class of "works on my machine".
+    image: postgres:18-alpine
+    environment:
+      POSTGRES_DB: vela
+      POSTGRES_USER: vela
+      # Local-only, and it never leaves this network - the db port is deliberately not
+      # published to the host below. A committed password that cannot be reached from
+      # outside the compose network is a convenience, not a credential.
+      POSTGRES_PASSWORD: vela
+    healthcheck:
+      # pg_isready against the specific database and user, not the defaults: the server
+      # accepts connections a moment before this database exists, and the API's first act is
+      # to migrate. Without the -d the API starts against a server that is up and a database
+      # that is not there yet.
+      test: ["CMD-SHELL", "pg_isready -U vela -d vela"]
+      interval: 2s
+      timeout: 3s
+      retries: 15
+      start_period: 5s
+    volumes:
+      # /var/lib/postgresql, NOT /var/lib/postgresql/data. The mount point changed in the
+      # PostgreSQL 18 images: mounting the data subdirectory now fails at startup with
+      # "This is usually the result of upgrading the Docker image without upgrading the
+      # underlying database", which is a confusing message for a volume that has never held
+      # a previous version. The single higher mount is what lets `pg_upgrade --link` work
+      # later without crossing a mount-point boundary. Every compose snippet written before
+      # PG18 has the old path, and it fails immediately, so this is worth a line.
+      - vela-db:/var/lib/postgresql
+
+  api:
+    image: ghcr.io/jdoan5/vela-commerce:main
+    # To run an image you built yourself, comment out `image:` above and uncomment this.
+    # The storefront has to be staged into the API first - see the image job in
+    # .github/workflows/ci.yml, which is the authority on how the image is assembled.
+    # build:
+    #   context: .
+    #   dockerfile: Dockerfile
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - "5008:8080"
+    environment:
+      # ---------------------------------------------------------------------------------
+      # Development, on purpose, and this is the one setting worth understanding.
+      #
+      # It is what makes the container migrate and seed itself on boot, so `compose up`
+      # against an empty volume produces a browsable shop with 288 products rather than an
+      # empty one. Production deliberately does neither: it applies migrations as a separate
+      # one-shot job so a slow migration cannot fail a health probe, which is right for a
+      # deployment and wrong for a demo somebody is trying for the first time.
+      #
+      # It also relaxes the cookie's Secure flag, which is required over plain http on
+      # localhost - a Secure cookie is dropped by the browser here, and every request would
+      # look like a new visitor with an eternally empty cart and no error to explain it.
+      # ---------------------------------------------------------------------------------
+      ASPNETCORE_ENVIRONMENT: Development
+      ASPNETCORE_HTTP_PORTS: "8080"
+
+      ConnectionStrings__Vela: "Host=db;Port=5432;Database=vela;Username=vela;Password=vela"
+
+      # ---------------------------------------------------------------------------------
+      # Magic amounts OFF, which is a departure from appsettings.Development.json and the
+      # reason is in that file: when the trailing cents of the order total pick the payment
+      # outcome, roughly one real checkout in twenty declines or hangs for no visible
+      # reason, because shipping and tax land totals on every value of cents. That is a
+      # useful affordance for a developer provoking a decline and a terrible one for a
+      # stranger's first purchase.
+      #
+      # Nothing is lost: the Demo Lab asks for a decline by naming the scenario outright,
+      # and /api/checkout takes a paymentScenario field, so every payment path is still
+      # reachable on purpose rather than by accident.
+      # ---------------------------------------------------------------------------------
+      Payments__Simulator__RecogniseMagicAmounts: "false"
+
+    # ------------------------------------------------------------------------------------
+    # NO healthcheck on this service, and it is not an oversight.
+    #
+    # The image is built on aspnet:10.0-noble-chiseled-extra. Chiseled means no shell and no
+    # userland: `/bin/sh` and `/usr/bin/wget` are both absent, verified by running them.
+    # Every healthcheck form Compose offers - CMD-SHELL, or CMD naming a binary - needs
+    # something in the image to execute, so a `wget -qO- .../health` test here does not fail
+    # loudly. It fails the same way on every probe, the container is reported unhealthy
+    # forever, and `compose up --wait` hangs on a service that is actually serving fine.
+    #
+    # The alternatives, rejected: switching to the non-chiseled base to gain a shell costs
+    # ~100 MB and a much larger attack surface for a probe; adding a HEALTHCHECK binary to
+    # the image adds a dependency for something nothing in this file depends on. Nothing
+    # waits on the API here - it is the last service - so the check would only serve
+    # `--wait`. Poll it from outside instead:
+    #
+    #     until curl -sf http://localhost:5008/health; do sleep 1; done
+    #
+    # /health rather than /alive on purpose: readiness answers only once the database is
+    # reachable and the seed is in, and waiting on liveness would hand the first visitor an
+    # empty catalog.
+    # ------------------------------------------------------------------------------------
+
+volumes:
+  # Named, so a `compose down` keeps the catalog and the orders and a `compose down -v`
+  # throws them away. Reseeding is idempotent, so losing it costs a few seconds, not data
+  # anybody should care about - this is a demo, and the Demo Lab has a reset button.
+  vela-db:
