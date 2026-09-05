@@ -59,8 +59,11 @@ builder.Services.AddScoped<CatalogSeeder>();
 builder.Services.AddCheckout(builder.Configuration);
 
 // The simulator is the DEFAULT gateway on purpose: this repo has to clone and complete a
-// purchase with no payment account and no network. The environment flag makes it refuse to
-// start outside Development while the committed development signing secret is in use.
+// purchase with no payment account and no network. The environment flag is what makes
+// AssertUsable refuse the committed development signing secret outside Development - on the
+// money path, when a payment or refund is attempted, NOT at startup. An earlier version of
+// this comment said "refuse to start", which it has never done; the same overstatement was
+// corrected in eight other places and this one survived.
 builder.Services.AddPaymentSimulator(builder.Configuration, builder.Environment.IsDevelopment());
 
 // The outbox makes "the payment was authorized" and "a settlement webhook will arrive" the

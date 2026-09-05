@@ -15,9 +15,11 @@
 # WHAT IT COSTS YOU IN CAPABILITY: no queryable log history in Azure. What still works:
 #   * `az containerapp logs show --name <app> --resource-group <rg> --follow` — the live
 #     stream, which is what you actually use when debugging a revision that will not start.
-#   * The application's own OpenTelemetry export to Grafana Cloud Free (10k series /
-#     50 GB logs / 50 GB traces / 14 days, no expiry), which docs/PLAN.md already chose as
-#     the observability backend. Log history lives there, not here.
+#   * NOT the application's own OpenTelemetry export. This comment used to name that as
+#     the surviving fallback, citing the Grafana Cloud Free tier docs/PLAN.md chose as the
+#     observability backend. There is no OpenTelemetry package anywhere in src/ - it was
+#     planned and never built - so the capability gap this decision creates is wider than
+#     the sentence admitted. See docs/adr/0009-no-log-analytics-workspace.md.
 #   * Container Apps system logs in the portal for the last short window.
 #
 # THE ALTERNATIVE, AND ITS NUMBERS: flip create_log_analytics_workspace to true and you get
@@ -42,7 +44,7 @@ resource "azurerm_log_analytics_workspace" "vela" {
   sku = "PerGB2018"
 
   # GUARDRAIL 1 — the hard stop. Ingestion halts for the remainder of the UTC day once this
-  # is exceeded; it does not bill past it. 0.15 GB/day is ~4.5 GB over a 31-day month, which
+  # is exceeded; it does not bill past it. 0.15 GB/day is ~4.65 GB over a 31-day month, which
   # stays inside the 5 GB/month free allowance with headroom for a bad day.
   #
   # DO NOT set this to -1. -1 means unlimited, it is the provider's default, and it is the

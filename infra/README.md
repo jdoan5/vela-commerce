@@ -85,7 +85,7 @@ you lose: queryable log history *in Azure*. That history lives in Grafana, which
 `docs/PLAN.md` had already chosen as the observability backend.
 
 If you opt in anyway, the workspace this creates is capped at
-`log_analytics_daily_quota_gb = 0.15` (~4.5 GB/month, inside the 5 GB free allowance;
+`log_analytics_daily_quota_gb = 0.15` (~4.65 GB/month, inside the 5 GB free allowance;
 ingestion **stops** rather than bills through) with `retention_in_days = 30` (inside the
 free 31 days). Those two lines are the difference between a $0 workspace and an unbounded
 one.

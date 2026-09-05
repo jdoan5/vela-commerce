@@ -94,7 +94,10 @@ Infrastructure the compiler refuses, and inside it
 and admits four names. Worth reading for why it is enforced twice — the comment there was an
 unenforced claim for exactly one day before the admin console's own page reader falsified it. The
 reasoning behind the overlay, the passwordless sign-in and the two render modes is in
-[`docs/adr/`](docs/adr/).
+[`docs/adr/`](docs/adr/) — along with why the gateway call sits *outside* checkout's transaction and
+*inside* a refund's, why every race here is decided by the database rather than by a `SELECT` that
+ran first, and which of those records' own justifications turned out to rest on something that was
+never built.
 
 Two more worth the detour:
 [`OutboxDispatcher`](src/VelaCommerce.Infrastructure/Messaging/OutboxDispatcher.cs) claims each
@@ -307,7 +310,7 @@ lists where the two part company.
 | 5 | Anti-rot hardening | Started — coverage floor and mutation score enforced in CI; nightly reset, backups and uptime monitoring need a deployment |
 | 6 | Demo Lab + refunds | Done — nine lab scenarios with per-scenario permalinks and verdicts; refunds and cancellation with a ledger, a row lock that serialises concurrent refunds, and restock on cancellation |
 | 7 | Admin + preview environments | Admin console done; server-side search on a [trigram index](docs/measurements/trigram-search.md); preview environments blocked on accounts that do not exist |
-| 8 | Make it legible | Started — four ADRs in [`docs/adr/`](docs/adr/), [cold start measured locally](docs/measurements/cold-start.md); the ACA number and the `/platform` page need a deployment |
+| 8 | Make it legible | Started — nine ADRs in [`docs/adr/`](docs/adr/); [cold start](docs/measurements/cold-start.md), [mutation testing](docs/measurements/mutation-testing.md) and [trigram search](docs/measurements/trigram-search.md) measured; the ACA number and the `/platform` page need a deployment |
 | 9 | Optional differentiators | Not started — pgvector, passkeys, multi-cloud |
 
 Also not built, and not hidden: no preview environments, and no real payment processor. Search

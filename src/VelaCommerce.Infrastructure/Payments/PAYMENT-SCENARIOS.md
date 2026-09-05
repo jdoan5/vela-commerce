@@ -76,7 +76,7 @@ Every key is optional. A host with no configuration at all gets a working gatewa
 | `GatewayReferencePrefix` | `sim` | Makes a simulated reference identifiable at a glance in a log. |
 | `SettlementDelay` | `00:00:03` | How long a deferred settlement waits. Must be shorter than `SignatureTolerance`. |
 | `SignatureTolerance` | `00:05:00` | The replay window, in both directions. |
-| `RecogniseMagicAmounts` | `true` | Whether the total may select a scenario. |
+| `RecogniseMagicAmounts` | `false` | Whether the total may select a scenario. On by default only in `appsettings.Development.json`. |
 
 **Production.** Supply `SigningSecret` from an environment variable or a key vault reference —
 never from `appsettings.Production.json`, which ships inside the container image. The committed
