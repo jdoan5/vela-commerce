@@ -72,5 +72,5 @@ output "log_analytics_note" {
     local.stem,
     tostring(var.log_analytics_daily_quota_gb),
     var.log_analytics_daily_quota_gb * 31,
-  ) : "No Log Analytics workspace. Environment log destination is 'none'. Azure Monitor cost: $0.00. Logs are the live stream plus the app's OTLP export."
+  ) : "No Log Analytics workspace. Environment log destination is 'none'. Azure Monitor cost: $0.00. Logs are the live stream (az containerapp logs show --follow) and nothing else - there is no OpenTelemetry export in this application, despite what docs/PLAN.md planned. See docs/adr/0009-no-log-analytics-workspace.md."
 }

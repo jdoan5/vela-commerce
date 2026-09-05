@@ -1,0 +1,164 @@
+# =========================================================================================
+#  Apply EF Core migrations to the production database. Manual only, forever.
+#
+#  Production deliberately does NOT migrate at startup. A slow migration must not be able to
+#  fail a container's health probe, and a schema change must not be a side effect of a deploy
+#  that somebody triggered for an unrelated reason. So it is a separate, deliberate act with
+#  a human behind it.
+#
+#  DIVERGENCE FROM docs/PLAN.md, recorded rather than quietly taken. The plan called for a
+#  migration bundle packaged as its own container image and run as a one-shot Azure Container
+#  Apps Job. This is a GitHub Actions workflow instead, because the ACA-job version needs a
+#  second image, a second registry path, a second Terraform resource and an identity that can
+#  pull it - four moving parts to run something a runner can do directly, since Neon is
+#  publicly reachable. The requirement the plan was protecting ("never at startup") is met
+#  either way.
+#
+#  The ACA-job version becomes the right answer the day the database stops being reachable
+#  from a public runner - a Neon IP allow-list, or a move to a private endpoint. At that
+#  point this file should be replaced, not extended.
+#
+#  It also talks to nothing in Azure, which is the incidental benefit: no OIDC, no federated
+#  credential, no `azure/login`. It cannot touch the subscription even by accident.
+# =========================================================================================
+name: Migrate
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: 'Type "migrate" to confirm. Anything else stops before connecting.'
+        required: true
+        default: ""
+
+permissions:
+  contents: read
+
+concurrency:
+  # Two migrations racing each other against one database is the one way to turn a
+  # recoverable failure into a wedged schema. Never cancel a run in flight - queue it.
+  group: migrate-production
+  cancel-in-progress: false
+
+jobs:
+  migrate:
+    name: Apply migrations
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    # The environment is the actual gate: its protection rules decide who may run this, and
+    # the connection string lives in it rather than in repository secrets, so a workflow on a
+    # branch cannot reach it.
+    environment: production
+
+    steps:
+      - name: Refuse unless confirmed
+        if: inputs.confirm != 'migrate'
+        run: |
+          echo "::error::Confirmation was '${{ inputs.confirm }}', not 'migrate'. Nothing was connected to."
+          exit 1
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6
+        with:
+          global-json-file: global.json
+
+      - name: Restore the local tools
+        run: dotnet tool restore --tool-manifest dotnet-tools.json
+
+      # -----------------------------------------------------------------------------------
+      # A BUNDLE, not `dotnet ef database update`.
+      #
+      # The bundle is a self-contained executable containing the migrations and nothing else.
+      # It is built from the committed code with no connection string in sight, which means
+      # the artifact that touches the database is the same one every time and can be built,
+      # inspected and even archived before anyone points it at a server. `database update`
+      # would instead build the whole project, load the DbContext, and run the design-time
+      # factory - three more ways for an unrelated code change to alter what a migration run
+      # does.
+      #
+      # Infrastructure is both project and startup project because it holds
+      # DesignTimeDbContextFactory, and the API host does not reference
+      # Microsoft.EntityFrameworkCore.Design.
+      # -----------------------------------------------------------------------------------
+      - name: Build the migration bundle
+        run: >-
+          dotnet tool run dotnet-ef migrations bundle
+          --project src/VelaCommerce.Infrastructure
+          --startup-project src/VelaCommerce.Infrastructure
+          --configuration Release
+          --self-contained --target-runtime linux-x64
+          --output artifacts/migrate
+          --force
+
+      # -----------------------------------------------------------------------------------
+      # THE DIRECT ENDPOINT, NOT THE POOLED ONE, and this is not a preference.
+      #
+      # Neon's pooled endpoint is PgBouncer in transaction mode. Migrations issue DDL inside
+      # a transaction and depend on session-level state, which transaction pooling does not
+      # preserve - the failure is intermittent and looks like a corrupt migration rather than
+      # a connection problem. The app uses the pooled endpoint (it is the one that survives
+      # scale-from-zero without exhausting connections); migrations use the direct one.
+      #
+      # They are different hostnames: the pooled endpoint carries `-pooler` in the host. The
+      # check below is a string check, not a connection attempt, so it fails in a second with
+      # an actionable message rather than after a confusing DDL error.
+      # -----------------------------------------------------------------------------------
+      - name: Refuse the pooled endpoint
+        env:
+          VELA_DB_CONNECTION: ${{ secrets.VELA_DB_MIGRATION_CONNECTION }}
+        run: |
+          if [ -z "$VELA_DB_CONNECTION" ]; then
+            echo "::error::VELA_DB_MIGRATION_CONNECTION is not set on the production environment. It must be Neon's DIRECT endpoint, not the pooled one the app uses."
+            exit 1
+          fi
+          case "$VELA_DB_CONNECTION" in
+            *-pooler.*)
+              echo "::error::That is Neon's POOLED endpoint (the host contains '-pooler'). Migrations need the DIRECT endpoint: PgBouncer in transaction mode does not preserve the session state DDL relies on, and the failure looks like a corrupt migration rather than a connection problem."
+              exit 1
+              ;;
+          esac
+          echo "Direct endpoint, as required."
+
+      # A migration that has already been applied is a no-op, so re-running this is safe and
+      # is the intended recovery from a partial failure.
+      - name: Apply
+        env:
+          VELA_DB_CONNECTION: ${{ secrets.VELA_DB_MIGRATION_CONNECTION }}
+        run: |
+          set -euo pipefail
+          ./artifacts/migrate --connection "$VELA_DB_CONNECTION"
+          echo "### Migrations applied" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "Bundle built from \`${{ github.sha }}\`." >> "$GITHUB_STEP_SUMMARY"
+
+      # -----------------------------------------------------------------------------------
+      # THIS WORKFLOW DOES NOT SEED, AND NOTHING ELSE CAN EITHER YET.
+      #
+      # A draft of this file had a "Seed the catalog" step calling
+      # `dotnet run --project tools/VelaCommerce.SeedGen -- --apply`. That flag does not
+      # exist. SeedGen takes two optional file paths, references only VelaCommerce.Domain,
+      # and writes the seed file and the client snapshot - it has never been able to reach a
+      # database and was never meant to.
+      #
+      # The only thing that writes the catalog into PostgreSQL is CatalogSeeder, in
+      # Infrastructure, and its single caller is the Development-only block in Program.cs. So
+      # a Production database ends up correctly migrated and completely empty, and the shop
+      # serves a catalog of nothing.
+      #
+      # Closing it needs a deliberate entry point - a seed switch on the API host that seeds
+      # and exits, or a small console tool that references Infrastructure - and that is a code
+      # change with a decision in it, not a line in a workflow. It is named here rather than
+      # papered over, because a migration job that quietly leaves an empty shop is worse than
+      # one that says what it did not do.
+      # -----------------------------------------------------------------------------------
+      - name: State what remains
+        run: |
+          {
+            echo ""
+            echo "**The schema is applied. The catalog is not.** Nothing in this repository can"
+            echo "seed a Production database yet - CatalogSeeder's only caller is the"
+            echo "Development-only block in Program.cs. The shop will serve an empty catalog"
+            echo "until that entry point exists."
+          } >> "$GITHUB_STEP_SUMMARY"
