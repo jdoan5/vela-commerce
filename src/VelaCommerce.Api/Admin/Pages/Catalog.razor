@@ -1,0 +1,137 @@
+@page "/admin/catalog"
+@using Microsoft.AspNetCore.Authorization
+@using VelaCommerce.Api.Endpoints
+@attribute [Authorize(Policy = DemoAdminAuthentication.Policy)]
+@inject AdminPageData Data
+
+<h1>Your prices</h1>
+
+<p class="lede">
+    Move prices for your own session. The seeded catalog is shared with every other visitor and is
+    never written — what you set here lands in a per-session overlay laid over it, and disappears
+    when you reset the demo.
+</p>
+
+<div class="banner">
+    <strong>Where you will see this.</strong> The shop's grid browses from a static catalog snapshot
+    downloaded once, so a price you move here will <em>not</em> change what the grid shows. It
+    changes what the cart captures and what checkout charges. That is the interesting part: fill a
+    cart first, then reprice, then try to check out, and the shop refuses with a
+    <code>409</code> naming the line rather than quietly charging either price.
+</div>
+
+<h2>Reprice a category</h2>
+
+<form method="post" action="/api/admin/catalog/reprice">
+    <AntiforgeryToken />
+    <div class="row">
+        <span class="field">
+            <label for="category">Category</label>
+            <select id="category" name="category" required>
+                @foreach (var category in _categories ?? [])
+                {
+                    <option value="@category">@category</option>
+                }
+            </select>
+        </span>
+        <span class="field">
+            <label for="percent">Percent (-50 to 50)</label>
+            <input id="percent" name="percent" type="number" min="-50" max="50" step="1" value="-10" required />
+        </span>
+        <button class="primary" type="submit">Reprice</button>
+    </div>
+</form>
+
+<p class="note">
+    This is one <code>UPDATE</code> over every variant in the category — the operation that looks
+    global and is not. It writes override rows scoped to your session by the same query filter the
+    shop uses, so the statement can be written in the shape a bulk operation wants to be written in
+    and still cannot leave this session. Repricing twice compounds from your current price rather
+    than resetting to the shared one. The arithmetic truncates toward zero, so a markdown rounds in
+    your favour by at most a penny.
+</p>
+
+<h2>Set one price exactly</h2>
+
+<form method="post" action="/api/admin/catalog/override">
+    <AntiforgeryToken />
+    <div class="row">
+        <span class="field">
+            <label for="variantId">Variant id</label>
+            <input id="variantId" name="variantId" size="38" placeholder="from the table below" required />
+        </span>
+        <span class="field">
+            <label for="priceAmount">Price in minor units</label>
+            <input id="priceAmount" name="priceAmount" type="number" min="0" step="1" required />
+        </span>
+        <button type="submit">Set</button>
+    </div>
+</form>
+
+<h2>What you have moved</h2>
+
+@if (_overrides is null)
+{
+    <p class="empty">Loading…</p>
+}
+else if (_overrides.Count == 0)
+{
+    <p class="empty">Nothing yet. Every price you see in the shop is the shared one.</p>
+}
+else
+{
+    <table>
+        <thead>
+            <tr>
+                <th>SKU</th>
+                <th>Product</th>
+                <th>Category</th>
+                <th class="num">Shared</th>
+                <th class="num">Yours</th>
+                <th class="num">Delta</th>
+                <th>Variant id</th>
+            </tr>
+        </thead>
+        <tbody>
+            @foreach (var row in _overrides)
+            {
+                <tr>
+                    <td>@row.Sku</td>
+                    <td>@row.ProductName — @row.VariantName</td>
+                    <td>@row.Category</td>
+                    <td class="num">@Money(row.SeedAmount, row.Currency)</td>
+                    <td class="num">@Money(row.YourAmount, row.Currency)</td>
+                    <td class="num">@(row.Delta > 0 ? "+" : "")@Money(row.Delta, row.Currency)</td>
+                    <td>@row.VariantId</td>
+                </tr>
+            }
+        </tbody>
+    </table>
+
+    <form method="post" action="/api/admin/catalog/overrides/clear">
+        <AntiforgeryToken />
+        <div class="row">
+            <button type="submit">Clear all @_overrides.Count of them</button>
+        </div>
+    </form>
+
+    <p class="note">
+        Clearing deletes the rows, which is exactly what restoring the shared price means — the
+        overlay carries no soft delete because there is no history worth keeping in a price nobody
+        else could ever see.
+    </p>
+}
+
+@code {
+    private IReadOnlyList<AdminOverrideRow>? _overrides;
+    private IReadOnlyList<string>? _categories;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _categories = await Data.CategoriesAsync();
+        _overrides = await Data.OverridesAsync();
+    }
+
+    private static string Money(long minorUnits, string currency) =>
+        string.Create(System.Globalization.CultureInfo.InvariantCulture, $"{minorUnits / 100m:0.00} {currency}");
+}

@@ -102,22 +102,43 @@ public sealed class StorefrontFallbackTests : IDisposable
     }
 
     /// <summary>
-    /// <c>/admin</c> is reserved before any admin page exists, and this is what keeps it reserved.
-    /// Removing it from <c>ReservedPrefixes</c> turns a mistyped admin URL into the shop, with no
-    /// error and nothing in a log — and later, once the pages are real, turns a routing mistake
-    /// into a page that silently renders the wrong application.
+    /// The shop's shell never answers for an admin path, whoever else does.
+    /// <para>
+    /// These two are real pages now, so the interesting assertion is no longer the status code —
+    /// it is what came back. Remove <c>/admin</c> from <c>ReservedPrefixes</c> and the fallback
+    /// would start claiming these routes ahead of the admin, which does not look like a failure:
+    /// the visitor gets a 200 and a shop, and nothing lands in a log.
+    /// </para>
     /// </summary>
     [Theory]
     [InlineData("/admin")]
     [InlineData("/admin/orders")]
-    [InlineData("/admin/a-page-that-does-not-exist")]
-    public async Task The_shell_never_answers_for_an_admin_path(string path)
+    public async Task The_shell_never_answers_for_an_admin_page(string path)
     {
         using var client = _host.CreateClient();
 
         using var response = await client.GetAsync(path);
 
-        Assert.NotEqual(HttpStatusCode.OK, response.StatusCode);
+        Assert.DoesNotContain("storefront shell", await response.Content.ReadAsStringAsync(), StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// An admin path with no page behind it is a 404, which is the half of the reservation that
+    /// only a missing route can demonstrate.
+    /// <para>
+    /// A real page answering is not evidence: it would answer whether or not the prefix were
+    /// reserved, because it is matched before the fallback either way. Only a path nothing serves
+    /// reaches the fallback, so only this case can tell "reserved" apart from "happens to route".
+    /// </para>
+    /// </summary>
+    [Fact]
+    public async Task An_admin_path_with_no_page_behind_it_is_a_404_rather_than_the_shop()
+    {
+        using var client = _host.CreateClient();
+
+        using var response = await client.GetAsync("/admin/a-page-that-does-not-exist");
+
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
         Assert.DoesNotContain("storefront shell", await response.Content.ReadAsStringAsync(), StringComparison.Ordinal);
     }
 

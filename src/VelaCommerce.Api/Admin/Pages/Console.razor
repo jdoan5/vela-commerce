@@ -1,6 +1,5 @@
 @page "/admin"
 @using Microsoft.AspNetCore.Http
-@inject IHttpContextAccessor Http
 
 <h1>Demo admin</h1>
 
@@ -56,6 +55,14 @@ else
 </p>
 
 @code {
-    private bool SignedIn =>
-        Http.HttpContext?.User.Identity?.IsAuthenticated == true;
+    /// <summary>
+    /// Static SSR cascades the request's HttpContext to every component it renders, which is why
+    /// this page takes no IHttpContextAccessor. That accessor is an ambient dependency — it works
+    /// by reaching for whatever request happens to be in flight — and it is also not registered by
+    /// default, so asking for it is a 500 on the first page view rather than a compile error.
+    /// </summary>
+    [CascadingParameter]
+    private HttpContext? HttpContext { get; set; }
+
+    private bool SignedIn => HttpContext?.User.Identity?.IsAuthenticated == true;
 }

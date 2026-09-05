@@ -136,6 +136,21 @@ public sealed class CheckoutHost : WebApplicationFactory<Program>
         HandleCookies = false,
     });
 
+    /// <summary>
+    /// A client with no cookie jar that also stops at the redirect rather than following it.
+    /// <para>
+    /// Needed by anything that has to read a <c>Set-Cookie</c> off the hop that issued it: a
+    /// redirect-following client hands back the destination's response, by which point the header
+    /// carrying the credential is two responses ago and unreachable.
+    /// </para>
+    /// </summary>
+    public HttpClient NewCookieWatchingClient() => CreateClient(new WebApplicationFactoryClientOptions
+    {
+        BaseAddress = ClientOptions.BaseAddress,
+        HandleCookies = false,
+        AllowAutoRedirect = false,
+    });
+
     /// <inheritdoc />
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {

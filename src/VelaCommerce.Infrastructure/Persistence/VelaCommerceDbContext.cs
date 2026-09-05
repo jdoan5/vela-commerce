@@ -32,10 +32,11 @@ namespace VelaCommerce.Infrastructure.Persistence;
 /// tenancy, for instance) still in force.
 /// </para>
 /// <para>
-/// <see cref="Carts"/> and <see cref="Orders"/> carry a second filter named <c>DemoTenancy</c>,
-/// applied in <see cref="OnModelCreating"/>. It is the reason a forgotten <c>WHERE</c> clause in
-/// one endpoint cannot show one visitor another visitor's cart: the restriction is a property of
-/// the model, not of the query somebody remembered to write.
+/// <see cref="Carts"/>, <see cref="Orders"/> and the admin's per-session price overlay carry a
+/// second filter named <c>DemoTenancy</c>, applied in <see cref="OnModelCreating"/>. It is the
+/// reason a forgotten <c>WHERE</c> clause in one endpoint cannot show one visitor another
+/// visitor's cart: the restriction is a property of the model, not of the query somebody
+/// remembered to write.
 /// </para>
 /// </summary>
 public sealed class VelaCommerceDbContext : DbContext
@@ -108,7 +109,7 @@ public sealed class VelaCommerceDbContext : DbContext
     }
 
     /// <summary>
-    /// Adds the <c>DemoTenancy</c> filter to the two entities that carry a <c>DemoSessionId</c>.
+    /// Adds the <c>DemoTenancy</c> filter to the three entities that carry a <c>DemoSessionId</c>.
     /// <para>
     /// It lives here rather than in <c>CartConfiguration</c> / <c>OrderConfiguration</c> because the
     /// predicate has to reference an instance member of <em>this</em> context (see
@@ -132,7 +133,9 @@ public sealed class VelaCommerceDbContext : DbContext
     /// cross-visitor query too.
     /// </para>
     /// <para>
-    /// Scope is the aggregate roots. <c>CartLine</c> and <c>OrderLine</c> hold no session id of
+    /// Scope is the aggregate roots, plus the overlay, which is a root in its own right — it has
+    /// no parent to be reached through, so it carries its own session id and its own filter.
+    /// <c>CartLine</c> and <c>OrderLine</c> hold no session id of
     /// their own and are reached through their parent, which is filtered; querying
     /// <c>Set&lt;CartLine&gt;()</c> directly would side-step tenancy, which is why neither is
     /// exposed as a <see cref="DbSet{TEntity}"/> and why line queries belong on the root.

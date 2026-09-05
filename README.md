@@ -20,11 +20,12 @@ background service moving real rows in real PostgreSQL on a demo clock — 20 se
 40 more to Shipped — and the page stops polling by itself once the order reaches a terminal state,
 which is the "no longer checking" the last frames show.
 
-**Status.** Phases 1–4 and 6 of 10 are done, and Phase 0 all but its deployment — domain, seeded catalog, storefront, cart, tenancy,
-checkout, payments, transactional outbox, the order timeline, the Demo Lab and refunds — on **356
-passing tests** (191 domain, 8 architecture, 157 integration against a real PostgreSQL 18 in
-Testcontainers). Phases 5, 7, 8 and 9 are not started: nightly reset and backups, an admin UI,
-preview environments, the ADRs. **There is no hosted demo, deliberately.** The Azure free-trial credit expires
+**Status.** Phases 1–4 and 6 of 10 are done, Phase 0 all but its deployment, and Phase 7's admin
+half — domain, seeded catalog, storefront, cart, tenancy, checkout, payments, transactional outbox,
+the order timeline, the Demo Lab, refunds and a session-scoped admin console — on **376 passing
+tests** (191 domain, 8 architecture, 177 integration against a real PostgreSQL 18 in
+Testcontainers). Phases 5, 8 and 9 are not started, and Phase 7's other half is not either: nightly
+reset and backups, preview environments, the measured cold start. **There is no hosted demo, deliberately.** The Azure free-trial credit expires
 2026-09-04, and upgrading to Pay-As-You-Go permanently removes the spending limit that currently
 makes the subscription unable to bill at all — so the app gets finished first and deployed once,
 rather than half-deployed onto a subscription that can start charging. The GIF above is what a
@@ -75,6 +76,12 @@ without reading the bodies.
   — fifty shoppers, five units, one instant. Every number asserted exactly: five orders, forty-five
   409s, zero 500s, and a ledger finishing at `reserved = 5` against `on_hand = 5`. "At most five"
   would pass for a shop that sold nothing.
+
+One more, if the admin is what caught your eye:
+**[`EffectiveCatalogPrices`](src/VelaCommerce.Infrastructure/Persistence/CatalogOverrides/EffectiveCatalogPrices.cs)**
+— the only file outside the EF configuration that names the price overlay, which is what stops any
+read path from quietly bypassing it. The reasoning behind the overlay, the passwordless sign-in and
+the two render modes is in [`docs/adr/`](docs/adr/).
 
 Two more worth the detour:
 [`OutboxDispatcher`](src/VelaCommerce.Infrastructure/Messaging/OutboxDispatcher.cs) claims each
@@ -246,8 +253,9 @@ dotnet run --project tools/VelaCommerce.SeedGen
 ```
 
 The HTTP surface has an executable description as a [Bruno collection](api-tests/README.md):
-plain-text `.bru` files that CI runs headless against a live API, covering **all eighteen
-operations** in 54 requests and 98 tests. It is the closest thing here to a demo you can run —
+plain-text `.bru` files that CI runs headless against a live API, covering **all eighteen of its
+JSON operations** in 54 requests and 98 tests. The admin console's six operations are HTML form
+posts rather than JSON and are covered by the integration suite instead. It is the closest thing here to a demo you can run —
 `dotnet run` in one terminal, `bru run -r --env local` in another, and about three seconds later
 you have watched a cart become an order, an idempotency key refuse to charge twice, a refund
 recorded once and refused twice, a settlement forgery turned away three different ways, and a
@@ -266,12 +274,14 @@ Ten phases, tracked in [`docs/PLAN.md`](docs/PLAN.md).
 | 4 | Checkout, payments, order timeline | Done — payment port and signing simulator, atomic reservation, idempotent checkout, transactional outbox, signed webhook receiver, accelerated timeline |
 | 5 | Anti-rot hardening | Not started — nightly reset, backups, uptime monitoring |
 | 6 | Demo Lab + refunds | Done — nine lab scenarios with per-scenario permalinks and verdicts; refunds and cancellation with a ledger, a row lock that serialises concurrent refunds, and restock on cancellation |
-| 7 | Admin + preview environments | Not started |
+| 7 | Admin + preview environments | Half done — session-scoped admin console with a per-session price overlay that never writes the shared catalog; preview environments not started |
 | 8 | Make it legible | Not started — measured cold start, ADRs, `/platform` page |
 | 9 | Optional differentiators | Not started — pgvector, passkeys, multi-cloud |
 
-Also not built, and not hidden: there is no admin UI, no server-side search beyond the client-side
-filtering, and no real payment processor.
+Also not built, and not hidden: no server-side search beyond the client-side filtering, no preview
+environments, and no real payment processor. The admin console packs orders and moves prices, and
+deliberately cannot ship an order or adjust stock — [ADR 0004](docs/adr/0004-the-admin-cannot-ship-or-restock.md)
+says why.
 
 ## Layout
 
@@ -279,11 +289,13 @@ filtering, and no real payment processor.
 src/VelaCommerce.Domain           Aggregates and invariants. No dependencies.
 src/VelaCommerce.Infrastructure   EF Core mapping, migrations, seeding, outbox, payments, workers.
 src/VelaCommerce.Api              Minimal API host; also serves the storefront in one origin.
+src/VelaCommerce.Api/Admin        Blazor static SSR admin console, rendered per request.
 src/VelaCommerce.Storefront       Blazor WebAssembly shop and its catalog snapshot.
 tests/                            Domain, architecture and Testcontainers integration tests.
 tools/VelaCommerce.SeedGen        Deterministic catalog generator.
 api-tests/                        Bruno collection, run headless in CI.
 docs/PLAN.md                      The full build plan, 10 phases.
+docs/adr/                         Decisions a reviewer is likely to read as a mistake.
 ```
 
 (`Pending` is the stored status; the order page labels it *Placed*.)

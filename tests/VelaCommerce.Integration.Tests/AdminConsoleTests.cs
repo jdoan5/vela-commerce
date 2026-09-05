@@ -1,0 +1,395 @@
+using System.Net;
+using System.Net.Http.Json;
+using System.Text.RegularExpressions;
+using Microsoft.EntityFrameworkCore;
+using VelaCommerce.Api.Admin;
+using VelaCommerce.Api.Tenancy;
+using VelaCommerce.Infrastructure.Persistence;
+using VelaCommerce.Infrastructure.Persistence.CatalogOverrides;
+using Xunit;
+
+namespace VelaCommerce.Integration.Tests;
+
+/// <summary>
+/// The admin console over real HTTP, and the claims it is only worth having if it keeps.
+/// <para>
+/// The console is public and unauthenticated in the ordinary sense — a button grants the cookie,
+/// because a demo behind a password is a demo nobody looks at. What makes that defensible is that
+/// the credential gates the FEATURE and the model gates the DATA, and those are separate
+/// mechanisms that fail independently. These tests assert both halves separately, because the
+/// tempting mistake is to prove one and assume the other.
+/// </para>
+/// </summary>
+[Collection(nameof(PostgresCollection))]
+public sealed class AdminConsoleTests : IDisposable
+{
+    private readonly PostgresFixture _fixture;
+    private readonly Storefront _shop;
+
+    public AdminConsoleTests(PostgresFixture fixture)
+    {
+        _fixture = fixture;
+        _shop = new Storefront(fixture);
+    }
+
+    public void Dispose() => _shop.Dispose();
+
+    /// <summary>
+    /// Pulls the hidden token Blazor renders into every admin form.
+    /// <para>
+    /// Fetched from the page rather than disabled in the test host, because a suite that turns
+    /// antiforgery off is a suite that would not notice it being turned off in production.
+    /// </para>
+    /// </summary>
+    private static async Task<string> TokenFromAsync(HttpClient client, string path)
+    {
+        var html = await client.GetStringAsync(path);
+
+        // Attribute order is the renderer's business, so both arrangements are matched rather than
+        // one being assumed and the test breaking on a framework update.
+        const string pattern =
+            "name=\"__RequestVerificationToken\"[^>]*?value=\"([^\"]+)\""
+            + "|value=\"([^\"]+)\"[^>]*?name=\"__RequestVerificationToken\"";
+
+        var match = Regex.Match(html, pattern, RegexOptions.IgnoreCase);
+
+        Assert.True(match.Success, $"No antiforgery token in the page at {path}. Blazor renders one per form.");
+
+        return match.Groups[1].Success ? match.Groups[1].Value : match.Groups[2].Value;
+    }
+
+    private static async Task<HttpResponseMessage> PostFormAsync(
+        HttpClient client, string tokenPath, string action, params (string Key, string Value)[] fields)
+    {
+        var token = await TokenFromAsync(client, tokenPath);
+
+        var body = fields
+            .Append((Key: "__RequestVerificationToken", Value: token))
+            .ToDictionary(field => field.Item1, field => field.Item2);
+
+        return await client.PostAsync(action, new FormUrlEncodedContent(body));
+    }
+
+    /// <summary>
+    /// Accepts an admin write, whether or not the client followed the redirect.
+    /// <para>
+    /// Every handler answers 303 so a reload cannot resubmit the form, but the factory's client
+    /// follows redirects by default and hands back the 200 from the destination. Asserting the
+    /// 303 alone would be asserting a client setting rather than the endpoint's behaviour.
+    /// </para>
+    /// </summary>
+    private static void AssertAccepted(HttpResponseMessage response, string route) =>
+        Assert.True(
+            response.StatusCode is HttpStatusCode.SeeOther || response.IsSuccessStatusCode,
+            $"{route} answered {(int)response.StatusCode}, which is neither the 303 it sends nor "
+            + "the 200 a redirect-following client would land on.");
+
+    /// <summary>Opens a browser and signs it in as the demo admin for its own session.</summary>
+    private async Task<HttpClient> AdminAsync()
+    {
+        var client = _shop.Host.NewBrowser();
+
+        // Establishes the demo session first: the ticket is issued for whoever is asking, so there
+        // has to be somebody asking.
+        using var warmup = await client.GetAsync("/api/cart");
+        Assert.Equal(HttpStatusCode.OK, warmup.StatusCode);
+
+        using var signIn = await PostFormAsync(client, "/admin", "/api/admin/sign-in");
+        AssertAccepted(signIn, "/api/admin/sign-in");
+
+        // The proof, rather than the status code: the orders page is behind the policy, so a 200
+        // here means the cookie was issued AND binds to this client's session.
+        using var orders = await client.GetAsync("/admin/orders");
+        Assert.Equal(HttpStatusCode.OK, orders.StatusCode);
+
+        return client;
+    }
+
+    private async Task<long?> OverrideAmountAsync(Guid variantId)
+    {
+        await using var db = _fixture.CreateContext();
+
+        var rows = await db.Set<DemoCatalogPriceOverride>()
+            .IgnoreQueryFilters()
+            .Where(o => o.VariantId == variantId)
+            .Select(o => (long?)o.PriceAmount)
+            .ToListAsync();
+
+        return rows.Count == 1 ? rows[0] : null;
+    }
+
+    /// <summary>
+    /// THE HEADLINE CLAIM, driven the way a reviewer would drive it: two browsers, two cookie jars,
+    /// one shared catalog.
+    /// </summary>
+    [Fact]
+    public async Task An_admin_reprice_in_one_session_is_invisible_to_another()
+    {
+        var jib = await _shop.StockAsync("Storm jib", onHand: 10);
+
+        using var alice = await AdminAsync();
+        var bob = await _shop.NewShopperAsync();
+
+        using var repriced = await PostFormAsync(
+            alice, "/admin/catalog", "/api/admin/catalog/override",
+            ("variantId", jib.VariantId.ToString()),
+            ("priceAmount", "100"));
+
+        AssertAccepted(repriced, "/api/admin/catalog/override");
+
+        // Alice's cart captures her price...
+        await using var aliceCart = new HttpClientCart(alice);
+        var alicePrice = await aliceCart.AddAndReadUnitPriceAsync(jib.VariantId);
+        Assert.Equal(100, alicePrice);
+
+        // ...and Bob's captures the shop's, from the same variant, at the same moment.
+        await bob.AddToCartAsync(jib);
+        var bobCart = await bob.CartAsync();
+        Assert.False(bobCart.IsEmpty);
+
+        var bobPrice = await BobUnitPriceAsync(bob);
+        Assert.Equal(jib.UnitPriceMinorUnits, bobPrice);
+    }
+
+    private static async Task<long> BobUnitPriceAsync(Shopper shopper)
+    {
+        using var response = await shopper.Client.GetAsync("/api/cart");
+        var body = await response.Content.ReadFromJsonAsync<CartPriceView>();
+
+        Assert.NotNull(body);
+        return body.Lines[0].UnitPrice.Amount;
+    }
+
+    /// <summary>
+    /// The admin cookie lifted into another browser, which is the attack somebody will try.
+    /// <para>
+    /// Every other defence is deliberately satisfied first — the request carries a real admin
+    /// ticket and an antiforgery pair minted for exactly the cookies it sends — so that the only
+    /// thing left able to refuse it is the binding under test. A 400 here would mean antiforgery
+    /// caught it and the binding was never reached, which is why the status is asserted and not
+    /// merely the absence of success.
+    /// </para>
+    /// <para>
+    /// Two assertions, and the second is the one people forget: the ticket is refused, AND it
+    /// would have reached nothing if it had not been. The credential and the model are separate
+    /// defences, so each is asserted on its own rather than one being taken as evidence of the
+    /// other.
+    /// </para>
+    /// </summary>
+    [Fact]
+    public async Task An_admin_cookie_from_one_session_is_inert_in_another()
+    {
+        var porthole = await _shop.StockAsync("Bronze porthole", onHand: 5);
+
+        var alice = await FreshAdminCookiesAsync();
+        var bob = await FreshAdminCookiesAsync();
+
+        using var lifted = _shop.Host.NewCookieWatchingClient();
+
+        // The attacker's browser: their own demo session, Alice's admin cookie pasted in beside it.
+        var stolen = $"{bob.Session}; {alice.Admin}";
+
+        // Minted while carrying that pair, because ASP.NET Core binds the antiforgery field token
+        // to the authenticated identity — a token fetched anonymously would be rejected as a
+        // mismatch, and the test would pass for the wrong reason.
+        var (antiforgeryCookie, token) = await AntiforgeryPairAsync(lifted, stolen);
+
+        using var attempt = new HttpRequestMessage(HttpMethod.Post, "/api/admin/catalog/override");
+        attempt.Headers.Add("Cookie", $"{stolen}; {antiforgeryCookie}");
+        attempt.Content = new FormUrlEncodedContent(new Dictionary<string, string>
+        {
+            ["variantId"] = porthole.VariantId.ToString(),
+            ["priceAmount"] = "1",
+            ["__RequestVerificationToken"] = token,
+        });
+
+        using var refused = await lifted.SendAsync(attempt);
+
+        // Alice's ticket names Alice's session; the request carries Bob's. Authentication succeeds
+        // — the ticket is genuine — and authorization is what says no, which is a 403.
+        Assert.True(
+            refused.StatusCode is HttpStatusCode.Forbidden or HttpStatusCode.Unauthorized,
+            $"A lifted admin cookie was answered {(int)refused.StatusCode}. A 2xx or 303 means it "
+            + "was accepted; a 400 means antiforgery refused it first and the session binding was "
+            + "never exercised.");
+
+        // And nothing was written under either session — the half that would still hold if the
+        // policy were deleted tomorrow, because the model scopes the write regardless.
+        Assert.Null(await OverrideAmountAsync(porthole.VariantId));
+    }
+
+    /// <summary>A demo visitor's two cookies: the session they were given, and the ticket they earned.</summary>
+    private sealed record AdminBrowser(string Session, string Admin);
+
+    /// <summary>
+    /// Signs a fresh visitor in and hands back their raw cookie values.
+    /// <para>
+    /// Driven on a client that keeps no cookie jar and stops at the redirect, because both of
+    /// those would otherwise hide the thing being collected: a jar swallows the header, and a
+    /// followed redirect hands back the destination's response instead of the one that set it.
+    /// </para>
+    /// </summary>
+    private async Task<AdminBrowser> FreshAdminCookiesAsync()
+    {
+        using var raw = _shop.Host.NewCookieWatchingClient();
+
+        using var mint = await raw.GetAsync("/api/cart");
+        var session = SetCookie(mint, DemoSessionMiddleware.CookieName);
+
+        var (antiforgeryCookie, token) = await AntiforgeryPairAsync(raw, session);
+
+        using var signIn = new HttpRequestMessage(HttpMethod.Post, "/api/admin/sign-in");
+        signIn.Headers.Add("Cookie", $"{session}; {antiforgeryCookie}");
+        signIn.Content = new FormUrlEncodedContent(new Dictionary<string, string>
+        {
+            ["__RequestVerificationToken"] = token,
+        });
+
+        using var granted = await raw.SendAsync(signIn);
+
+        return new AdminBrowser(session, SetCookie(granted, DemoAdminAuthentication.CookieName));
+    }
+
+    /// <summary>
+    /// Fetches an antiforgery cookie and matching field token valid for exactly the cookies given.
+    /// The two halves are useless apart, so they are always collected together.
+    /// </summary>
+    private async Task<(string Cookie, string Token)> AntiforgeryPairAsync(HttpClient raw, string cookieHeader)
+    {
+        using var request = new HttpRequestMessage(HttpMethod.Get, "/admin");
+        request.Headers.Add("Cookie", cookieHeader);
+
+        using var response = await raw.SendAsync(request);
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+
+        var html = await response.Content.ReadAsStringAsync();
+        var token = Regex.Match(html, "name=\"__RequestVerificationToken\"[^>]*?value=\"([^\"]+)\"").Groups[1].Value;
+
+        Assert.False(string.IsNullOrEmpty(token), "The admin page rendered no antiforgery token.");
+
+        return (SetCookie(response, "Antiforgery", prefixMatch: false), token);
+    }
+
+    /// <summary>
+    /// Pulls one <c>Set-Cookie</c> off a response and fails with the response's own headers when it
+    /// is not there, because "value is null" is not a diagnosis.
+    /// </summary>
+    private static string SetCookie(HttpResponseMessage response, string name, bool prefixMatch = true)
+    {
+        var all = response.Headers.TryGetValues("Set-Cookie", out var values) ? values.ToArray() : [];
+
+        var match = all.FirstOrDefault(value => prefixMatch
+            ? value.StartsWith($"{name}=", StringComparison.Ordinal)
+            : value.Contains(name, StringComparison.OrdinalIgnoreCase));
+
+        Assert.True(
+            match is not null,
+            $"No {name} cookie on the {(int)response.StatusCode} from {response.RequestMessage?.RequestUri}. "
+            + $"Set-Cookie carried: {(all.Length == 0 ? "nothing" : string.Join(" | ", all.Select(v => v.Split('=')[0])))}.");
+
+        return match!.Split(';')[0];
+    }
+
+    /// <summary>
+    /// Every write route, with no admin cookie at all. Catches a route added later to the wrong
+    /// group — the failure that looks like nothing until somebody notices the console needs no
+    /// sign-in.
+    /// </summary>
+    [Theory]
+    [InlineData("/api/admin/catalog/reprice")]
+    [InlineData("/api/admin/catalog/override")]
+    [InlineData("/api/admin/catalog/overrides/clear")]
+    [InlineData("/api/admin/orders/VELA-AAAAAAA/pack")]
+    public async Task Every_admin_write_refuses_a_caller_with_no_admin_cookie(string route)
+    {
+        var client = _shop.Host.NewBrowser();
+
+        using var warmup = await client.GetAsync("/api/cart");
+
+        using var response = await client.PostAsync(route, new FormUrlEncodedContent(new Dictionary<string, string>()));
+
+        Assert.True(
+            response.StatusCode is HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden,
+            $"{route} answered {(int)response.StatusCode} to a caller with no admin cookie.");
+
+        client.Dispose();
+    }
+
+    /// <summary>
+    /// Packing somebody else's order is a 404, not a 403 — because the row was never loaded. A 403
+    /// would confirm the order exists, which would make this endpoint a way to discover order
+    /// numbers.
+    /// </summary>
+    [Fact]
+    public async Task Packing_another_sessions_order_is_a_404_rather_than_a_403()
+    {
+        var jib = await _shop.StockAsync("Deck cleat", onHand: 5);
+
+        var bob = await _shop.NewShopperAsync();
+        await bob.AddToCartAsync(jib);
+
+        using var placed = await bob.CheckoutAsync($"admin-{Guid.CreateVersion7():N}");
+        var order = await ResponseReader.OrderAsync(placed);
+
+        using var alice = await AdminAsync();
+
+        // The token comes from /admin rather than /admin/orders: Alice's orders page is empty —
+        // that is the point of the test — so it renders no form and therefore no token. An
+        // antiforgery token is scoped to the session, not to the form it was rendered into.
+        using var attempt = await PostFormAsync(
+            alice, "/admin", $"/api/admin/orders/{order.OrderNumber}/pack");
+
+        Assert.Equal(HttpStatusCode.NotFound, attempt.StatusCode);
+    }
+
+    /// <summary>
+    /// The demo reset must take this visitor's overrides and leave everybody else's, which is the
+    /// same tenancy question the rest of the reset already answers.
+    /// </summary>
+    [Fact]
+    public async Task A_demo_reset_clears_this_sessions_overrides_and_only_this_sessions()
+    {
+        var mine = await _shop.StockAsync("Signal lamp", onHand: 5);
+        var theirs = await _shop.StockAsync("Chart weight", onHand: 5);
+
+        using var alice = await AdminAsync();
+        using var bob = await AdminAsync();
+
+        using var _ = await PostFormAsync(alice, "/admin/catalog", "/api/admin/catalog/override",
+            ("variantId", mine.VariantId.ToString()), ("priceAmount", "111"));
+
+        using var __ = await PostFormAsync(bob, "/admin/catalog", "/api/admin/catalog/override",
+            ("variantId", theirs.VariantId.ToString()), ("priceAmount", "222"));
+
+        Assert.Equal(111, await OverrideAmountAsync(mine.VariantId));
+        Assert.Equal(222, await OverrideAmountAsync(theirs.VariantId));
+
+        using var reset = await alice.PostAsync("/api/demo/reset", content: null);
+        Assert.Equal(HttpStatusCode.OK, reset.StatusCode);
+
+        Assert.Null(await OverrideAmountAsync(mine.VariantId));
+        Assert.Equal(222, await OverrideAmountAsync(theirs.VariantId));
+    }
+}
+
+/// <summary>Adds a line and reports what the cart captured for it.</summary>
+internal sealed class HttpClientCart(HttpClient client) : IAsyncDisposable
+{
+    public async Task<long> AddAndReadUnitPriceAsync(Guid variantId)
+    {
+        using var added = await client.PostAsJsonAsync("/api/cart/items", new { variantId, quantity = 1 });
+        Assert.Equal(HttpStatusCode.OK, added.StatusCode);
+
+        var body = await added.Content.ReadFromJsonAsync<CartPriceView>();
+        Assert.NotNull(body);
+
+        return body.Lines[0].UnitPrice.Amount;
+    }
+
+    public ValueTask DisposeAsync() => ValueTask.CompletedTask;
+}
+
+/// <summary>The slice of the cart response these tests read.</summary>
+internal sealed record CartPriceView(IReadOnlyList<CartPriceLineView> Lines, bool IsEmpty);
+
+internal sealed record CartPriceLineView(Guid VariantId, MoneyView UnitPrice);
