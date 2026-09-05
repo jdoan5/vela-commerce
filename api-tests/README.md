@@ -1,10 +1,10 @@
 # Vela Commerce API collection
 
-An executable description of the HTTP surface: browse the catalog, drive a cart through its whole
-life, buy something, refund it, cancel an order, watch the settlement receiver refuse three
-different forgeries, run a Demo Lab scenario, and check both health probes. All eighteen of the
-API's JSON operations are covered; the admin console's six are HTML form posts, covered by the
-integration suite instead. It runs in the [Bruno](https://usebruno.com)
+An executable description of the HTTP surface: browse the catalog, search it with a wildcard that
+has to be taken literally, drive a cart through its whole life, buy something, refund it, cancel an
+order, watch the settlement receiver refuse three different forgeries, run a Demo Lab scenario, and
+check both health probes. All eighteen of the API's JSON operations are covered; the admin console's
+six are HTML form posts, covered by the integration suite instead. It runs in the [Bruno](https://usebruno.com)
 desktop app for exploring, and headless in CI as a smoke test.
 
 ## Why Bruno and not Postman

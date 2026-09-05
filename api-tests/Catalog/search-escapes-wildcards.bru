@@ -1,0 +1,40 @@
+meta {
+  name: Search treats a wildcard as a character
+  type: http
+  seq: 7
+}
+
+get {
+  url: {{baseUrl}}/api/catalog/products?q=%25&pageSize=1
+  body: none
+  auth: none
+}
+
+docs {
+  The one catalog parameter the collection never exercised, and the reason the README used
+  to say this API had no server-side search: nobody was looking for it.
+
+  `q` runs an escaped ILIKE over name and description. A bare `%` in LIKE matches any run of
+  characters, so an unescaped term turns the search box into a query language - not an
+  injection, since the term has always been a parameter, but the difference between a search
+  that filters and one that does not.
+
+  Searching for a literal `%` against a generated catalog whose names contain no percent sign
+  therefore has exactly one correct answer: nothing. Without the escaping the same request
+  returns every product there is, which is what the totals below tell apart.
+}
+
+assert {
+  res.status: eq 200
+  res.body.total: eq 0
+}
+
+tests {
+  test("a lone wildcard finds nothing rather than everything", function() {
+    // The generated catalog has no percent sign in any name or description, so this is the
+    // whole assertion: escaped it matches nothing, unescaped it matches all 288 products.
+    expect(res.body.items).to.be.an("array").that.is.empty;
+    expect(res.body.total).to.equal(0);
+    expect(Number(bru.getVar("catalogTotal"))).to.be.above(0);
+  });
+}

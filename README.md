@@ -22,13 +22,15 @@ which is the "no longer checking" the last frames show.
 
 **Status.** Phases 1–4 and 6 of 10 are done, Phase 0 all but its deployment, and Phase 7's admin
 half — domain, seeded catalog, storefront, cart, tenancy, checkout, payments, transactional outbox,
-the order timeline, the Demo Lab, refunds and a session-scoped admin console — on **376 passing
-tests** (191 domain, 8 architecture, 177 integration against a real PostgreSQL 18 in
+the order timeline, the Demo Lab, refunds and a session-scoped admin console — on **387 passing
+tests** (191 domain, 9 architecture, 187 integration against a real PostgreSQL 18 in
 Testcontainers). Phases 5, 8 and 9 are not started, and Phase 7's other half is not either: nightly
-reset and backups, preview environments, the measured cold start. **There is no hosted demo, deliberately.** The Azure free-trial credit expires
-2026-09-04, and upgrading to Pay-As-You-Go permanently removes the spending limit that currently
-makes the subscription unable to bill at all — so the app gets finished first and deployed once,
-rather than half-deployed onto a subscription that can start charging. The GIF above is what a
+reset and backups, preview environments, the measured cold start. **There is no hosted demo, deliberately.** The Azure free-trial credit expired
+2026-09-04 and was allowed to lapse. The subscription still carries its spending limit, so it is
+disabled rather than billing; deploying now would mean upgrading to Pay-As-You-Go, which removes
+that limit permanently and cannot re-enable it. The decision was to finish the app first and deploy
+once, on purpose, rather than half-deploy onto a subscription that can start charging — and nothing
+is burned by waiting, since the Terraform, the resource names and the OIDC subject all stay valid. The GIF above is what a
 clone of this repo does today, after `dotnet build` and `dotnet run --project src/VelaCommerce.Api`
 against a local PostgreSQL. Both steps matter: the API project does not reference the storefront, so
 the solution build is what puts the shop's files where the host serves them from.
@@ -259,7 +261,7 @@ dotnet run --project tools/VelaCommerce.SeedGen
 
 The HTTP surface has an executable description as a [Bruno collection](api-tests/README.md):
 plain-text `.bru` files that CI runs headless against a live API, covering **all eighteen of its
-JSON operations** in 54 requests and 98 tests. The admin console's six operations are HTML form
+JSON operations** in 55 requests and 99 tests. The admin console's six operations are HTML form
 posts rather than JSON and are covered by the integration suite instead. It is the closest thing here to a demo you can run —
 `dotnet run` in one terminal, `bru run -r --env local` in another, and about three seconds later
 you have watched a cart become an order, an idempotency key refuse to charge twice, a refund
@@ -280,11 +282,14 @@ Ten phases, tracked in [`docs/PLAN.md`](docs/PLAN.md).
 | 5 | Anti-rot hardening | Not started — nightly reset, backups, uptime monitoring |
 | 6 | Demo Lab + refunds | Done — nine lab scenarios with per-scenario permalinks and verdicts; refunds and cancellation with a ledger, a row lock that serialises concurrent refunds, and restock on cancellation |
 | 7 | Admin + preview environments | Half done — session-scoped admin console with a per-session price overlay that never writes the shared catalog; preview environments not started |
-| 8 | Make it legible | Not started — measured cold start, ADRs, `/platform` page |
+| 8 | Make it legible | Started — four ADRs in [`docs/adr/`](docs/adr/); measured cold start and the `/platform` page not begun |
 | 9 | Optional differentiators | Not started — pgvector, passkeys, multi-cloud |
 
-Also not built, and not hidden: no server-side search beyond the client-side filtering, no preview
-environments, and no real payment processor. The admin console packs orders and moves prices, and
+Also not built, and not hidden: no preview environments, and no real payment processor. Search
+exists on both sides and they are different mechanisms — the shop browses and filters entirely
+client-side from the static snapshot, and `GET /api/catalog/products?q=` runs an escaped `ILIKE`
+over name and description for anything querying the API directly. Neither is full-text; the
+`pg_trgm` index that would make the server-side one fast is phase 7 work that has not landed. The admin console packs orders and moves prices, and
 deliberately cannot ship an order or adjust stock — [ADR 0004](docs/adr/0004-the-admin-cannot-ship-or-restock.md)
 says why.
 

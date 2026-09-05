@@ -444,6 +444,94 @@ public sealed class AdminConsoleTests : IDisposable
         return (row.OnHand, row.Reserved);
     }
 
+    /// <summary>
+    /// The 303 is asserted exactly, because <see cref="AssertAccepted"/> deliberately does not.
+    /// <para>
+    /// That helper passes on <c>SeeOther || IsSuccessStatusCode</c>, so every admin write would
+    /// still be green if the handlers returned <c>Results.Ok()</c> — and the endpoints argue at
+    /// length for 303 over 302 and give it a whole result type. Its comment says asserting the 303
+    /// would be asserting a client setting rather than the endpoint's behaviour, which was true
+    /// when it was written and stopped being true a hundred lines below, where
+    /// <see cref="CheckoutHost.NewCookieWatchingClient"/> refuses redirects on purpose.
+    /// </para>
+    /// <para>
+    /// 303 rather than 302 is the point: it tells the browser to follow with GET, so a reload of
+    /// the destination cannot resubmit the form. A 302 leaves the method to the browser's
+    /// discretion, which historically meant the same thing and is not what anyone should rely on
+    /// for a write.
+    /// </para>
+    /// </summary>
+    [Fact]
+    public async Task An_admin_write_answers_exactly_a_303_to_the_page_it_came_from()
+    {
+        var vane = await _shop.StockAsync("Masthead vane", onHand: 3);
+
+        var admin = await FreshAdminCookiesAsync();
+
+        using var raw = _shop.Host.NewCookieWatchingClient();
+
+        var carried = $"{admin.Session}; {admin.Admin}";
+        var (antiforgeryCookie, token) = await AntiforgeryPairAsync(raw, carried);
+
+        using var request = new HttpRequestMessage(HttpMethod.Post, "/api/admin/catalog/override");
+        request.Headers.Add("Cookie", $"{carried}; {antiforgeryCookie}");
+        request.Content = new FormUrlEncodedContent(new Dictionary<string, string>
+        {
+            ["variantId"] = vane.VariantId.ToString(),
+            ["priceAmount"] = "4242",
+            ["__RequestVerificationToken"] = token,
+        });
+
+        using var response = await raw.SendAsync(request);
+
+        Assert.Equal(HttpStatusCode.SeeOther, response.StatusCode);
+        Assert.Equal("/admin/catalog", response.Headers.Location?.ToString());
+
+        // And it actually wrote, so a handler that redirected without doing the work would fail
+        // here rather than pass on the status code alone.
+        Assert.Equal(4242, await OverrideAmountAsync(vane.VariantId));
+    }
+
+    /// <summary>
+    /// Antiforgery on the group that authorization does not cover.
+    /// <para>
+    /// <c>ValidateAntiforgeryAsync</c> is the only CSRF defence on <c>/sign-in</c> and
+    /// <c>/sign-out</c>, and nothing exercised it.
+    /// <see cref="Every_admin_write_refuses_a_caller_with_no_admin_cookie"/> posts without a token
+    /// but only to guarded routes, where authorization answers 401 in middleware before the filter
+    /// ever runs — so removing the filter from the open group changed nothing any test could see.
+    /// </para>
+    /// <para>
+    /// Sign-in is the one worth protecting: it takes no input, so a cross-site POST cannot choose
+    /// a session, but it can still mint an admin cookie in a visitor's browser without their
+    /// knowledge. That is not a privilege escalation, it is a stranger silently switching on a
+    /// console in somebody else's shop.
+    /// </para>
+    /// </summary>
+    [Fact]
+    public async Task Sign_in_refuses_a_form_post_carrying_no_antiforgery_token()
+    {
+        using var raw = _shop.Host.NewCookieWatchingClient();
+
+        using var mint = await raw.GetAsync("/api/cart");
+        var session = SetCookie(mint, DemoSessionMiddleware.CookieName);
+
+        using var request = new HttpRequestMessage(HttpMethod.Post, "/api/admin/sign-in");
+        request.Headers.Add("Cookie", session);
+        request.Content = new FormUrlEncodedContent(new Dictionary<string, string>());
+
+        using var response = await raw.SendAsync(request);
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+
+        // No ticket was handed out. The status code alone would pass for a filter that refused the
+        // response after the handler had already signed the caller in.
+        Assert.False(
+            response.Headers.TryGetValues("Set-Cookie", out var values)
+            && values.Any(v => v.StartsWith($"{DemoAdminAuthentication.CookieName}=", StringComparison.Ordinal)),
+            "A token-less sign-in was refused but still set an admin cookie.");
+    }
+
     /// <summary>A demo visitor's two cookies: the session they were given, and the ticket they earned.</summary>
     private sealed record AdminBrowser(string Session, string Admin);
 
