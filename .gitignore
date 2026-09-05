@@ -482,3 +482,25 @@ $RECYCLE.BIN/
 *.swp
 .DS_Store
 **/.DS_Store
+
+# ---------------------------------------------------------------------------------------
+# macOS iCloud Drive conflict copies.
+#
+# This repository lives under ~/Documents, which "Desktop & Documents Folders" syncs to
+# iCloud. When two devices touch the same file, iCloud does not merge and does not warn -
+# it keeps both and renames one by appending a space and a number: `openapi 2.json`,
+# `VelaCommerce.Api 8.dll`. One of those reached a commit ("Create openapi 2.json",
+# 2762 lines byte-identical to openapi.json) because it sits beside a tracked file and
+# looks like a real edit in a client's changes list.
+#
+# The rest land in bin/ and obj/, which are ignored already, but they are not harmless
+# there: a duplicate assembly beside the original is a second copy for a test runner or a
+# coverage collector to find, which is how a whole-solution coverage figure ends up an
+# order of magnitude too low with nothing visibly wrong.
+#
+# This pattern only stops them being COMMITTED. The fix for generating them is to move the
+# repository out of the synced folder, or to exclude it in System Settings -> Apple
+# Account -> iCloud -> Drive.
+# ---------------------------------------------------------------------------------------
+* [2-9].*
+* 1[0-9].*
