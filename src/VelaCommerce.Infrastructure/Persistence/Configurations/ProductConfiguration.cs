@@ -106,6 +106,28 @@ internal sealed class ProductConfiguration : IEntityTypeConfiguration<Product>
         builder.HasIndex(product => product.Category)
             .HasDatabaseName("ix_products_category");
 
+        // Trigram GIN indexes, one per column the search reads. GIN and not GiST: GIN is larger
+        // and slower to build and answers `%term%` faster, which is the only shape this query has.
+        //
+        // These serve `ILIKE '%term%'` specifically. A B-tree cannot - a leading wildcard means
+        // there is no prefix to seek on, so the planner has no choice but to read every row. That
+        // is why CatalogEndpoints uses ILIKE against the untouched column rather than
+        // `lower(name) LIKE`: wrapping the column in a function makes it unindexable by anything
+        // except a matching expression index.
+        //
+        // A term shorter than three characters produces no trigrams and the planner falls back to
+        // a sequential scan whatever is indexed here. That is a property of trigrams, not a bug,
+        // and it is asserted rather than assumed - see CatalogSearchIndexTests.
+        builder.HasIndex(product => product.Name)
+            .HasMethod("gin")
+            .HasOperators("gin_trgm_ops")
+            .HasDatabaseName("ix_products_name_trgm");
+
+        builder.HasIndex(product => product.Description)
+            .HasMethod("gin")
+            .HasOperators("gin_trgm_ops")
+            .HasDatabaseName("ix_products_description_trgm");
+
         builder.HasQueryFilter("SoftDelete", product => product.DeletedAt == null);
     }
 }

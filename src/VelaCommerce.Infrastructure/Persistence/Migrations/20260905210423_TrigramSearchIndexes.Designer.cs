@@ -3,6 +3,7 @@ using System;
 using System.Collections.Generic;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 using VelaCommerce.Infrastructure.Persistence;
@@ -12,9 +13,11 @@ using VelaCommerce.Infrastructure.Persistence;
 namespace VelaCommerce.Infrastructure.Persistence.Migrations
 {
     [DbContext(typeof(VelaCommerceDbContext))]
-    partial class VelaCommerceDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260905210423_TrigramSearchIndexes")]
+    partial class TrigramSearchIndexes
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder

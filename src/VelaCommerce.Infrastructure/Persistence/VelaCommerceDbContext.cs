@@ -103,6 +103,12 @@ public sealed class VelaCommerceDbContext : DbContext
     {
         base.OnModelCreating(modelBuilder);
 
+        // pg_trgm, declared here rather than in a configuration class because an extension is a
+        // property of the database, not of an entity. It ships in postgres:18-alpine, in the
+        // postgres:18 image CI uses, and on Neon - verified, not assumed - so this costs no image
+        // change anywhere. The indexes that need it are in ProductConfiguration.
+        modelBuilder.HasPostgresExtension("pg_trgm");
+
         modelBuilder.ApplyConfigurationsFromAssembly(typeof(VelaCommerceDbContext).Assembly);
 
         ApplyDemoTenancy(modelBuilder);

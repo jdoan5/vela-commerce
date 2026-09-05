@@ -306,7 +306,7 @@ lists where the two part company.
 | 4 | Checkout, payments, order timeline | Done — payment port and signing simulator, atomic reservation, idempotent checkout, transactional outbox, signed webhook receiver, accelerated timeline |
 | 5 | Anti-rot hardening | Started — coverage floor and mutation score enforced in CI; nightly reset, backups and uptime monitoring need a deployment |
 | 6 | Demo Lab + refunds | Done — nine lab scenarios with per-scenario permalinks and verdicts; refunds and cancellation with a ledger, a row lock that serialises concurrent refunds, and restock on cancellation |
-| 7 | Admin + preview environments | Half done — session-scoped admin console with a per-session price overlay that never writes the shared catalog; preview environments not started |
+| 7 | Admin + preview environments | Admin console done; server-side search on a [trigram index](docs/measurements/trigram-search.md); preview environments blocked on accounts that do not exist |
 | 8 | Make it legible | Started — four ADRs in [`docs/adr/`](docs/adr/), [cold start measured locally](docs/measurements/cold-start.md); the ACA number and the `/platform` page need a deployment |
 | 9 | Optional differentiators | Not started — pgvector, passkeys, multi-cloud |
 
