@@ -24,8 +24,8 @@ which is the "no longer checking" the last frames show.
 
 Phases 0–4 and 6 of 10 are done, and Phase 7's admin
 half — domain, seeded catalog, storefront, cart, tenancy, checkout, payments, transactional outbox,
-the order timeline, the Demo Lab, refunds and a session-scoped admin console — on **398 passing
-tests** (202 domain, 9 architecture, 187 integration against a real PostgreSQL 18 in
+the order timeline, the Demo Lab, refunds and a session-scoped admin console — on **403 passing
+tests** (202 domain, 10 architecture, 191 integration against a real PostgreSQL 18 in
 Testcontainers), at **68.1% line coverage** over the three production assemblies — a floor CI
 enforces rather than a badge it decorates, and [`coverage.runsettings`](coverage.runsettings) says
 what is counted and why. The domain also carries a **71.6% mutation score** — Stryker's first run
@@ -38,8 +38,10 @@ half: nightly reset, backups, uptime monitoring, per-PR preview environments.
 <https://ca-vela-prod.nicesea-6ebff2dd.eastus.azurecontainerapps.io> — Azure Container Apps in
 front of Neon PostgreSQL 18, both on free tiers, applied by the Terraform in [`infra/`](infra/).
 The container runs at zero replicas when nobody is looking and Neon suspends itself after five
-minutes idle, so **the first click pays a real cold start** and an idle month costs nothing but a
-few pence of blob storage. That trade is the whole hosting argument: a demo that costs nothing at
+minutes idle, so **the first click pays a real cold start — [measured at 32 seconds](docs/measurements/cold-start.md),
+against 0.16 s warm** — and an idle month costs nothing but a few pence of blob storage. Browsing
+and search never touch the API, so that wait is paid by the first person to open a cart, not the
+first person to look. That trade is the whole hosting argument: a demo that costs nothing at
 rest is a demo that is still up in 2029.
 
 The subscription is Pay-As-You-Go with no spending limit, which was a deliberate choice and is

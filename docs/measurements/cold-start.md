@@ -1,9 +1,60 @@
 # Cold start, measured
 
+Two measurements of two different things, and the gap between them is the point.
+
+## On Azure Container Apps — the number that matters
+
+**Measured 2026-09-06**, against the live deployment: Container Apps Consumption, 0.25 vCPU /
+0.5 GiB, `min_replicas = 0`, Neon PostgreSQL 18 with its own five-minute autosuspend. Each sample
+waited for the revision to report `ScaledToZero` first, so every one is a genuine scale-from-zero.
+
+| | p50 | min | max | n |
+|---|---|---|---|---|
+| **Cold** — first request after scale-to-zero | **32.13 s** | 32.07 s | 32.14 s | 3 |
+| **Warm** — the next request | **0.16 s** | 0.09 s | 0.28 s | 3 |
+
+**A 196× gap**, and the cold figure is almost suspiciously stable — a 0.07 s spread across three
+samples taken minutes apart. That consistency says the time is structural rather than contended:
+the platform does the same work each time and takes the same time to do it.
+
+Both requests are `GET /api/catalog/products?pageSize=24`, which is a real EF Core query against
+real PostgreSQL, serialised through the whole pipeline.
+
+### What is in those 32 seconds — and what is not measured
+
+Four things happen and only their total was measured: Container Apps schedules a replica, pulls the
+206 MB image, starts .NET, and Neon resumes its compute. **The split between them is not measured
+here**, and the reason is a decision this project made on purpose: with no Log Analytics workspace
+there is no queryable log history, and by the time `az containerapp logs show` can be run against a
+replica, the startup lines have aged out of the live stream. That is
+[ADR 0009](../adr/0009-no-log-analytics-workspace.md)'s stated cost arriving in practice, and it is
+worth recording as such rather than as an oversight. Decomposing it would mean either attaching a
+workspace or catching the stream in the same second the replica starts.
+
+### Whether 32 seconds is acceptable
+
+It is the price of `min_replicas = 0`, and that setting is doing two jobs at once: it is why an idle
+month costs nothing on Azure, and it is why Neon's compute stays suspended and the 100 CU-hour free
+allowance is not consumed by a demo nobody is looking at. `min_replicas = 1` would remove most of
+the wait and cost money on both sides simultaneously.
+
+So the trade is a slow first click in exchange for a demo that is still up in 2029, and the honest
+way to present that is to say so rather than to hide it behind a spinner. What makes it defensible
+is the architecture's central rule: **browse, search, filter and sort never touch the API at all**.
+A visitor landing on the shop gets the catalogue from a static snapshot immediately. The 32 seconds
+is paid by the first person to put something in a cart, not by the first person to look.
+
+---
+
+## Locally, under Docker — the ReadyToRun study
+
 **Measured 2026-09-05.** Apple M-series, macOS 26.6, Docker 29.7.2, images built and run natively
 for `linux/arm64`, PostgreSQL 18 in a sibling container on the same Docker network,
-`ASPNETCORE_ENVIRONMENT=Production` so the container neither migrates nor seeds — the path a
-deployed revision takes.
+`ASPNETCORE_ENVIRONMENT=Production` so the container neither migrates nor seeds.
+
+This measured the *application*; the section above measures the *platform*. At 0.41 s locally
+against 32.13 s deployed, the application's own start is roughly 1% of what a deployed visitor
+waits — which is why the ReadyToRun result below, correct as it is, changes nothing that matters.
 
 This file exists because `deploy.yml` carried a claim nobody had checked. Beside
 `PublishReadyToRun=true` it said: *"precompiled native code, which is the cheapest available win on
@@ -67,16 +118,18 @@ failing against a budget that turned out to be the thing that was wrong.
 on this hardware. Two reasons to be careful about generalising:
 
 - **Architecture and CPU.** This is arm64 on a fast laptop core. Container Apps runs x64 on a shared
-  vCPU, where JIT costs more absolute time, so the same missing native code could matter more there.
-  That measurement needs a deployment and is [blocked](../../README.md#status).
+  vCPU, where JIT costs more absolute time. That comparison is now possible and has **not** been
+  run: it would mean publishing a second image with `PublishReadyToRun=false`, deploying it, and
+  measuring — and against a 32-second platform cost, a change worth a fraction of a second on the
+  application's 0.41 s would be undetectable without far more samples than it is worth.
 - **Coverage.** The obvious next experiment is to set `PublishReadyToRun` for every project, and
   `PublishReadyToRunComposite` to take in the framework, then re-run exactly this. That is a real
   change with a real image-size cost, and it should be made because a measurement asked for it —
   not turned on because it sounds like it should help, which is how the current claim got written.
 
-**What is not measured here at all** is Container Apps' own scale-from-zero: scheduling a container,
-pulling the image, and the platform's own latency before the process starts. On a `min_replicas = 0`
-deployment that is very likely the dominant term, and none of it is affected by ReadyToRun.
+**What was not measured here** was Container Apps' own scale-from-zero. It is now, at the top of
+this file, and the guess was right: it is the dominant term by two orders of magnitude, and none of
+it is affected by ReadyToRun.
 
 ## Reproducing it
 
