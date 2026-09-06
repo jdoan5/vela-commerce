@@ -18,6 +18,7 @@ using VelaCommerce.Infrastructure.Messaging;
 using VelaCommerce.Infrastructure.Payments;
 using VelaCommerce.Infrastructure.Checkout;
 using VelaCommerce.Infrastructure.Persistence;
+using VelaCommerce.Infrastructure.Tenancy;
 
 namespace VelaCommerce.Integration.Tests;
 
@@ -247,6 +248,19 @@ public sealed class SettlementHost : WebApplicationFactory<Program>
             // expires_at to make a reservation lapse was racing an uncontrolled third writer.
             services.RemoveAll<ReservationReaperOptions>();
             services.AddSingleton(new ReservationReaperOptions { Enabled = false });
+
+            // AND THE DEMO DATA PURGE, which is the same rule applied to a worker that DELETES.
+            // It sweeps globally and it does not stop at reservations: expired orders, carts,
+            // price overlays and settled outbox rows all go. Left live against the shared
+            // container it would be a fourth writer with a licence to remove another test's
+            // fixtures out from under it — and unlike the reaper, whose worst case is a released
+            // reservation, this one's worst case is a row that is simply gone.
+            //
+            // Its own defaults make that unlikely rather than impossible: nothing in this suite is
+            // 24 hours old, and the first sweep is a minute after boot. "Unlikely" is what the
+            // reaper's comment above said before a backdating test made it likely.
+            services.RemoveAll<DemoDataPurgeOptions>();
+            services.AddSingleton(new DemoDataPurgeOptions { Enabled = false });
 
             // The simulator's options, replaced rather than configured. See remark 2 on the class.
             // RemoveAll first because AddPaymentSimulator registers with TryAdd, so the host's

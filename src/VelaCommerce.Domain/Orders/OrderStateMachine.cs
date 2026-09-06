@@ -23,6 +23,38 @@ public static class OrderStateMachine
     /// <summary>All legal edges, for tests and documentation.</summary>
     public static IReadOnlyCollection<(OrderStatus From, OrderStatus To)> Edges => LegalEdges;
 
+    /// <summary>
+    /// The statuses in which the stock ledger is still holding this order's units, so anything that
+    /// removes the order has to hand them back first.
+    /// <para>
+    /// The two omissions are the whole subtlety, and they are omitted for opposite reasons.
+    /// <see cref="OrderStatus.Cancelled"/> released its reservations on the way in, so there is
+    /// nothing left to give back. <see cref="OrderStatus.Shipped"/> is the dangerous one:
+    /// <c>OrderTimelineWorker</c> ships by decrementing <c>reserved</c> and <c>on_hand</c> together
+    /// and leaves the reservation row <em>Confirmed</em> rather than Released — so a caller that
+    /// released "every reservation that is not Released" would decrement <c>reserved</c> a second
+    /// time for units that already left the building, quietly stealing them from whoever holds the
+    /// next reservation on that variant. The ledger would not go negative — the guarded UPDATE and
+    /// <c>ck_stock_items_reserved_non_negative</c> both stand in the way — which is exactly what
+    /// would make it hard to notice.
+    /// </para>
+    /// <para>
+    /// This is a fact about orders, not about either caller, and it now HAS two callers: the
+    /// visitor's own reset in <c>DemoEndpoints</c> and the stale-data purge in
+    /// <c>DemoSessionPurge</c>. It lived as a private array beside the first of them until the
+    /// second one needed it. A rule this easy to get wrong must not be stated twice, because the
+    /// copy that drifts is the one nobody is reading.
+    /// </para>
+    /// </summary>
+    public static IReadOnlyList<OrderStatus> HoldingStock => StatesHoldingStock;
+
+    private static readonly OrderStatus[] StatesHoldingStock =
+    [
+        OrderStatus.Pending,
+        OrderStatus.Paid,
+        OrderStatus.Packed,
+    ];
+
     public static bool IsLegal(OrderStatus from, OrderStatus to) => LegalEdges.Contains((from, to));
 
     /// <summary>Statuses from which no transition is possible.</summary>

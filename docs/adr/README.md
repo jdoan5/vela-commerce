@@ -26,3 +26,4 @@ which record replaced it.
 | [0007](0007-the-tenancy-filter-fails-closed.md) | The tenancy filter fails closed | Accepted |
 | [0008](0008-a-payment-simulator-that-signs.md) | A payment gateway in the repository, that signs its own webhooks | Accepted |
 | [0009](0009-no-log-analytics-workspace.md) | No Log Analytics workspace | Accepted, with corrections |
+| [0010](0010-the-purge-runs-on-visits-not-on-a-clock.md) | Demo data is purged on visits, not on a cron | Accepted · overturns the plan |

@@ -1,6 +1,14 @@
 # Keeping this repo's last commit recent is not vanity: GitHub disables scheduled
-# workflows in a repository with 60 days of no activity, which would silently stop the
-# nightly demo-reset job. Merging these PRs resets that clock as a side effect.
+# workflows in a repository with 60 days of no activity, and merging these PRs resets that
+# clock as a side effect.
+#
+# THIS COMMENT USED TO NAME THE WRONG STAKE, and the correction is worth keeping. It said
+# the 60-day rule "would silently stop the nightly demo-reset job" — a job that has never
+# existed, and which ADR 0010 has now decided will not exist: demo data is purged in-process
+# while the container is awake, and GitHub's scheduler cannot reach that either way.
+#
+# What actually depends on this clock is codeql.yml, the one cron in the repository. That is
+# a smaller stake than the sentence claimed, and stating the smaller true one is the point.
 version: 2
 updates:
   - package-ecosystem: nuget

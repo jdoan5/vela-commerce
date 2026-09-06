@@ -80,7 +80,7 @@ builder.Services.AddOrderTimeline(builder.Configuration);
 // when it filters carts and orders. Registering it here is what turns tenancy on — and forgetting
 // to would hide every cart rather than share them, which is the only acceptable direction for that
 // mistake to fail in.
-builder.Services.AddDemoSessionTenancy();
+builder.Services.AddDemoSessionTenancy(builder.Configuration);
 
 // Rate limits, per-session row caps and security headers. A public demo left unattended needs
 // all three: one visitor must not be able to fill the database or spend the whole request budget.

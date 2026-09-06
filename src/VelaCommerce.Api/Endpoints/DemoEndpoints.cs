@@ -61,23 +61,14 @@ public static class DemoEndpoints
     /// Order states whose units the stock ledger is still holding, and which therefore have to be
     /// handed back when the order is removed.
     /// <para>
-    /// The two omissions are the whole subtlety. <see cref="OrderStatus.Cancelled"/> already
-    /// released its reservations when it was cancelled. <see cref="OrderStatus.Shipped"/> is the
-    /// dangerous one: <c>OrderTimelineWorker</c> ships by decrementing <c>reserved</c> and
-    /// <c>on_hand</c> together and leaves the reservation row <em>Confirmed</em>, not Released — so
-    /// a reset that released "every reservation that is not Released" would decrement
-    /// <c>reserved</c> a second time for units that already left the building, quietly stealing
-    /// them from whoever holds the next reservation on that variant. The ledger would not go
-    /// negative (the guarded UPDATE and <c>ck_stock_items_reserved_non_negative</c> both stand in
-    /// the way), which is exactly what would make it hard to notice.
+    /// This used to be a private array right here, with the argument for its two omissions written
+    /// beside it. It moved to <see cref="OrderStateMachine.HoldingStock"/> when
+    /// <c>DemoSessionPurge</c> became the second caller needing the same three states for the same
+    /// reason — the reasoning moved with it, and shipping being absent from the list is still the
+    /// subtle half.
     /// </para>
     /// </summary>
-    private static readonly OrderStatus[] StatesHoldingStock =
-    [
-        OrderStatus.Pending,
-        OrderStatus.Paid,
-        OrderStatus.Packed,
-    ];
+    private static IReadOnlyList<OrderStatus> StatesHoldingStock => OrderStateMachine.HoldingStock;
 
     /// <summary>
     /// Maps the demo group. Called by the host, so this file never learns how the application is
