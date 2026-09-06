@@ -10,17 +10,17 @@ waited for the revision to report `ScaledToZero` first, so every one is a genuin
 
 | | p50 | p95 | min | max | n |
 |---|---|---|---|---|---|
-| **Cold** — first request after scale-to-zero | **32.13 s** | 37.45 s | 32.07 s | 37.45 s | 7 |
-| **Warm** — the next request | **0.16 s** | 0.28 s | 0.09 s | 0.28 s | 7 |
+| **Cold** — first request after scale-to-zero | **32.14 s** | 37.45 s | 32.07 s | 37.45 s | 8 |
+| **Warm** — the next request | **0.17 s** | 0.28 s | 0.09 s | 0.28 s | 8 |
 
-Cold samples, sorted: 32.07, 32.09, 32.13, 32.13, 32.14, 32.62, **37.45**.
+Cold samples, sorted: 32.07, 32.09, 32.13, 32.13, 32.14, 32.20, 32.62, **37.45**.
 
-**A 196× gap at the median**, and six of the seven land inside a 0.55 s band. That says the time is
+**A 189× gap at the median**, and seven of the eight land inside a 0.55 s band. That says the time is
 structural rather than contended — the platform does the same work each time and takes the same time
 to do it — with one sample five seconds slower for a reason this measurement cannot see.
 
 **An earlier version of this file reported n=3 with a 0.07 s spread and called the result "almost
-suspiciously stable".** Four more samples arrived after it was written and one was the 37.45 s. The
+suspiciously stable".** Five more samples arrived after it was written and one was the 37.45 s. The
 median did not move; the claim about the tail was wrong, and wrong in the direction that flatters
 the result — which is the direction to be suspicious of. A p95 five seconds above the p50 is not a
 tail anybody should describe from three points.
