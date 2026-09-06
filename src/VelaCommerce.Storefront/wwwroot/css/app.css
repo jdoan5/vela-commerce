@@ -365,6 +365,7 @@ svg {
    6.15 Spec sheet   .vc-specsheet
    6.16 Stepper      .vc-stepper
    6.17 Cart drawer  .vc-drawer-root .vc-drawer .vc-cart-line .vc-subtotal
+   6.24 Platform     .vc-plat-section .vc-plat-table .vc-plat-cards
    ========================================================================== */
 
 
@@ -4018,4 +4019,214 @@ svg {
     .vc-footer__lab {
         transition: none;
     }
+}
+
+
+/* --- 6.24 Platform page --------------------------------------------------
+   The engineering page at /platform. Deliberately plainer than the shop: it
+   is a document, so it is set at a reading measure with hairline rules rather
+   than cards-on-cards, and every number sits in the mono face because every
+   number on that page is a measurement.
+   -------------------------------------------------------------------------- */
+
+.vc-plat-section {
+    max-width: 68ch;
+    margin-bottom: var(--vc-space-9);
+}
+
+.vc-plat-h2 {
+    margin: 0 0 var(--vc-space-3);
+    padding-bottom: var(--vc-space-2);
+    border-bottom: 1px solid var(--vc-rule-strong);
+    font-family: var(--vc-font-display);
+    font-size: var(--vc-text-xl);
+    line-height: var(--vc-leading-snug);
+    color: var(--vc-text);
+}
+
+.vc-plat-body {
+    margin: 0 0 var(--vc-space-3);
+    font-size: var(--vc-text-sm);
+    line-height: var(--vc-leading-normal);
+    color: var(--vc-text);
+}
+
+/* The one paragraph on the page whose numbers are read from the snapshot the
+   browser is already holding rather than written down. It is marked as live
+   because the distinction between measured-and-dated and actually-live is the
+   page's whole credibility, and a reader cannot see it otherwise. */
+.vc-plat-live {
+    display: flex;
+    gap: var(--vc-space-3);
+    padding: var(--vc-space-4);
+    background: var(--vc-secondary-soft);
+    border-left: 3px solid var(--vc-secondary);
+    border-radius: 0 var(--vc-radius-sm) var(--vc-radius-sm) 0;
+}
+
+.vc-plat-live__dot {
+    flex: none;
+    width: 8px;
+    height: 8px;
+    margin-top: 0.42em;
+    background: var(--vc-secondary-strong);
+    border-radius: var(--vc-radius-pill);
+}
+
+.vc-plat-live__text {
+    margin: 0;
+    font-size: var(--vc-text-xs);
+    line-height: var(--vc-leading-normal);
+    color: var(--vc-text);
+}
+
+/* Tables scroll inside their own box rather than pushing the page sideways;
+   a three-column table of measurements does not fit 375px and must not try. */
+.vc-plat-table-wrap {
+    overflow-x: auto;
+    margin-bottom: var(--vc-space-3);
+}
+
+.vc-plat-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: var(--vc-text-xs);
+}
+
+.vc-plat-table th,
+.vc-plat-table td {
+    padding: var(--vc-space-2) var(--vc-space-3) var(--vc-space-2) 0;
+    text-align: left;
+    vertical-align: top;
+    border-bottom: 1px solid var(--vc-rule);
+}
+
+.vc-plat-table thead th {
+    font-family: var(--vc-font-body);
+    font-size: var(--vc-text-2xs);
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--vc-text-muted);
+    border-bottom-color: var(--vc-rule-strong);
+}
+
+.vc-plat-table tbody th {
+    font-weight: 500;
+    color: var(--vc-text);
+}
+
+.vc-plat-table__value {
+    white-space: nowrap;
+    color: var(--vc-text);
+}
+
+.vc-plat-link {
+    color: var(--vc-accent-strong);
+    text-decoration: underline;
+    text-underline-offset: 0.18em;
+}
+
+.vc-plat-link:hover {
+    color: var(--vc-accent);
+}
+
+.vc-plat-note {
+    margin: 0;
+    padding-left: var(--vc-space-4);
+    border-left: 2px solid var(--vc-rule-strong);
+    font-size: var(--vc-text-2xs);
+    line-height: var(--vc-leading-normal);
+    color: var(--vc-text-muted);
+}
+
+.vc-plat-list {
+    margin: 0 0 var(--vc-space-3);
+    padding-left: var(--vc-space-5);
+    font-size: var(--vc-text-sm);
+    line-height: var(--vc-leading-normal);
+    color: var(--vc-text);
+}
+
+.vc-plat-list li {
+    margin-bottom: var(--vc-space-2);
+}
+
+/* The decision records. One column at phone width, two where there is room. */
+.vc-plat-cards {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: var(--vc-space-4);
+    margin: 0 0 var(--vc-space-4);
+    padding: 0;
+    list-style: none;
+}
+
+@media (min-width: 40rem) {
+    .vc-plat-cards {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+}
+
+.vc-plat-card {
+    padding: var(--vc-space-4);
+    background: var(--vc-surface-alt);
+    border: 1px solid var(--vc-rule);
+    border-radius: var(--vc-radius-sm);
+}
+
+.vc-plat-card__link {
+    display: flex;
+    align-items: baseline;
+    gap: var(--vc-space-2);
+    color: var(--vc-text);
+    text-decoration: none;
+}
+
+.vc-plat-card__link:hover .vc-plat-card__title {
+    color: var(--vc-accent-strong);
+    text-decoration: underline;
+    text-underline-offset: 0.18em;
+}
+
+.vc-plat-card__num {
+    flex: none;
+    font-size: var(--vc-text-2xs);
+    color: var(--vc-text-faint);
+}
+
+.vc-plat-card__title {
+    font-family: var(--vc-font-display);
+    font-size: var(--vc-text-sm);
+    line-height: var(--vc-leading-snug);
+}
+
+.vc-plat-card__body {
+    margin: var(--vc-space-2) 0 0;
+    font-size: var(--vc-text-2xs);
+    line-height: var(--vc-leading-normal);
+    color: var(--vc-text-muted);
+}
+
+/* The gaps list. A definition list because that is what it is: a name and the
+   honest account of it. */
+.vc-plat-gaps {
+    margin: 0;
+}
+
+.vc-plat-gaps dt {
+    margin-top: var(--vc-space-4);
+    font-family: var(--vc-font-display);
+    font-size: var(--vc-text-sm);
+    color: var(--vc-text);
+}
+
+.vc-plat-gaps dt:first-child {
+    margin-top: 0;
+}
+
+.vc-plat-gaps dd {
+    margin: var(--vc-space-1) 0 0;
+    font-size: var(--vc-text-xs);
+    line-height: var(--vc-leading-normal);
+    color: var(--vc-text-muted);
 }

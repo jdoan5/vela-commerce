@@ -41,6 +41,24 @@
                     units, a double-clicked Pay, a settlement delivered twice. Real requests, real
                     transcripts, and the test that proves the same thing in CI.
                 </p>
+
+                @* The platform page, beside the lab and for the same reason: both are for
+                   somebody reviewing the build rather than somebody buying rope. The lab
+                   demonstrates the claims; this one shows what they cost to prove and what
+                   is still missing. Neither fetches anything, so both open at the same
+                   speed as the shelves whether or not the backend is awake. *@
+                <a class="vc-footer__lab" href="platform">
+                    <svg viewBox="0 0 16 16" width="13" height="13" fill="none" aria-hidden="true" focusable="false">
+                        <path d="M2 13.2V6.4l6-4.2 6 4.2v6.8" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round" />
+                        <path d="M2 13.2h12M6.2 13.2V9.1h3.6v4.1" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round" />
+                    </svg>
+                    How this is built
+                </a>
+                <p class="vc-footer__lab-note">
+                    The cold start measured over eight scale-from-zero cycles, what the hosting
+                    costs and why, eleven decision records &mdash; and a plain list of what is
+                    deliberately not built.
+                </p>
             </div>
 
             <div class="vc-footer__col">

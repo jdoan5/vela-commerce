@@ -1,0 +1,344 @@
+@*
+    The platform page, at "/platform".
+
+    WHY IT EXISTS. Every claim this project makes is measured and written down, and all of it lives
+    in markdown on GitHub. A reviewer with the live link and ten minutes never sees any of it. This
+    page is the one place the evidence is reachable from the demo itself — so the answer to "is any
+    of this real?" is a link in the footer rather than a repository tour.
+
+    THE FIRST-PAINT RULE HOLDS HERE TOO, AND THIS PAGE IS THE PROOF OF IT. Nothing on it is fetched.
+    It renders from the same static catalog snapshot the shelves render from, so it paints while the
+    API and the database are asleep — which is exactly the architectural claim its first section
+    makes. A platform page that woke the backend to boast about not needing the backend would be
+    the funniest possible bug, so the rule is enforced by there being no HttpClient injected here at
+    all.
+
+    WHICH NUMBERS ARE LIVE AND WHICH ARE WRITTEN DOWN. The catalog counts come from the snapshot the
+    browser already holds: they cannot go stale, because they ARE the data. Everything else is a
+    measurement with a date beside it and a link to the document that produced it. That distinction
+    is drawn visibly rather than quietly, because a page of hardcoded figures dressed as telemetry
+    is worse than no page.
+
+    WHAT IS DELIBERATELY NOT HERE: a live cost readout. docs/PLAN.md asks for "the current month's
+    cost", which would need an Azure billing credential inside a public demo's container. The cost
+    section states the architecture that makes the bill zero and links the reasoning instead. An
+    approximate number presented as live would be the same mistake this page exists to avoid.
+*@
+@page "/platform"
+@inject CatalogService Catalog
+
+<PageTitle>How this is built · Vela Commerce</PageTitle>
+
+<nav class="vc-crumbs" aria-label="Breadcrumb">
+    <a class="vc-crumbs__link" href="">Catalog</a>
+    <span class="vc-crumbs__sep" aria-hidden="true">/</span>
+    <span>Platform</span>
+</nav>
+
+<div class="vc-hero">
+    <span class="vc-eyebrow">Platform &middot; the engineering behind the shop</span>
+    <h1 class="vc-section-title">How this is built, and what it cost to prove</h1>
+    <p class="vc-lede">
+        A portfolio shop is easy to make claims about and hard to make true. Everything below was
+        measured against this deployment or is enforced by a test that fails the build. Where a
+        number came from a document, the document is linked; where something is not built, it says
+        so.
+    </p>
+</div>
+
+@* ---------------------------------------------------------------------------------------
+   1. The architectural claim, demonstrated by the page the reader is currently looking at.
+   --------------------------------------------------------------------------------------- *@
+<section class="vc-plat-section">
+    <h2 class="vc-plat-h2">One rule the whole build is shaped around</h2>
+
+    <p class="vc-plat-body">
+        <strong>Browsing never touches the API.</strong> The catalog, search, filtering and sorting
+        all run in your browser against a static snapshot fetched once. The server is needed to put
+        something in a cart, and not before.
+    </p>
+
+    <p class="vc-plat-body">
+        That is not an optimisation, it is the hosting argument. The container runs at
+        <em>zero replicas</em> when nobody is looking, so the first person to open a cart pays a
+        real cold start &mdash; and the first person to <em>look</em> pays nothing, because nothing
+        behind this page had to be awake to render it.
+    </p>
+
+    @if (Catalog.Snapshot is { } snapshot)
+    {
+        <div class="vc-plat-live">
+            <span class="vc-plat-live__dot" aria-hidden="true"></span>
+            <p class="vc-plat-live__text">
+                The snapshot your browser is holding right now:
+                <span class="vc-tabular">@snapshot.ProductCount</span> products,
+                <span class="vc-tabular">@snapshot.VariantCount</span> SKUs, generated
+                deterministically from seed <span class="vc-tabular">@snapshot.RandomSeed</span>.
+                These three figures are read from that file rather than written on this page, so
+                they cannot disagree with the shop.
+            </p>
+        </div>
+    }
+</section>
+
+@* ---------------------------------------------------------------------------------------
+   2. The measurements. Every row has a date and a source, and the two that are not from a
+      document say where they are enforced instead.
+   --------------------------------------------------------------------------------------- *@
+<section class="vc-plat-section">
+    <h2 class="vc-plat-h2">Measured, not asserted</h2>
+
+    <p class="vc-plat-body">
+        Each row is a number somebody could check. The cold start is the one that costs a visitor
+        something, so it is first, and it is quoted at the tail rather than only at the median.
+    </p>
+
+    <div class="vc-plat-table-wrap">
+        <table class="vc-plat-table">
+            <thead>
+                <tr>
+                    <th scope="col">What</th>
+                    <th scope="col">Measured</th>
+                    <th scope="col">Where it came from</th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var row in Measurements)
+                {
+                    <tr>
+                        <th scope="row">@row.Label</th>
+                        <td class="vc-tabular vc-plat-table__value">@row.Value</td>
+                        <td>
+                            <a class="vc-plat-link" href="@row.Href" target="_blank" rel="noopener noreferrer">
+                                @row.Source
+                            </a>
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+
+    <p class="vc-plat-note">
+        Two of these carry a correction rather than just a number. The mutation score moved two
+        points on a commit that changed no test at all &mdash; the tool had reported kills for
+        changes nothing in the suite could detect &mdash; and then barely moved when three real gaps
+        were fixed. It is kept as a floor the build must hold, not quoted as a result.
+    </p>
+
+    <p class="vc-plat-note">
+        The cold start was retracted twice before it settled. The first published figure came from
+        three samples and called the spread &ldquo;suspiciously stable&rdquo;; five more arrived and
+        one of them was five seconds slower than the rest. The correction is still visible in the
+        document rather than tidied away, because a measurement that quietly changed is worth less
+        than one that shows its working.
+    </p>
+</section>
+
+@* ---------------------------------------------------------------------------------------
+   3. Cost. No live figure, and the reason is stated rather than left as a gap.
+   --------------------------------------------------------------------------------------- *@
+<section class="vc-plat-section">
+    <h2 class="vc-plat-h2">What it costs to leave running</h2>
+
+    <p class="vc-plat-body">
+        The target was a demo that is still up years from now without anyone paying attention to it,
+        which ruled out every free tier that expires. Azure Container Apps grants every subscription
+        180,000 vCPU-seconds a month as an ongoing allowance rather than a trial credit, and Neon's
+        free plan has no expiry either.
+    </p>
+
+    <ul class="vc-plat-list">
+        <li>
+            <strong>The container scales to zero.</strong> One replica held warm would burn roughly
+            3.7&times; the entire monthly allowance before a single visitor arrived. That single
+            setting is the difference between nothing and roughly $48&ndash;120 a year.
+        </li>
+        <li>
+            <strong>No VNet, no load balancer, no Log Analytics.</strong> Each is one line that every
+            reference architecture recommends, and each bills at zero traffic forever &mdash; the
+            networking pair alone is about $306 a year of standing rent.
+        </li>
+        <li>
+            <strong>Nothing polls the database on a timer.</strong> Neon's free plan allows 100
+            compute-hours a month; a fifteen-minute reconciler poll would spend 61&ndash;75 of them
+            before anybody visited. The health endpoint the platform probes deliberately does not
+            touch the database.
+        </li>
+    </ul>
+
+    <p class="vc-plat-note">
+        There is no live cost readout on this page. Showing one would mean putting an Azure billing
+        credential inside a public demo, and an approximate figure presented as current would be the
+        exact species of claim the rest of this page exists to avoid.
+    </p>
+</section>
+
+@* ---------------------------------------------------------------------------------------
+   4. The decisions, which are the part worth arguing with.
+   --------------------------------------------------------------------------------------- *@
+<section class="vc-plat-section">
+    <h2 class="vc-plat-h2">Decisions a reviewer might read as mistakes</h2>
+
+    <p class="vc-plat-body">
+        Eleven decision records, each naming the alternative it rejected and the test or file that
+        now enforces it. These four are the ones most likely to look wrong at first glance.
+    </p>
+
+    <ul class="vc-plat-cards">
+        @foreach (var record in Decisions)
+        {
+            <li class="vc-plat-card">
+                <a class="vc-plat-card__link" href="@record.Href" target="_blank" rel="noopener noreferrer">
+                    <span class="vc-plat-card__num vc-tabular">@record.Number</span>
+                    <span class="vc-plat-card__title">@record.Title</span>
+                </a>
+                <p class="vc-plat-card__body">@record.Why</p>
+            </li>
+        }
+    </ul>
+
+    <p class="vc-plat-body">
+        <a class="vc-plat-link" href="https://github.com/jdoan5/vela-commerce/tree/main/docs/adr"
+           target="_blank" rel="noopener noreferrer">All eleven records</a>
+        &middot;
+        <a class="vc-plat-link" href="https://github.com/jdoan5/vela-commerce/tree/main/docs/measurements"
+           target="_blank" rel="noopener noreferrer">All four measurements</a>
+    </p>
+</section>
+
+@* ---------------------------------------------------------------------------------------
+   5. The honesty section. It is last because it is the one a reader remembers, and it is
+      not softened.
+   --------------------------------------------------------------------------------------- *@
+<section class="vc-plat-section">
+    <h2 class="vc-plat-h2">What is not built</h2>
+
+    <p class="vc-plat-body">
+        A list of gaps is more useful than a list of features, because the features are visible on
+        the page above and the gaps are not.
+    </p>
+
+    <dl class="vc-plat-gaps">
+        <dt>Nothing watches this demo</dt>
+        <dd>
+            No uptime monitor, no heartbeat, no alerting of any kind. If it goes down, it is noticed
+            on a monthly manual pass. That is the honest description of this project's availability
+            story, and the fix is designed but not built.
+        </dd>
+
+        <dt>No database backup</dt>
+        <dd>
+            Deliberate, and recorded as a decision rather than skipped. The database holds a schema
+            that is committed, a catalog generated from a committed seed, and demo rows that expire
+            after a day &mdash; so a backup would preserve two things already in version control and
+            one thing the system deletes on purpose. A rebuild from empty was timed instead, at
+            2.59 s.
+        </dd>
+
+        <dt>The payments are a simulator</dt>
+        <dd>
+            There is no Stripe account and no real money. The simulator signs its own webhooks with
+            HMAC-SHA256 and the receiver verifies them in constant time, so the settlement path,
+            the duplicate-delivery handling and the idempotency are all real &mdash; only the money
+            is imaginary.
+        </dd>
+
+        <dt>No per-PR preview environments, and no distributed tracing</dt>
+        <dd>
+            Both were planned. Neither exists. The plan is kept unedited in the repository beside a
+            table of every place the build diverged from it, which is where these are listed.
+        </dd>
+    </dl>
+</section>
+
+@code {
+    // Awaiting the same shared load task the header and the footer await: one fetch for the whole
+    // app, and this page re-renders with the live counts once it completes. Note what this is NOT:
+    // a call to the API. It is the static snapshot, which is the entire point of the first section.
+    protected override Task OnInitializedAsync() => Catalog.EnsureLoadedAsync();
+
+    private const string Repo = "https://github.com/jdoan5/vela-commerce/blob/main/";
+
+    private sealed record Measurement(string Label, string Value, string Source, string Href);
+
+    // Every value here is a written-down measurement, which is why every row carries its source.
+    // They are const rather than fetched because fetching them would break the rule this page is
+    // about; the cost of that choice is that they have to be updated by hand when they change, and
+    // the repository's own discipline is that a number which stopped being true is a bug.
+    private static readonly Measurement[] Measurements =
+    [
+        new("Cold start, first request after scale-to-zero",
+            "32.14 s p50 · 37.45 s p95 · n=8",
+            "cold-start.md",
+            Repo + "docs/measurements/cold-start.md"),
+
+        new("Warm, the request after that",
+            "0.17 s p50 · 0.28 s p95",
+            "cold-start.md",
+            Repo + "docs/measurements/cold-start.md"),
+
+        new("Rebuild from an empty database",
+            "2.59 s",
+            "restore-drill.md",
+            Repo + "docs/measurements/restore-drill.md"),
+
+        new("Container image",
+            "206 MB",
+            "cold-start.md",
+            Repo + "docs/measurements/cold-start.md"),
+
+        new("Tests, against real PostgreSQL 18 in containers",
+            "414",
+            "ci.yml — the build fails without them",
+            Repo + ".github/workflows/ci.yml"),
+
+        new("Line coverage over the three production assemblies",
+            "68.2% · floor 65%",
+            "coverage.runsettings — says what is counted",
+            Repo + "coverage.runsettings"),
+
+        new("Mutation score on the domain — read the caveat",
+            "73.9% · floor 70%",
+            "mutation-testing.md — why this number misleads",
+            Repo + "docs/measurements/mutation-testing.md"),
+
+        new("Trigram index chosen by the planner at",
+            "30,000–100,000 rows",
+            "trigram-search.md",
+            Repo + "docs/measurements/trigram-search.md"),
+    ];
+
+    private sealed record Decision(string Number, string Title, string Why, string Href);
+
+    private static readonly Decision[] Decisions =
+    [
+        new("0004",
+            "The admin cannot ship an order or adjust stock",
+            "It looks like a missing feature. It is a boundary: the demo admin is bound to one "
+            + "visitor's session, and letting it move the shared stock ledger would let any stranger "
+            + "empty the shop for everybody.",
+            Repo + "docs/adr/0004-the-admin-cannot-ship-or-restock.md"),
+
+        new("0006",
+            "Races are decided by the database, never by a SELECT that ran first",
+            "Reading a row, deciding in C#, then writing is the shape of every oversell bug. Every "
+            + "contested write here is a conditional UPDATE or a unique index, and the loser learns "
+            + "it from a row count.",
+            Repo + "docs/adr/0006-the-database-decides-races.md"),
+
+        new("0007",
+            "The tenancy filter fails closed",
+            "The predicate is 'there is a session AND the row belongs to it', so a request with no "
+            + "session sees nothing rather than everything. The failure direction of a bug is an "
+            + "empty cart, never somebody else's.",
+            Repo + "docs/adr/0007-the-tenancy-filter-fails-closed.md"),
+
+        new("0010",
+            "Demo data expires on visits, not on a cron",
+            "The plan called for a nightly job. This container is asleep unless somebody visited — "
+            + "so the rows and the sweep have the same cause, and the scheduled version needed a "
+            + "second image that nothing in the pipeline could update.",
+            Repo + "docs/adr/0010-the-purge-runs-on-visits-not-on-a-clock.md"),
+    ];
+}

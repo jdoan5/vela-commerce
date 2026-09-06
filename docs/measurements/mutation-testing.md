@@ -1,7 +1,9 @@
 # Mutation testing, and what it found
 
-**Measured 2026-09-05.** Stryker.NET 4.16.0 over `VelaCommerce.Domain`, driven by the 202-test
-domain suite. Configuration in [`stryker-config.json`](../../stryker-config.json); the run takes
+**Measured 2026-09-05, revisited 2026-09-06.** Stryker.NET 4.16.0 over `VelaCommerce.Domain`,
+driven by the domain suite — 202 tests when this was first written, 206 now.
+**Read the second-round section before quoting the score**: it moved without a test changing, and
+the reason matters more than the number. Configuration in [`stryker-config.json`](../../stryker-config.json); the run takes
 about three minutes and gates CI at a score of 70.
 
 This project already did mutation testing by hand — every claim in a comment was checked by breaking
@@ -57,6 +59,70 @@ Stryker knows how to make were caught. It says nothing about the edits it cannot
 can raise it by writing assertions that pin implementation details rather than rules. The number is
 useful as a floor that must not fall, and as a list of survivors to read — which is the part that
 found the money-overflow gap.
+
+## A second round, and what it says about the number
+
+**Measured 2026-09-06.** The score moved from 71.61% to **73.55%** across a commit that added a
+static array to `OrderStateMachine` and changed nothing else in the domain — and nothing at all in
+the domain test project. Six mutants in six other files flipped from Survived to Killed.
+
+**Not one of them was killed by a test.** The first was `quantity <= 0` widened to `quantity < 0` in
+`Cart.AddItem`; applying it by hand left all 202 tests green. The tool was reporting a kill for a
+change nothing in the suite could detect. Re-running Stryker at the previous commit reproduced
+71.61%, and re-running at the new one reproduced 73.55% twice, so it is deterministic per tree — the
+cause is Stryker's per-test coverage selection shifting when the assembly's layout changes, not
+anything about the tests.
+
+The honest reading is that **the lower number was the more accurate one**, and that a mutation score
+carries a component of tool artefact that no amount of care in the test suite removes.
+
+Chasing the six down was still worth it. Three were real gaps:
+
+| Survived mutation | What it means | Fixed |
+|---|---|---|
+| `new StockReservation(…, 0, …)` accepted | The ledger refused a zero-unit hold; the row recording one did not. A reservation for nothing could be written, and no ledger would ever move for it | A test asserting zero is refused |
+| `description?.Trim() ?? string.Empty` → `string.Empty` | Every product's description silently empty — 288 blank product pages, nothing failing, nothing logged | A test asserting the description survives construction |
+| `name?.Trim() ?? string.Empty` → `string.Empty` | The same one level down, on variant names. Both defaults are real and worth keeping, which is exactly why nothing distinguished "absent, so empty" from "always empty" | A test asserting a named variant keeps its name and an unnamed one falls back |
+
+The other three are **unkillable by any single-mutant tool, and should stay alive**:
+
+- **`Cart.AddItem` and `CartLine`'s constructor shield each other.** Break either guard alone and
+  zero is still refused — by the other one, with the same exception type. Only breaking *both* lets
+  a zero-quantity line exist. Verified by hand in both directions: each mutation alone leaves the
+  whole suite green.
+- **`OrderLine`'s guard is unreachable.** It is `internal`, and `Order.FromCart` is its only caller,
+  building it out of cart lines that are already at least one.
+
+Killing those three would mean making a constructor public or reaching it by reflection — testing an
+arrangement the application does not have, so that a number goes up. Redundant validation is worth
+having where money and stock meet, and a score that punishes it is measuring the tool's reach rather
+than the code's safety.
+
+### The part that settles it
+
+Fixing the three real gaps moved the score from 73.55% to **73.87%** — and the report says exactly
+one mutant changed status:
+
+| | before | after |
+|---|---|---|
+| Killed | 228 | **229** |
+| Survived | 14 | 14 |
+| No coverage | 68 | 67 |
+
+`StockReservation.cs:16` went from *NoCoverage* to *Killed*, which is the reservation guard the new
+test reached for the first time. **The other two fixes moved nothing at all, because the tool was
+already reporting those mutants as killed.** Writing a test that genuinely kills a mutant Stryker
+had already miscounted as dead produces no change in the score whatsoever.
+
+So the number cannot distinguish a real kill from a false one, in either direction: it rose by two
+points when nothing improved, and it barely moved when three things did.
+
+**What this changes about how the number is used here.** It was already described as a floor to hold
+rather than an achievement to claim. This is the evidence for that: the floor stays at 70, and the
+figure quoted elsewhere in this repository is the one this tool currently reports, with this section
+as the caveat attached to it. The survivor list is still worth reading every time — it is what found
+the money-overflow gap in the first round and the blank-description gap in this one. The percentage
+on top of it is worth much less than it looks.
 
 ## Running it
 

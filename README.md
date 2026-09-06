@@ -24,13 +24,16 @@ which is the "no longer checking" the last frames show.
 
 Phases 0–4 and 6 of 10 are done, and Phase 7's admin
 half — domain, seeded catalog, storefront, cart, tenancy, checkout, payments, transactional outbox,
-the order timeline, the Demo Lab, refunds and a session-scoped admin console — on **410 passing
-tests** (202 domain, 10 architecture, 198 integration against a real PostgreSQL 18 in
-Testcontainers), at **68.1% line coverage** over the three production assemblies — a floor CI
+the order timeline, the Demo Lab, refunds and a session-scoped admin console — on **414 passing
+tests** (206 domain, 10 architecture, 198 integration against a real PostgreSQL 18 in
+Testcontainers), at **68.2% line coverage** over the three production assemblies — a floor CI
 enforces rather than a badge it decorates, and [`coverage.runsettings`](coverage.runsettings) says
-what is counted and why. The domain also carries a **71.6% mutation score** — Stryker's first run
-found that `checked` could be deleted from every `Money` operator with every test still green, which
-is [written up](docs/measurements/mutation-testing.md) along with the ten other edges it found. Phase 8 is started — eleven [decision records](docs/adr/) and five
+what is counted and why. Stryker reports a **73.9% mutation score** on the domain, and that number
+is [written up with a warning attached to it](docs/measurements/mutation-testing.md): its first run
+found that `checked` could be deleted from every `Money` operator with every test still green, but a
+later round found the score moving two points on a commit that changed no test — and barely moving
+when three real gaps were actually fixed. The survivor list is the useful part; the percentage is
+a floor to hold, not a result to quote. Phase 8 is started — eleven [decision records](docs/adr/) and four
 [measurements](docs/measurements/). Phase 5 is nearly done: demo data older than a day now expires,
 though [not on the cron the plan called for](docs/adr/0010-the-purge-runs-on-visits-not-on-a-clock.md),
 and there are deliberately [no backups](docs/adr/0011-no-database-backup.md) — a
@@ -44,7 +47,7 @@ half: per-PR preview environments.
 front of Neon PostgreSQL 18, both on free tiers, applied by the Terraform in [`infra/`](infra/).
 The container runs at zero replicas when nobody is looking and Neon suspends itself after five
 minutes idle, so **the first click pays a real cold start — [measured at 32 s p50, 37 s p95](docs/measurements/cold-start.md),
-against 0.16 s warm** — and an idle month costs nothing but a few pence of blob storage. Browsing
+against 0.17 s warm** — and an idle month costs nothing but a few pence of blob storage. Browsing
 and search never touch the API, so that wait is paid by the first person to open a cart, not the
 first person to look. That trade is the whole hosting argument: a demo that costs nothing at
 rest is a demo that is still up in 2029.
@@ -326,7 +329,7 @@ lists where the two part company.
 | 5 | Anti-rot hardening | Mostly done — coverage floor and mutation score enforced in CI; link checker green on 207 links; demo data expires after 24 hours, in-process rather than on a cron ([ADR 0010](docs/adr/0010-the-purge-runs-on-visits-not-on-a-clock.md)); no backup, and a [timed rebuild](docs/measurements/restore-drill.md) instead ([ADR 0011](docs/adr/0011-no-database-backup.md)); the monthly ritual is written down in [`MAINTENANCE.md`](docs/MAINTENANCE.md). **Uptime monitoring is the one piece still missing**, and nothing watches this demo but a human |
 | 6 | Demo Lab + refunds | Done — nine lab scenarios with per-scenario permalinks and verdicts; refunds and cancellation with a ledger, a row lock that serialises concurrent refunds, and restock on cancellation |
 | 7 | Admin + preview environments | Admin console done; server-side search on a [trigram index](docs/measurements/trigram-search.md); per-PR preview environments not started |
-| 8 | Make it legible | Started — eleven ADRs in [`docs/adr/`](docs/adr/); [cold start](docs/measurements/cold-start.md), [mutation testing](docs/measurements/mutation-testing.md), [trigram search](docs/measurements/trigram-search.md) and a timed [restore drill](docs/measurements/restore-drill.md) measured; the ACA number and the `/platform` page need a deployment |
+| 8 | Make it legible | Started — eleven ADRs in [`docs/adr/`](docs/adr/); [cold start](docs/measurements/cold-start.md), [mutation testing](docs/measurements/mutation-testing.md), [trigram search](docs/measurements/trigram-search.md) and a timed [restore drill](docs/measurements/restore-drill.md) measured against the live deployment; a `/platform` page inside the shop puts all of it one click from the demo. Still to write: "what I'd do differently at 100x traffic" |
 | 9 | Optional differentiators | Not started — pgvector, passkeys, multi-cloud |
 
 Also not built, and not hidden: no preview environments, and no real payment processor. Search

@@ -1,3 +1,5 @@
+using VelaCommerce.Domain.Carts;
+using VelaCommerce.Domain.Catalog;
 using VelaCommerce.Domain.Common;
 using VelaCommerce.Domain.Inventory;
 
@@ -164,4 +166,122 @@ public sealed class BoundaryTests
 
         Assert.Throws<DomainException>(() => stock.Release(5));
     }
+
+    // ---------------------------------------------------------------------------------------
+    // A SECOND ROUND, AND THE REASON IT HAPPENED IS WORTH MORE THAN THE TESTS.
+    //
+    // Stryker's score moved from 71.61% to 73.55% across a commit that added a static array to
+    // OrderStateMachine and changed nothing else in the domain and nothing at all in this project.
+    // Six mutants in six other files flipped from Survived to Killed. Not one of them was killed by
+    // a test, because no test had changed: applying the first of them by hand — `quantity <= 0`
+    // widened to `quantity < 0` in Cart.AddItem — left all 202 domain tests green. The tool had
+    // reported a kill for a change nothing can detect.
+    //
+    // So the improvement was an artefact of Stryker's per-test coverage selection shifting when the
+    // assembly's layout changed, and the honest reading is that the LOWER number was the better
+    // one. Chasing the six down found three real gaps — a reservation for zero units, a product's
+    // description and a variant's name, each verified by breaking the code and watching the new
+    // test go red. The other three cannot be killed by any single-mutant tool, and the note at the
+    // bottom of this file argues that rather than papering over it.
+    // ---------------------------------------------------------------------------------------
+
+    /// <summary>
+    /// A cart line of nothing is refused. The behaviour is worth pinning and was untested; what it
+    /// does NOT do is kill the mutant that started this, and finding that out is the useful part.
+    /// <para>
+    /// Widen <c>Cart.AddItem</c>'s <c>quantity &lt;= 0</c> to <c>&lt; 0</c> and this test still
+    /// passes, because zero then falls through to <c>new CartLine(...)</c>, whose own
+    /// <c>AssertQuantityInRange</c> throws the same <see cref="DomainException"/>. Break CartLine's
+    /// guard instead and Cart's catches it first. <b>The two shield each other</b>, so neither
+    /// mutant is killable alone and no single-mutant tool can ever report them dead honestly. That
+    /// is redundant validation working exactly as intended, not a gap — see the note at the bottom
+    /// of this file.
+    /// </para>
+    /// </summary>
+    [Fact]
+    public void Adding_nothing_to_a_cart_is_refused()
+    {
+        var cart = new Cart(Guid.CreateVersion7());
+
+        Assert.Throws<DomainException>(() =>
+            cart.AddItem(Guid.CreateVersion7(), "VELA-TOTE-01", "Harbour Tote", Usd(4_500), 0));
+
+        Assert.True(cart.IsEmpty);
+    }
+
+    /// <summary>
+    /// Reserving nothing is refused at the reservation as well as at the ledger. The
+    /// <see cref="StockItem"/> half of this pair has been tested since the first mutation round;
+    /// the row that records the hold had no equivalent, so a reservation for zero units could be
+    /// written even though no ledger would move for it.
+    /// </summary>
+    [Fact]
+    public void A_reservation_for_no_units_is_refused()
+    {
+        Assert.Throws<DomainException>(() =>
+            new StockReservation(Guid.CreateVersion7(), Guid.CreateVersion7(), 0, DateTimeOffset.UnixEpoch));
+    }
+
+    /// <summary>
+    /// A product keeps the description it was given. The surviving mutant deleted the left half of
+    /// <c>description?.Trim() ?? string.Empty</c>, so every product in the catalog would have had an
+    /// empty description — 288 blank product pages, with nothing failing and nothing logged.
+    /// </summary>
+    [Fact]
+    public void A_product_keeps_its_description_and_category()
+    {
+        var product = new Product("storm-jib", "Storm Jib", "  Heavy weather headsail.  ", "  sails  ");
+
+        Assert.Equal("Heavy weather headsail.", product.Description);
+        Assert.Equal("sails", product.Category);
+    }
+
+    /// <summary>
+    /// The same deletion one level down, on a variant's name.
+    /// <para>
+    /// Written first to assert both halves — a named variant keeps its name, an unnamed one falls
+    /// back to empty — and the second half does not compile. <c>AddVariant</c> declares
+    /// <c>string variantName</c>, not <c>string?</c>, so passing null is CS8625 under
+    /// <c>-warnaserror</c>. The same is true of <c>Product</c>'s description and category.
+    /// </para>
+    /// <para>
+    /// Which means the <c>?? string.Empty</c> fallbacks those constructors carry are unreachable
+    /// from any caller the compiler is happy with. They are not useless — EF materialises these
+    /// objects without consulting nullable annotations, so the fallback still stands between a null
+    /// column and a NullReferenceException — but they cannot be exercised from a test without
+    /// either loosening a public signature or suppressing the warning, and neither is worth doing
+    /// to reach a branch. So this asserts the half that is reachable, which is also the half that
+    /// kills the mutant: replace <c>name?.Trim() ?? string.Empty</c> with <c>string.Empty</c> and
+    /// this fails.
+    /// </para>
+    /// </summary>
+    [Fact]
+    public void A_variant_keeps_the_name_it_was_given()
+    {
+        var product = new Product("storm-jib", "Storm Jib", "Heavy weather headsail.", "sails");
+
+        var named = product.AddVariant("VELA-JIB-01", "  Standard  ", Usd(42_000));
+
+        Assert.Equal("Standard", named.Name);
+    }
+
+    // ---------------------------------------------------------------------------------------
+    // THE THREE THAT ARE LEFT ALIVE ON PURPOSE, AND WHY THAT IS THE RIGHT ANSWER.
+    //
+    // Of the six mutants Stryker's shifting selection drew attention to, three are genuinely
+    // unkillable and should stay that way. All three are the same `quantity <= 0` guard.
+    //
+    //   Cart.AddItem and CartLine's constructor SHIELD EACH OTHER. Break either alone and zero is
+    //   still refused, by the other one, with the same exception type. Only breaking BOTH lets a
+    //   zero-quantity line exist, and a tool that changes one thing at a time cannot construct
+    //   that. Verified by hand in both directions rather than assumed.
+    //
+    //   OrderLine's is unreachable from anywhere. It is internal, and Order.FromCart is its only
+    //   caller, building it out of cart lines that are already at least one.
+    //
+    // The only way to "kill" any of the three is to make a constructor public or reach it by
+    // reflection — testing an arrangement the application does not have, so that a number goes up.
+    // Redundant validation is a thing worth having on the path where money and stock meet, and a
+    // mutation score that punishes it is measuring the tool's reach, not the code's safety.
+    // ---------------------------------------------------------------------------------------
 }
