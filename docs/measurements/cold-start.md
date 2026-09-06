@@ -8,15 +8,22 @@ Two measurements of two different things, and the gap between them is the point.
 0.5 GiB, `min_replicas = 0`, Neon PostgreSQL 18 with its own five-minute autosuspend. Each sample
 waited for the revision to report `ScaledToZero` first, so every one is a genuine scale-from-zero.
 
-| | p50 | min | max | n |
-|---|---|---|---|---|
-| **Cold** — first request after scale-to-zero | **32.13 s** | 32.07 s | 32.14 s | 3 |
-| **Warm** — the next request | **0.16 s** | 0.09 s | 0.28 s | 3 |
+| | p50 | p95 | min | max | n |
+|---|---|---|---|---|---|
+| **Cold** — first request after scale-to-zero | **32.13 s** | 37.45 s | 32.07 s | 37.45 s | 7 |
+| **Warm** — the next request | **0.16 s** | 0.28 s | 0.09 s | 0.28 s | 7 |
 
-**A 196× gap**, and the cold figure is almost suspiciously stable — a 0.07 s spread across three
-samples taken minutes apart. That consistency says the time is structural rather than contended:
-the platform does the same work each time and takes the same time to do it.
+Cold samples, sorted: 32.07, 32.09, 32.13, 32.13, 32.14, 32.62, **37.45**.
 
+**A 196× gap at the median**, and six of the seven land inside a 0.55 s band. That says the time is
+structural rather than contended — the platform does the same work each time and takes the same time
+to do it — with one sample five seconds slower for a reason this measurement cannot see.
+
+**An earlier version of this file reported n=3 with a 0.07 s spread and called the result "almost
+suspiciously stable".** Four more samples arrived after it was written and one was the 37.45 s. The
+median did not move; the claim about the tail was wrong, and wrong in the direction that flatters
+the result — which is the direction to be suspicious of. A p95 five seconds above the p50 is not a
+tail anybody should describe from three points.
 Both requests are `GET /api/catalog/products?pageSize=24`, which is a real EF Core query against
 real PostgreSQL, serialised through the whole pipeline.
 

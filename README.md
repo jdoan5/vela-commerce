@@ -38,7 +38,7 @@ half: nightly reset, backups, uptime monitoring, per-PR preview environments.
 <https://ca-vela-prod.nicesea-6ebff2dd.eastus.azurecontainerapps.io> — Azure Container Apps in
 front of Neon PostgreSQL 18, both on free tiers, applied by the Terraform in [`infra/`](infra/).
 The container runs at zero replicas when nobody is looking and Neon suspends itself after five
-minutes idle, so **the first click pays a real cold start — [measured at 32 seconds](docs/measurements/cold-start.md),
+minutes idle, so **the first click pays a real cold start — [measured at 32 s p50, 37 s p95](docs/measurements/cold-start.md),
 against 0.16 s warm** — and an idle month costs nothing but a few pence of blob storage. Browsing
 and search never touch the API, so that wait is paid by the first person to open a cart, not the
 first person to look. That trade is the whole hosting argument: a demo that costs nothing at
