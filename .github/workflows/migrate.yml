@@ -67,6 +67,23 @@ jobs:
       - name: Restore the local tools
         run: dotnet tool restore --tool-manifest dotnet-tools.json
 
+      # `dotnet tool restore` restores the TOOLS. It does not restore the PROJECT, and
+      # `dotnet ef migrations bundle` does not restore either - it goes straight to building,
+      # and on a fresh checkout with no obj/ that fails with
+      #
+      #   Assets file '.../obj/project.assets.json' not found.
+      #   Run a NuGet package restore to generate this file.
+      #
+      # This is the SAME mistake ci.yml's model-matches-migrations job made, found and fixed
+      # two days earlier, and then written fresh into this file. It is recorded here rather
+      # than silently corrected so the next workflow that shells out to a dotnet tool starts
+      # from the knowledge that restoring tools and restoring projects are different acts.
+      #
+      # Infrastructure only: it is the project the bundle is built from, and the seed step
+      # below uses `dotnet run`, which restores implicitly.
+      - name: Restore the project
+        run: dotnet restore src/VelaCommerce.Infrastructure
+
       # -----------------------------------------------------------------------------------
       # A BUNDLE, not `dotnet ef database update`.
       #
