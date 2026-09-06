@@ -30,11 +30,14 @@ Testcontainers), at **68.1% line coverage** over the three production assemblies
 enforces rather than a badge it decorates, and [`coverage.runsettings`](coverage.runsettings) says
 what is counted and why. The domain also carries a **71.6% mutation score** — Stryker's first run
 found that `checked` could be deleted from every `Money` operator with every test still green, which
-is [written up](docs/measurements/mutation-testing.md) along with the ten other edges it found. Phase 8 is started — ten [decision records](docs/adr/) and four
-[measurements](docs/measurements/). Phase 5 is started too: demo data older than a day now expires,
-though [not on the cron the plan called for](docs/adr/0010-the-purge-runs-on-visits-not-on-a-clock.md).
-Phase 9 is not started, and neither is Phase 7's other half: backups, uptime monitoring, per-PR
-preview environments.
+is [written up](docs/measurements/mutation-testing.md) along with the ten other edges it found. Phase 8 is started — eleven [decision records](docs/adr/) and five
+[measurements](docs/measurements/). Phase 5 is nearly done: demo data older than a day now expires,
+though [not on the cron the plan called for](docs/adr/0010-the-purge-runs-on-visits-not-on-a-clock.md),
+and there are deliberately [no backups](docs/adr/0011-no-database-backup.md) — a
+[timed rebuild from the committed seed](docs/measurements/restore-drill.md) does that job instead.
+What is still missing from it is uptime monitoring: **nothing watches this demo but a human**, on
+the [monthly pass](docs/MAINTENANCE.md). Phase 9 is not started, and neither is Phase 7's other
+half: per-PR preview environments.
 
 **It is deployed**, since 2026-09-06, at
 <https://ca-vela-prod.nicesea-6ebff2dd.eastus.azurecontainerapps.io> — Azure Container Apps in
@@ -320,10 +323,10 @@ lists where the two part company.
 | 2 | The 60-second storefront | Done — Blazor WebAssembly, browsing and search entirely client-side from a static snapshot |
 | 3 | Cart, tenancy | Done — demo-session cookie sealed with Data Protection, DbContext-level tenancy filter that fails closed |
 | 4 | Checkout, payments, order timeline | Done — payment port and signing simulator, atomic reservation, idempotent checkout, transactional outbox, signed webhook receiver, accelerated timeline |
-| 5 | Anti-rot hardening | Started — coverage floor and mutation score enforced in CI; link checker green on 185 links; demo data expires after 24 hours, in-process rather than on a cron ([ADR 0010](docs/adr/0010-the-purge-runs-on-visits-not-on-a-clock.md)). Backups and uptime monitoring still absent |
+| 5 | Anti-rot hardening | Mostly done — coverage floor and mutation score enforced in CI; link checker green on 207 links; demo data expires after 24 hours, in-process rather than on a cron ([ADR 0010](docs/adr/0010-the-purge-runs-on-visits-not-on-a-clock.md)); no backup, and a [timed rebuild](docs/measurements/restore-drill.md) instead ([ADR 0011](docs/adr/0011-no-database-backup.md)); the monthly ritual is written down in [`MAINTENANCE.md`](docs/MAINTENANCE.md). **Uptime monitoring is the one piece still missing**, and nothing watches this demo but a human |
 | 6 | Demo Lab + refunds | Done — nine lab scenarios with per-scenario permalinks and verdicts; refunds and cancellation with a ledger, a row lock that serialises concurrent refunds, and restock on cancellation |
 | 7 | Admin + preview environments | Admin console done; server-side search on a [trigram index](docs/measurements/trigram-search.md); per-PR preview environments not started |
-| 8 | Make it legible | Started — ten ADRs in [`docs/adr/`](docs/adr/); [cold start](docs/measurements/cold-start.md), [mutation testing](docs/measurements/mutation-testing.md) and [trigram search](docs/measurements/trigram-search.md) measured; the ACA number and the `/platform` page need a deployment |
+| 8 | Make it legible | Started — eleven ADRs in [`docs/adr/`](docs/adr/); [cold start](docs/measurements/cold-start.md), [mutation testing](docs/measurements/mutation-testing.md), [trigram search](docs/measurements/trigram-search.md) and a timed [restore drill](docs/measurements/restore-drill.md) measured; the ACA number and the `/platform` page need a deployment |
 | 9 | Optional differentiators | Not started — pgvector, passkeys, multi-cloud |
 
 Also not built, and not hidden: no preview environments, and no real payment processor. Search
