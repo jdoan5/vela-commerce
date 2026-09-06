@@ -47,7 +47,7 @@
 # is envelope encryption, it costs pennies, and it does not change anything in this file.
 #
 # ############################################################################
-# # NOT WIRED UP YET. Program.cs calls AddDataProtection() with no arguments. #
+# # WIRED UP. Program.cs reads VELA_DATAPROTECTION_BLOB_URI, which container_app.tf sets unconditionally. #
 # # WIRED. Program.cs reads VELA_DATAPROTECTION_BLOB_URI and, when it is set,  #
 # # calls SetApplicationName("vela-commerce") + PersistKeysToAzureBlobStorage  #
 # # with DefaultAzureCredential. Absent, it falls back to the local ring and    #

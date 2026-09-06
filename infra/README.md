@@ -4,9 +4,11 @@ One root module. It stands up the Azure side of a public demo that is designed t
 **$0.00/month**, and it is written so that the handful of arguments capable of breaking that
 are commented at the point where someone would otherwise change them.
 
-Nothing here has been applied. `terraform validate` needs no credentials and no
-subscription; `terraform plan` and `terraform apply` have deliberately not been run — see
-[Why no plan output](#why-there-is-no-plan-output).
+Applied on 2026-09-06: ten resources, and the shop is live at
+<https://ca-vela-prod.nicesea-6ebff2dd.eastus.azurecontainerapps.io>. `terraform validate`
+still runs in CI with no credentials and no subscription; `terraform plan` is still not run
+there, and the reason has changed rather than gone away — see
+[Why no plan output](#why-ci-still-does-not-run-a-plan).
 
 ---
 
@@ -118,7 +120,7 @@ handful of transactions per replica start. **Rounds to $0.00.**
 
 ---
 
-## ⚠ The OIDC subject is half-verified. Read this before deploying.
+## The OIDC subject, and how it was verified
 
 Since July 2026, GitHub mints the OIDC `sub` claim in an **immutable** form built from
 numeric IDs:
@@ -140,19 +142,22 @@ REST API:
 repo:jdoan5@30330279/vela-commerce@1355259325:ref:refs/heads/main
 ```
 
-**NOT verified** — the environment-scoped subject this Terraform writes:
+**Also verified**, on 2026-09-06 and before the first deploy — the environment-scoped
+subject this Terraform writes:
 
 ```
 repo:jdoan5@30330279/vela-commerce@1355259325:environment:production
 ```
 
-The probe has only ever run **outside** a GitHub Environment, so nobody has read that second
-string off a real token. It is the documented shape, and documented is not verified.
+For a while this section said that one was unverified, because the probe had only ever run
+**outside** a GitHub Environment and the environment form was documented rather than
+observed. `oidc-claims.yml` now takes an `environment` input; dispatching it with
+`production` printed exactly the string above, matching what `local.github_subject_environment`
+composes, character for character.
 
-**Before any real deploy:** re-run `oidc-claims.yml` from a job that declares
-`environment: production`, read the `sub` it prints, and make
-`local.github_subject_environment` equal it **character for character**. `terraform output
-federated_credential_subjects` prints what Terraform will have written, for comparison.
+**Re-verify after anything that could change it** — a rename, a transfer, a new environment
+name. `terraform output federated_credential_subjects` prints what Terraform wrote, for
+comparison.
 
 Environment scoping is the control that stops a pull request from a **fork** minting a
 deploy token — a fork PR cannot select a protected environment. That is why the branch-scoped
@@ -214,7 +219,8 @@ against a storage account it does not own.
 
 ```bash
 # 1. Register the Container Apps resource provider. Free, idempotent, creates nothing.
-#    Verified against this subscription: `az provider show -n Microsoft.App` currently
+#    Was `NotRegistered` on this subscription until the 2026-09-06 apply registered it:
+#    `az provider show -n Microsoft.App` previously
 #    returns NotRegistered, and without this the first apply dies on a
 #    MissingSubscriptionRegistration error that names the provider but not the fix.
 az provider register --namespace Microsoft.App --wait
@@ -274,8 +280,10 @@ storage account is the whole state infrastructure.
 
 ## First deploy, in order
 
-> **This has not been done.** The Azure subscription is a Free Trial with `spendingLimit:
-> On`, expiring 2026-09-04, and the deliberate decision is to finish the application, then
+> **Done on 2026-09-06.** Kept for the record of what the first apply took. The Azure
+> subscription was a Free Trial with `spendingLimit: On` expiring 2026-09-04; it was
+> upgraded to Pay-As-You-Go on 2026-09-05, which removed that limit permanently and
+> irreversibly. The earlier decision was to finish the application, then
 > upgrade to Pay-As-You-Go and deploy once. Upgrading permanently removes the spending limit
 > and it cannot be re-enabled — it is the only genuine hard stop this subscription will ever
 > have. Do not run step 6 before you mean it.
@@ -393,18 +401,20 @@ azurerm to 4.81.0 and is committed.
 
 `tflint` is **not installed** on this machine, so no lint pass was run.
 
-### Why there is no plan output
+### Why CI still does not run a plan
 
-`terraform plan` was **not** run, and not only because of the spending-limit rule. The
-azurerm provider performs resource-provider registration **when the provider is configured**,
-which happens during `plan`, not only during `apply`. `providers.tf` sets
-`resource_providers_to_register = ["Microsoft.App", ...]`, and `Microsoft.App` is currently
-`NotRegistered` on this subscription — so a plan would perform a subscription-level write.
-Registration creates no billable resource, but "do not run `az` commands that write" is a
-rule about writes, not about bills.
+A plan was eventually run, on 2026-09-06, immediately before the apply: **10 to add, 0 to
+change, 0 to destroy**, with every cost-sensitive setting read back out of the plan file
+rather than out of the source. It is not run in CI, and that reasoning is unchanged.
 
-The subscription was checked before and after this work and holds exactly one resource: the
-auto-provisioned `NetworkWatcher_eastus`.
+The azurerm provider performs resource-provider registration **when the provider is
+configured**, which happens during `plan`, not only during `apply`. `providers.tf` sets
+`resource_providers_to_register = ["Microsoft.App", ...]` — so a plan is a subscription-level
+write, not a read-only preview. Registration creates no billable resource, but "CI does not
+write to the subscription" is a rule about writes, not about bills, and it matters more now
+that the subscription holds a live deployment than it did when it held nothing.
+
+`Microsoft.App` was `NotRegistered` until the first apply registered it.
 
 ---
 
@@ -420,5 +430,5 @@ auto-provisioned `NetworkWatcher_eastus`.
 | Payment signing secret | `az containerapp secret set` | `openssl rand -base64 48`; must not be the committed dev default |
 | `AZURE_CLIENT_ID` / `AZURE_TENANT_ID` / `AZURE_SUBSCRIPTION_ID` | GitHub repo **variables** | From `terraform output` |
 | GitHub Environment `production` | GitHub repo settings | Must exist before the environment-scoped credential means anything |
-| The **verified** environment OIDC subject | `main.tf` `local.github_subject_environment` | Re-run the probe. Currently unverified. |
+| The **verified** environment OIDC subject | `main.tf` `local.github_subject_environment` | Verified 2026-09-06. Re-run the probe after a rename or transfer. |
 | `ghcr_username` / `ghcr_token` | Only if the GHCR package is made private | Public packages pull anonymously; leave `null` |

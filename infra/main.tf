@@ -37,7 +37,8 @@ locals {
   # VERIFIED. Printed by the probe. A workflow running on main, outside any Environment.
   github_subject_main_branch = "${local.github_subject_prefix}:ref:refs/heads/main"
 
-  # NOT VERIFIED. See the warning block in identity.tf before relying on this.
+  # Verified against a real token on 2026-09-06. See the block in identity.tf for how, and
+  # for when it must be re-checked.
   github_subject_environment = "${local.github_subject_prefix}:environment:${var.github_deploy_environment}"
 
   # GitHub's OIDC issuer. Fixed for github.com; a GitHub Enterprise Server install differs.

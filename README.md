@@ -10,7 +10,7 @@ constraint rather than by C# that merely happens to run first.
 
 ![Browsing the catalog, searching, opening a product, adding to the cart, checking out, and the order timeline advancing from Placed to Shipped](docs/demo.gif)
 
-> The clip is sampled, not real time: the run took about ninety seconds and plays in nine. **It is a recording — nothing is deployed yet.** You do not have to take a recording's word for it, though: `docker compose up` runs the real thing in one command. See [Status](#status) below.
+> The clip is sampled, not real time: the run took about ninety seconds and plays in nine. **It is a recording** — but you do not have to take a recording's word for it. [The shop is live](https://ca-vela-prod.nicesea-6ebff2dd.eastus.azurecontainerapps.io), and `docker compose up` runs the same thing locally in one command. See [Status](#status) below.
 
 Recorded by driving the running shop, not assembled from mock-ups: catalog, search, a product
 page, add to cart, the cart drawer, checkout with a sample address, then order `VELA-PPTNK4G`
@@ -22,7 +22,7 @@ which is the "no longer checking" the last frames show.
 
 ## Status
 
-Phases 1–4 and 6 of 10 are done, Phase 0 all but its deployment, and Phase 7's admin
+Phases 0–4 and 6 of 10 are done, and Phase 7's admin
 half — domain, seeded catalog, storefront, cart, tenancy, checkout, payments, transactional outbox,
 the order timeline, the Demo Lab, refunds and a session-scoped admin console — on **398 passing
 tests** (202 domain, 9 architecture, 187 integration against a real PostgreSQL 18 in
@@ -30,13 +30,22 @@ Testcontainers), at **68.1% line coverage** over the three production assemblies
 enforces rather than a badge it decorates, and [`coverage.runsettings`](coverage.runsettings) says
 what is counted and why. The domain also carries a **71.6% mutation score** — Stryker's first run
 found that `checked` could be deleted from every `Money` operator with every test still green, which
-is [written up](docs/measurements/mutation-testing.md) along with the ten other edges it found. Phases 5, 8 and 9 are not started, and Phase 7's other half is not either: nightly
-reset and backups, preview environments, the measured cold start. **There is no hosted demo, deliberately.** The Azure free-trial credit expired
-2026-09-04 and was allowed to lapse. The subscription still carries its spending limit, so it is
-disabled rather than billing; deploying now would mean upgrading to Pay-As-You-Go, which removes
-that limit permanently and cannot re-enable it. The decision was to finish the app first and deploy
-once, on purpose, rather than half-deploy onto a subscription that can start charging — and nothing
-is burned by waiting, since the Terraform, the resource names and the OIDC subject all stay valid. The GIF above is what a
+is [written up](docs/measurements/mutation-testing.md) along with the ten other edges it found. Phase 8 is started — nine [decision records](docs/adr/) and four
+[measurements](docs/measurements/). Phase 5 and Phase 9 are not, and neither is Phase 7's other
+half: nightly reset, backups, uptime monitoring, per-PR preview environments.
+
+**It is deployed**, since 2026-09-06, at
+<https://ca-vela-prod.nicesea-6ebff2dd.eastus.azurecontainerapps.io> — Azure Container Apps in
+front of Neon PostgreSQL 18, both on free tiers, applied by the Terraform in [`infra/`](infra/).
+The container runs at zero replicas when nobody is looking and Neon suspends itself after five
+minutes idle, so **the first click pays a real cold start** and an idle month costs nothing but a
+few pence of blob storage. That trade is the whole hosting argument: a demo that costs nothing at
+rest is a demo that is still up in 2029.
+
+The subscription is Pay-As-You-Go with no spending limit, which was a deliberate choice and is
+recorded as one. Every remaining protection is architectural — `min_replicas = 0`, no custom VNet,
+no Log Analytics workspace, Consumption-only — and [ADR 0009](docs/adr/0009-no-log-analytics-workspace.md)
+is candid that one of those guardrails is a comment rather than a constraint. The GIF above is what a
 clone of this repo does today, after `dotnet build` and `dotnet run --project src/VelaCommerce.Api`
 against a local PostgreSQL. Both steps matter: the API project does not reference the storefront, so
 the solution build is what puts the shop's files where the host serves them from.
@@ -302,14 +311,14 @@ lists where the two part company.
 
 | # | Phase | Status |
 |---|---|---|
-| 0 | Toolchain, repo, CI | Mostly done — Azure/Terraform/OIDC deployment deliberately deferred |
+| 0 | Toolchain, repo, CI | Done — Terraform applied 2026-09-06; ten resources, OIDC subject verified against a real token before it was trusted |
 | 1 | Domain, data, seeded catalog | Done — money in integer minor units, five-edge order state machine, 288 products / 691 variants generated deterministically |
 | 2 | The 60-second storefront | Done — Blazor WebAssembly, browsing and search entirely client-side from a static snapshot |
 | 3 | Cart, tenancy | Done — demo-session cookie sealed with Data Protection, DbContext-level tenancy filter that fails closed |
 | 4 | Checkout, payments, order timeline | Done — payment port and signing simulator, atomic reservation, idempotent checkout, transactional outbox, signed webhook receiver, accelerated timeline |
 | 5 | Anti-rot hardening | Started — coverage floor and mutation score enforced in CI; nightly reset, backups and uptime monitoring need a deployment |
 | 6 | Demo Lab + refunds | Done — nine lab scenarios with per-scenario permalinks and verdicts; refunds and cancellation with a ledger, a row lock that serialises concurrent refunds, and restock on cancellation |
-| 7 | Admin + preview environments | Admin console done; server-side search on a [trigram index](docs/measurements/trigram-search.md); preview environments blocked on accounts that do not exist |
+| 7 | Admin + preview environments | Admin console done; server-side search on a [trigram index](docs/measurements/trigram-search.md); per-PR preview environments not started |
 | 8 | Make it legible | Started — nine ADRs in [`docs/adr/`](docs/adr/); [cold start](docs/measurements/cold-start.md), [mutation testing](docs/measurements/mutation-testing.md) and [trigram search](docs/measurements/trigram-search.md) measured; the ACA number and the `/platform` page need a deployment |
 | 9 | Optional differentiators | Not started — pgvector, passkeys, multi-cloud |
 

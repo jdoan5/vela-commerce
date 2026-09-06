@@ -15,8 +15,8 @@ provider "azurerm" {
   storage_use_azuread = true
 
   # Container Apps lives under the Microsoft.App resource provider, which is NOT registered
-  # on a fresh subscription (verified against this one: `az provider show -n Microsoft.App`
-  # returns NotRegistered today). azurerm 4.x registers only a "core" set by default and
+  # on a fresh subscription (it was NotRegistered on this one until the 2026-09-06 apply
+  # registered it). azurerm 4.x registers only a "core" set by default and
   # Microsoft.App is not in it, so without this the first apply fails on a
   # MissingSubscriptionRegistration that names the provider but not the fix.
   #

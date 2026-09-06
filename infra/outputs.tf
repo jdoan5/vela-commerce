@@ -46,12 +46,12 @@ output "federated_credential_subjects" {
   description = <<-EOT
     The exact subject strings Entra will match against the incoming OIDC token. Compare
     these, character for character, against the `sub` claim printed by
-    .github/workflows/oidc-claims.yml. The environment-scoped one is UNVERIFIED — see the
-    warning in identity.tf.
+    .github/workflows/oidc-claims.yml. Both were verified that way on 2026-09-06 — see
+    identity.tf for how, and for when they must be re-checked.
   EOT
   value = {
-    environment_scoped_UNVERIFIED = local.github_subject_environment
-    main_branch_scoped_verified   = var.create_branch_scoped_federated_credential ? local.github_subject_main_branch : null
+    environment_scoped_verified_2026_09_06 = local.github_subject_environment
+    main_branch_scoped_verified            = var.create_branch_scoped_federated_credential ? local.github_subject_main_branch : null
   }
 }
 

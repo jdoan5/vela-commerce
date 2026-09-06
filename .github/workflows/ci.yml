@@ -769,8 +769,9 @@ jobs:
     # WHAT IS DELIBERATELY ABSENT: `terraform plan`. A plan CONFIGURES the azurerm provider,
     # and configuring it performs resource-provider registration - a subscription-level
     # WRITE - before it has read a single resource. So a plan is not a read-only preview
-    # here, and this repository's Azure subscription is deliberately untouched until the one
-    # planned deploy. `validate` is the strongest check available without paying that price:
+    # here. That mattered most while the subscription held nothing; it still matters now
+    # that it holds a live deployment, because a CI job that writes to a subscription is a
+    # CI job that can change one. `validate` is the strongest check available without that:
     # it type-checks every expression, every variable and every provider schema reference
     # offline, once the provider is installed. See infra/README.md.
     #

@@ -32,8 +32,9 @@ public sealed class DemoSessionMiddleware
     /// Secure, host-only and Path=/, which is what stops a sibling subdomain setting a second
     /// <c>vela.session</c> that shadows this one and fixes a visitor onto an attacker's
     /// session. It cannot be adopted now: the prefix requires Secure, Development runs over
-    /// plain HTTP, and the storefront/API domain split is not decided yet — that decision is
-    /// the same one the SameSite note below depends on, so both move together.
+    /// plain HTTP. The domain question is now settled — one container serves both, on the
+    /// Container Apps FQDN — so the remaining blocker is Development running without TLS, and
+    /// the prefix could be adopted for the deployed environment alone.
     /// </para>
     /// </summary>
     public const string CookieName = "vela.session";

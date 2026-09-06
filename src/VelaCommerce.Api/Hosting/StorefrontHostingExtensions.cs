@@ -13,8 +13,8 @@ namespace VelaCommerce.Api.Hosting;
 /// <c>localhost:5008</c> gets a brand-new anonymous session on every request and an eternally empty
 /// cart — with no error anywhere to explain it. The alternative fix, CORS plus
 /// <c>SameSite=None</c>, weakens the cookie and diverges from production. So the storefront is
-/// served from here instead, and the browser only ever sees one host, exactly as it will behind the
-/// production rewrite.
+/// served from here instead, and the browser only ever sees one host — locally and in the deployed
+/// container alike, since there is no rewrite and no second host to diverge from.
 /// </para>
 /// </summary>
 public static class StorefrontHostingExtensions

@@ -32,17 +32,16 @@ resource "azurerm_user_assigned_identity" "deploy" {
 #
 # #########################################################################################
 # #                                                                                       #
-# #   THE SUBJECT ON THIS CREDENTIAL IS UNVERIFIED. DO NOT ASSUME IT WORKS.                #
+# #   THE SUBJECT ON THIS CREDENTIAL WAS VERIFIED ON 2026-09-06, BEFORE THE FIRST DEPLOY.  #
 # #                                                                                       #
-# #   The repo's oidc-claims.yml probe has only ever been run from a workflow that was     #
-# #   NOT bound to a GitHub Environment, so the only subject anyone here has actually      #
-# #   READ off a real token is the `:ref:refs/heads/main` one on credential 2 below.       #
+# #   oidc-claims.yml was dispatched with `environment: production` and printed            #
+# #   repo:jdoan5@30330279/vela-commerce@1355259325:environment:production — exactly the   #
+# #   string this file composes. For a while this block said the opposite, in capitals,    #
+# #   because the probe had only ever run outside an Environment and a documented shape    #
+# #   is not a verified one.                                                               #
 # #                                                                                       #
-# #   The value written here — `<prefix>:environment:production` — is the documented       #
-# #   shape and is what the immutable format is expected to produce. Expected is not       #
-# #   verified.                                                                            #
-# #                                                                                       #
-# #   BEFORE ANYONE RUNS A REAL DEPLOY: re-run .github/workflows/oidc-claims.yml from a    #
+# #   RE-VERIFY AFTER ANYTHING THAT COULD CHANGE IT — a repo rename, a transfer to an      #
+# #   org, a different environment name. Re-run .github/workflows/oidc-claims.yml from a   #
 # #   job that declares `environment: production`, read the `sub` claim it prints, and     #
 # #   make this string equal to it exactly. If it differs, the deploy fails at token       #
 # #   exchange with AADSTS700213 / "No matching federated identity record found" — an      #

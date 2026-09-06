@@ -5,10 +5,14 @@
 #
 #  Then open http://localhost:5008. A real PostgreSQL 18, the real API, the real Blazor
 #  storefront, the Demo Lab and the admin console — no .NET SDK, no database to create, no
-#  connection string to set. This is the closest thing to a live demo that exists while the
-#  hosted deployment is deliberately not happening, and unlike a recording it is the actual
-#  system: the last unit really is sold to exactly one of fifty simultaneous shoppers,
-#  because it is really PostgreSQL deciding.
+#  connection string to set.
+#
+#  The hosted demo now exists too, at
+#  https://ca-vela-prod.nicesea-6ebff2dd.eastus.azurecontainerapps.io. This is still the
+#  better way to READ the system: no cold start, a database you can open with psql, and you
+#  can break things without breaking the link on somebody's portfolio. Both are the actual
+#  system rather than a recording — the last unit really is sold to exactly one of fifty
+#  simultaneous shoppers, because it is really PostgreSQL deciding.
 #
 #  The image is built by CI and published to GHCR on every push to main. To run against a
 #  locally built one instead, see the `build` note on the api service below.

@@ -110,8 +110,8 @@ variable "github_deploy_environment" {
     because a fork PR cannot select a protected environment.
 
     Changing this changes the federated credential subject, and the subject must match the
-    token exactly. See the loud warning above the environment-scoped credential in
-    identity.tf: that subject string is UNVERIFIED.
+    token exactly. The current value was verified against a real token on 2026-09-06;
+    changing it invalidates that, so re-run the probe. See identity.tf.
   EOT
   type        = string
   default     = "production"
@@ -120,8 +120,9 @@ variable "github_deploy_environment" {
 variable "create_branch_scoped_federated_credential" {
   description = <<-EOT
     Whether to also trust a token minted by a workflow running on the main branch OUTSIDE
-    any GitHub Environment. That is the only subject anyone has read off a real token, so
-    it exists as the escape hatch for confirming the environment-scoped one.
+    any GitHub Environment. It was the first subject read off a real token and existed as
+    the escape hatch for confirming the environment-scoped one, which is now itself
+    verified — so the escape hatch has done its job and should stay off.
 
     THE SAFE END STATE IS `false`, AND IT IS NOT OPTIONAL. While this credential exists the
     trusted subject is `...:ref:refs/heads/main`, which ANY workflow on main can present —

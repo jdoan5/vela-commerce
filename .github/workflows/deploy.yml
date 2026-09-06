@@ -2,16 +2,20 @@
 #  THIS WORKFLOW IS NOT WIRED TO PUSH, ON PURPOSE. READ THIS BEFORE YOU "FIX" IT.
 # =========================================================================================
 #
-#  As of the commit that added this file, NOTHING IS DEPLOYED. The Azure subscription holds
-#  exactly one auto-provisioned NetworkWatcher and nothing else: `terraform apply` has never
-#  been run, the resource group `rg-vela-prod` does not exist, the Container App
-#  `ca-vela-prod` does not exist, and the federated identity credential that this workflow
-#  authenticates with does not exist either.
+#  IT IS DEPLOYED. Since 2026-09-06 the shop is live at
+#  https://ca-vela-prod.nicesea-6ebff2dd.eastus.azurecontainerapps.io - `rg-vela-prod`,
+#  `ca-vela-prod`, the storage account and the federated identity credential all exist,
+#  applied by the Terraform in infra/. A real order (VELA-VFDV9NC) has been placed against
+#  it. Everything above this line in earlier revisions of this file said the opposite, at
+#  length and in capitals; it was true then and is kept in git history rather than here.
 #
-#  That is a deliberate decision, not an oversight. The subscription is a Free Trial with
-#  `spendingLimit: On` - the only genuine hard stop it will ever have. Upgrading to
-#  Pay-As-You-Go removes that limit permanently and it cannot be re-enabled. The plan is to
-#  finish the application, then upgrade and deploy once, on purpose, with someone watching.
+#  THE PUSH TRIGGER IS STILL COMMENTED OUT, AND THAT IS STILL THE POINT. Deploying is a
+#  deliberate act, not a consequence of merging. What changed on 2026-09-05 is that the
+#  subscription was upgraded to Pay-As-You-Go and the spending limit switched OFF - which
+#  means the one genuine hard stop this account will ever have is gone, permanently and
+#  irreversibly. Every protection that remains is architectural: min_replicas = 0, no custom
+#  VNet, Consumption-only, no Log Analytics workspace. A merge that silently redeployed is
+#  now strictly more dangerous than it was when this file was written, not less.
 #
 #  THE GUARD, AND WHY THIS ONE:
 #
@@ -424,16 +428,19 @@ jobs:
       #
       #   repo:jdoan5@30330279/vela-commerce@1355259325:environment:production
       #
-      # THE `:environment:production` VARIANT HAS NEVER BEEN OBSERVED ON A REAL TOKEN. The
-      # only subject anyone on this project has actually read off a token is the
-      # `:ref:refs/heads/main` one, printed by .github/workflows/oidc-claims.yml running
-      # OUTSIDE any environment. The environment form above is the documented shape, and
-      # documented is not verified.
+      # VERIFIED ON 2026-09-06, against a real token. oidc-claims.yml was run with
+      # `environment: production` and printed exactly that string as its `sub` claim, which
+      # is what infra/main.tf composes and what the live federated credential carries. This
+      # comment previously said the environment form had never been observed and that
+      # documented is not verified - which was true, and was the reason to check before
+      # deploying rather than during. Most documentation still shows the pre-July-2026
+      # `repo:owner/repo:...` form, which fails at token exchange with an error that never
+      # mentions the subject.
       #
-      # To verify it: copy the `claims` job out of oidc-claims.yml, add
-      # `environment: production` to it, dispatch it, and read `sub` off the job summary.
-      # Then make `local.github_subject_environment` in infra/main.tf equal that string
-      # character for character. Do not copy a subject out of any tutorial; every one of them
+      # How it was verified, kept because the method is reusable: oidc-claims.yml takes an
+      # `environment` input, dispatch it with `production`, and read `sub` off the job
+      # summary. `local.github_subject_environment` in infra/main.tf must equal that string
+      # character for character. Never copy a subject out of a tutorial; every one of them
       # still shows the old `repo:OWNER/NAME:ref:refs/heads/main` form, which now matches
       # nothing.
       # -----------------------------------------------------------------------------------
@@ -775,22 +782,27 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
 # =========================================================================================
-#  CHECKLIST BEFORE THE FIRST RUN. Every one of these is a manual step; none is automated,
-#  and the workflow will fail at a different place for each one you skip.
+#  CHECKLIST. Done on 2026-09-06, kept ticked rather than deleted: this is the list a
+#  reviewer wants when asking "what did the first deploy actually take", and every box is a
+#  manual step the workflow fails differently for if it is missed.
 #
-#   [ ] infra/ applied. `rg-vela-prod` and `ca-vela-prod` exist. (Guard step fails otherwise.)
-#   [ ] `az provider register -n Microsoft.App` - currently NotRegistered on this subscription.
-#   [ ] GitHub Environment `production` created, WITH a required reviewer.
-#   [ ] The environment-scoped OIDC subject verified against a real token and matched into
-#       infra/main.tf. THIS IS THE ONE THAT IS UNVERIFIED TODAY.
+#   [x] infra/ applied. `rg-vela-prod` and `ca-vela-prod` exist. (Guard step fails otherwise.)
+#   [x] `az provider register -n Microsoft.App` - registered by the apply itself.
+#   [x] GitHub Environment `production` created, WITH a required reviewer.
+#   [x] The environment-scoped OIDC subject verified against a real token and matched into
+#       infra/main.tf. Verified 2026-09-06 by dispatching oidc-claims.yml with
+#       `environment: production`; it printed the subject infra/main.tf already composed.
 #   [ ] Repository variables AZURE_CLIENT_ID, AZURE_TENANT_ID, AZURE_SUBSCRIPTION_ID set from
 #       `terraform output`. (Preflight fails otherwise.)
-#   [ ] `az containerapp secret set` run by hand for vela-db-connection (Neon POOLED
+#   [x] `az containerapp secret set` run by hand for vela-db-connection (Neon POOLED
 #       connection string) and payment-signing-secret. Not the committed dev default.
-#   [ ] GHCR package visibility set to Public after the first push.
+#   [x] GHCR package visibility set to Public - it was already public; a GITHUB_TOKEN push
+#       into a public repo inherited that, contrary to what this line expected.
 #   [x] Data Protection wired in Program.cs - PersistKeysToAzureBlobStorage plus
 #       SetApplicationName("vela-commerce"), reading VELA_DATAPROTECTION_BLOB_URI. DONE. What
-#       remains is to set that variable on the container app: the code treats its absence as
+#       remains was to set that variable on the container app - done, and container_app.tf
+#       sets it unconditionally, so it cannot be forgotten. The hazard it describes is real
+#       and is why: the code treats its absence as
 #       legitimate (a developer's machine and the build-time OpenAPI generator both run
 #       without it) and only logs a warning, so an unset variable deploys perfectly happily
 #       and silently empties every visitor's cart on the next revision. Nothing in this

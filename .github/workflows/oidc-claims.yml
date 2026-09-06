@@ -21,9 +21,11 @@ on:
         description: >-
           GitHub Environment to run inside. Leave EMPTY for the branch-scoped subject
           (repo:...:ref:refs/heads/main). Set to "production" to read the ENVIRONMENT-scoped
-          subject, which is the one infra/identity.tf actually trusts and the one nobody has
-          ever read off a real token. A deploy trusting an unverified subject fails at token
-          exchange with an error that never mentions the subject.
+          subject, which is the one infra/identity.tf trusts. It was verified that way on
+          2026-09-06 and matched what infra/main.tf composes. Re-run it after anything that
+          could change the subject: a rename, a transfer, a new environment. A deploy
+          trusting a wrong subject fails at token exchange with an error that never mentions
+          the subject.
         required: false
         default: ""
 

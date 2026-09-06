@@ -11,16 +11,16 @@ namespace VelaCommerce.Api.Hosting;
 /// <para>
 /// This exists because of one decision that shapes the whole phase: the demo session is an
 /// <c>HttpOnly; SameSite=Lax</c> cookie, and a browser will not attach that cookie to a fetch
-/// issued by a page on another origin. The production topology puts a rewrite in front of both —
-/// the browser sees one host, <c>/api/*</c> goes to the API and everything else to the storefront's
-/// files — and local development has to mirror it exactly, or the cart works in production and
-/// silently never works on a developer's machine. The cheapest way to have one origin locally is
-/// for the API host to serve the storefront's files itself.
+/// issued by a page on another origin. This class was written expecting production to put a rewrite
+/// in front of two hosts; production turned out to be one container serving both, so the API host
+/// serving the storefront's files is not a local mirror of the deployed topology — it IS the
+/// deployed topology. That makes the one-origin property structural rather than something a CDN
+/// configuration has to keep agreeing to.
 /// </para>
 /// <para>
 /// Nothing here throws. The API must boot with no storefront present at all: the build-time OpenAPI
 /// generator executes the real entry point, CI runs the API alone against the Bruno collection, and
-/// the deployed API may well sit behind a CDN that serves the storefront itself. In every one of
+/// a future deployment may put a CDN in front that serves the storefront itself. In every one of
 /// those cases the correct behaviour is "serve the API, log that there is no shop attached", not a
 /// host that refuses to start.
 /// </para>
