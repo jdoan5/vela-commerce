@@ -54,10 +54,15 @@ public sealed record OutboxOptions
     /// One second, because the thing a reviewer is watching is an order flipping to Paid a few
     /// seconds after checkout, and a slower poll shows up directly as a slower demo. The honest
     /// cost is that a polling loop keeps the database awake — which matters on a serverless
-    /// Postgres billed by compute-hour, and is why production would replace the poll with
-    /// <c>LISTEN</c>/<c>NOTIFY</c> or an in-process signal from the enqueue rather than by turning
-    /// this number up. Note that the reservation reaper already sweeps every minute, so this
-    /// process was never going to let the database idle anyway.
+    /// Postgres billed by compute-hour, and is why production would replace the poll with an
+    /// in-process signal from the enqueue, a queue, or <c>LISTEN</c>/<c>NOTIFY</c> — rather than by
+    /// turning this number up. <b>The <c>LISTEN</c>/<c>NOTIFY</c> option is not available on the
+    /// connection this app actually uses:</b> Neon's pooled endpoint is PgBouncer in transaction
+    /// mode, which breaks it along with SET/RESET, SQL-level PREPARE, temp tables and session
+    /// advisory locks (docs/PLAN.md §10). It would need a dedicated connection on the direct
+    /// endpoint. This sentence used to recommend it flatly, which would have sent somebody at a
+    /// failure that reads like a Neon outage. Note that the reservation reaper already sweeps every
+    /// minute, so this process was never going to let the database idle anyway.
     /// </para>
     /// </summary>
     public TimeSpan PollInterval { get; init; } = TimeSpan.FromSeconds(1);

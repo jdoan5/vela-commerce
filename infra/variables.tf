@@ -274,8 +274,15 @@ variable "max_replicas" {
     timeline worker all claim their rows with FOR UPDATE SKIP LOCKED, so all three are safe
     above one replica. What is NOT shared is the Data Protection key ring unless
     VELA_DATAPROTECTION_BLOB_URI is set - two replicas each minting their own would hand a
-    visitor a cookie the other cannot read. There is no application cache of any kind to
-    warm per instance; every response this API serves is Cache-Control: no-store.
+    visitor a cookie the other cannot read. There is no application cache of any kind to warm
+    per instance - no AddOutputCache, no AddResponseCaching, no IMemoryCache anywhere in src.
+
+    This paragraph used to end "every response this API serves is Cache-Control: no-store",
+    which is false and was inherited into a second document before anyone checked it. no-store
+    is attached per route group - cart, checkout, refunds, demo and lab - plus the webhook
+    handler and rate-limit refusals. Static assets are cached hard, the SPA shell is no-cache,
+    and /api/catalog sends no cache header at all. The conclusion above survives (there is
+    genuinely nothing to warm); the reason given for it did not.
   EOT
   type        = number
   default     = 3
