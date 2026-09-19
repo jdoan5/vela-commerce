@@ -387,6 +387,41 @@ public sealed class RefundTests : IDisposable
         Assert.Empty(await _shop.RefundsForAsync(orderNumber));
     }
 
+    /// <summary>
+    /// An idempotency key carrying a newline is refused, because it would otherwise be written into
+    /// a log entry verbatim and render as a second one.
+    /// <para>
+    /// Found by CodeQL and confirmed by hand before it was believed: .NET's console logger performs
+    /// no escaping on a structured value, so the key below produces a line that reads as a genuine
+    /// <c>info: …</c> entry announcing a refund that never happened. In this deployment the logs go
+    /// to the Container Apps live stream and nowhere else, so the damage is somebody being misled
+    /// while reading it — small, real, and cheap to close.
+    /// </para>
+    /// <para>
+    /// <b>It has to be sent in the BODY.</b> Kestrel rejects a header value containing a bare CR or
+    /// LF, so the header path was never the reachable one; JSON carries <c>\n</c> as an ordinary
+    /// escape. The equivalent guard has always existed in checkout's
+    /// <c>ResolveIdempotencyKey</c> — this endpoint is the same rule written a second time, and the
+    /// second copy lost the line.
+    /// </para>
+    /// </summary>
+    [Fact]
+    public async Task A_refund_key_carrying_a_newline_is_refused_rather_than_logged()
+    {
+        var (shopper, orderNumber, _, _) = await BuyAsync("Storm lantern");
+
+        var forged = "abc\ninfo: Vela[0]\n      Refund key ADMIN-OVERRIDE approved";
+
+        using var response = await shopper.Client.PostAsJsonAsync(
+            $"/api/orders/{orderNumber}/refunds",
+            new { amount = 100, idempotencyKey = forged });
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+
+        // And nothing moved: a key the server refuses must not also spend the balance.
+        Assert.Empty(await _shop.RefundsForAsync(orderNumber));
+    }
+
     [Fact]
     public async Task A_refunded_order_reports_its_ledger_on_the_receipt()
     {

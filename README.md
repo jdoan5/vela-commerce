@@ -24,8 +24,8 @@ which is the "no longer checking" the last frames show.
 
 Phases 0–4 and 6 of 10 are done, and Phase 7's admin
 half — domain, seeded catalog, storefront, cart, tenancy, checkout, payments, transactional outbox,
-the order timeline, the Demo Lab, refunds and a session-scoped admin console — on **414 passing
-tests** (206 domain, 10 architecture, 198 integration against a real PostgreSQL 18 in
+the order timeline, the Demo Lab, refunds and a session-scoped admin console — on **415 passing
+tests** (206 domain, 10 architecture, 199 integration against a real PostgreSQL 18 in
 Testcontainers), at **68.2% line coverage** over the three production assemblies — a floor CI
 enforces rather than a badge it decorates, and [`coverage.runsettings`](coverage.runsettings) says
 what is counted and why. Stryker reports a **73.9% mutation score** on the domain, and that number

@@ -583,12 +583,38 @@ public static class RefundEndpoints
             return false;
         }
 
-        if (key.Length > 128)
+        if (key.Length > CheckoutPolicy.MaxIdempotencyKeyLength)
         {
             problem = TypedResults.Problem(
                 title: "Missing or ambiguous idempotency key",
-                detail: "An idempotency key may be at most 128 characters, which is what the "
-                        + "unique index that enforces it stores.",
+                detail: $"An idempotency key may be at most {CheckoutPolicy.MaxIdempotencyKeyLength} "
+                        + "characters, which is what the unique index that enforces it stores.",
+                statusCode: StatusCodes.Status400BadRequest);
+
+            return false;
+        }
+
+        // CONTROL CHARACTERS, AND WHY THIS GUARD WAS MISSING HERE AND NOT IN CHECKOUT.
+        //
+        // The key reaches logger.LogInformation as a structured value, and the console logger does
+        // not escape anything: a key carrying a newline renders as a second, fully-formed log entry.
+        // Verified rather than assumed — the forged line is indistinguishable from a real one in the
+        // Container Apps live stream, which is the only place this deployment's logs go.
+        //
+        // The HEADER cannot carry one, because Kestrel rejects a header value with a bare CR or LF.
+        // The BODY can: idempotencyKey arrives as JSON, where \n is an ordinary escape. So the two
+        // sources this method deliberately accepts are not equally trustworthy, and the one that
+        // looks safer is the one that is not.
+        //
+        // ResolveIdempotencyKey in CheckoutEndpoints has had this check all along. This method is
+        // the same rule written a second time, and the copy lost a line — which is the actual
+        // defect. CodeQL found the copy, not the pattern; the length limit above had drifted into a
+        // magic 128 beside checkout's named constant for the same reason, and now shares it.
+        if (key.Any(char.IsControl))
+        {
+            problem = TypedResults.Problem(
+                title: "Missing or ambiguous idempotency key",
+                detail: "The idempotency key contains control characters.",
                 statusCode: StatusCodes.Status400BadRequest);
 
             return false;

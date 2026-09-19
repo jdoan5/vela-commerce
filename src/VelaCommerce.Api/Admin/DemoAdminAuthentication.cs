@@ -75,9 +75,22 @@ public static class DemoAdminAuthentication
                 options.Cookie.Name = CookieName;
                 options.Cookie.HttpOnly = true;
                 options.Cookie.SameSite = SameSiteMode.Lax;
+                // SameAsRequest rather than None on the development branch, and the difference is
+                // small but not nothing: None never sets Secure, SameAsRequest sets it whenever the
+                // request itself arrived over https. Over plain http on a developer's machine the
+                // two behave identically — which is the whole reason the branch exists — but a
+                // developer running the host over https now gets the flag instead of silently not.
+                //
+                // It also closes a CodeQL alert that was a false positive and was going to stay
+                // open: the analyser sees a literal None in a ternary and cannot follow the call
+                // site to Program.cs, where the argument is !IsDevelopment(). Production sets
+                // ASPNETCORE_ENVIRONMENT explicitly and ASP.NET Core defaults to Production when it
+                // is unset, so the None branch was never reachable in a deployment. Dismissing the
+                // alert would have been defensible; removing the reason for it is better, because
+                // the next person to read this file does not have to find the dismissal to trust it.
                 options.Cookie.SecurePolicy = requireSecureCookie
                     ? CookieSecurePolicy.Always
-                    : CookieSecurePolicy.None;
+                    : CookieSecurePolicy.SameAsRequest;
 
                 options.ExpireTimeSpan = Sitting;
                 options.SlidingExpiration = false;
