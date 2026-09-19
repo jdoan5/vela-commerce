@@ -31,3 +31,16 @@ updates:
       interval: weekly
       day: monday
     open-pull-requests-limit: 3
+    groups:
+      # github/codeql-action/init and .../analyze MUST move together. They are two
+      # entries pinned to one SHA in codeql.yml, and the action refuses to analyse a
+      # database that a different version initialised. Ungrouped, Dependabot raises a
+      # PR per entry and BOTH fail: PR #8 bumped init, PR #10 bumped analyze, and each
+      # one alone left the pair mismatched. Merging either first also breaks main until
+      # the other lands.
+      #
+      # This is not a theoretical tidy-up - it is what actually happened on 2026-09-14,
+      # and the two red PRs looked like the action was broken rather than like the
+      # updates had been split.
+      codeql-action:
+        patterns: ["github/codeql-action*"]
