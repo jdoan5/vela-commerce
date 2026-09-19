@@ -30,7 +30,35 @@
             against the schema, neither of which shows up as line coverage. Counting them
             would let a large generated file move the number without anyone writing a test.
           -->
-          <Exclude>[VelaCommerce.Infrastructure]VelaCommerce.Infrastructure.Persistence.Migrations.*</Exclude>
+          <!--
+            The second filter is about the TOOL, not about this codebase, and it has to be
+            explained or it looks like someone hiding async code from the metric.
+
+            coverlet 6.0.4 folds an async method's state machine back into the method that
+            declares it: `<ListProductsAsync>d__7` is reported as part of CatalogEndpoints,
+            which is what a reader expects, because the user's code is what it contains.
+            coverlet 10.0.1 emits the state machine AS WELL, as its own class, while still
+            folding it in - so every async body is counted twice, once as itself and once as
+            compiler plumbing. This project is async end to end, so the effect is not small:
+            coverable lines go 4,432 -> 8,472 and the reported figure falls 68.2% -> 61.6%
+            without one line of code or one test changing. That is what failed the coverage
+            floor on Dependabot's coverlet 6 -> 10 bump.
+
+            ExcludeByAttribute does NOT close it. CompilerGeneratedAttribute was already in
+            the list below and made no difference, fully qualified or not - measured, not
+            assumed. Filtering the state-machine types by name does, and exactly: with it,
+            coverlet 10 reports the same classes, files, covered lines and coverable lines as
+            coverlet 6, to the line.
+
+            It is a no-op on 6.0.4 - verified by running the full suite with and without it on
+            the same commit and getting identical numbers - so it is safe to carry across the
+            upgrade rather than needing to land with it.
+
+            Lowering the floor to accommodate 61.6% was the other option and it was the wrong
+            one: the tests cover exactly what they covered before, and a floor that moves to
+            meet a measurement change is not a floor.
+          -->
+          <Exclude>[VelaCommerce.Infrastructure]VelaCommerce.Infrastructure.Persistence.Migrations.*,[VelaCommerce.*]*d__*</Exclude>
 
           <ExcludeByAttribute>Obsolete,GeneratedCodeAttribute,CompilerGeneratedAttribute</ExcludeByAttribute>
           <SingleHit>false</SingleHit>
