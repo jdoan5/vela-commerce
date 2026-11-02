@@ -33,8 +33,8 @@
   -->
   <ItemGroup>
     <PackageReference Include="Mono.Cecil" Version="0.11.6" />
-    <PackageReference Include="TngTech.ArchUnitNET" Version="0.13.4" />
-    <PackageReference Include="TngTech.ArchUnitNET.xUnit" Version="0.13.4" />
+    <PackageReference Include="TngTech.ArchUnitNET" Version="0.13.5" />
+    <PackageReference Include="TngTech.ArchUnitNET.xUnit" Version="0.13.5" />
   </ItemGroup>
 
   <ItemGroup>
